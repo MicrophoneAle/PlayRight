@@ -20,7 +20,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       autoResize: true,                   // reflow on window resize, self-managed
       backend: "svg",                     // svg is easy to inspect / recolor later
       drawingParameters: "compacttight",  // tighter vertical layout for practice view
-      drawTitle: true,
+      drawTitle: false,
     });
 
     osmd
@@ -41,5 +41,5 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     };
   }, [musicXml]);
 
-  return <div ref={containerRef} className="w-full overflow-auto" />;
+  return <div ref={containerRef} className="w-full overflow-auto bg-white rounded-lg p-4" />;
 }
