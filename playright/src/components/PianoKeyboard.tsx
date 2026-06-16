@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  formatKeyCode,
+  getDynamicKeyMap,
+} from '../core/InputManager.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 const START_MIDI = 21;
@@ -9,71 +13,6 @@ const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
 interface KeyLayout {
   midi: number;
   offsetIndex: number;
-}
-
-function getDynamicKeyMap(scopeStart: number): Record<string, number> {
-  const map: Record<string, number> = {};
-
-  const whitePhysicals = [
-    'KeyA',
-    'KeyS',
-    'KeyD',
-    'KeyF',
-    'KeyG',
-    'KeyH',
-    'KeyJ',
-    'KeyK',
-    'KeyL',
-    'Semicolon',
-    'Quote',
-  ];
-
-  const topLeftMap: Record<string, string> = {
-    KeyA: 'KeyQ',
-    KeyS: 'KeyW',
-    KeyD: 'KeyE',
-    KeyF: 'KeyR',
-    KeyG: 'KeyT',
-    KeyH: 'KeyY',
-    KeyJ: 'KeyU',
-    KeyK: 'KeyI',
-    KeyL: 'KeyO',
-    Semicolon: 'KeyP',
-    Quote: 'BracketLeft',
-  };
-
-  const isBlack = (m: number) => [1, 3, 6, 8, 10].includes(m % 12);
-
-  let whiteIndex = 0;
-  for (let midi = scopeStart; midi <= scopeStart + 13; midi += 1) {
-    if (!isBlack(midi)) {
-      if (whiteIndex < whitePhysicals.length) {
-        map[whitePhysicals[whiteIndex]] = midi;
-      }
-      whiteIndex += 1;
-    }
-  }
-
-  for (let midi = scopeStart; midi <= scopeStart + 13; midi += 1) {
-    if (isBlack(midi)) {
-      const rightWhiteMidi = midi + 1;
-      const rightWhitePhysical = Object.keys(map).find(
-        (key) => map[key] === rightWhiteMidi,
-      );
-      if (rightWhitePhysical && topLeftMap[rightWhitePhysical]) {
-        map[topLeftMap[rightWhitePhysical]] = midi;
-      }
-    }
-  }
-
-  const finalMap: Record<string, number> = {};
-  for (const key in map) {
-    if (map[key] >= scopeStart && map[key] < scopeStart + 13) {
-      finalMap[key] = map[key];
-    }
-  }
-
-  return finalMap;
 }
 
 function isInScope(midi: number, scopeStartMidi: number): boolean {
@@ -102,6 +41,17 @@ export function PianoKeyboard() {
     [scopeStartMidi],
   );
 
+  const midiToPhysical = useMemo(() => {
+    const currentMap = getDynamicKeyMap(scopeStartMidi);
+    return Object.entries(currentMap).reduce<Record<number, string>>(
+      (acc, [code, midi]) => {
+        acc[midi] = formatKeyCode(code);
+        return acc;
+      },
+      {},
+    );
+  }, [scopeStartMidi]);
+
   const { whiteKeys, blackKeys } = useMemo(() => {
     const whiteKeys: KeyLayout[] = [];
     const blackKeys: KeyLayout[] = [];
@@ -123,13 +73,19 @@ export function PianoKeyboard() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        setScopeStart((prev) => Math.min(prev + 12, END_MIDI - (SCOPE_SIZE - 1)));
+        const shiftAmount =
+          useEngineStore.getState().shiftMode === 'octave' ? 12 : 1;
+        setScopeStart((prev) =>
+          Math.min(prev + shiftAmount, END_MIDI - (SCOPE_SIZE - 1)),
+        );
         return;
       }
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        setScopeStart((prev) => Math.max(prev - 12, START_MIDI));
+        const shiftAmount =
+          useEngineStore.getState().shiftMode === 'octave' ? 12 : 1;
+        setScopeStart((prev) => Math.max(prev - shiftAmount, START_MIDI));
         return;
       }
 
@@ -179,6 +135,7 @@ export function PianoKeyboard() {
       {whiteKeys.map((key) => {
         const inScope = isInScope(key.midi, scopeStartMidi);
         const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
+        const mappedLetter = midiToPhysical[key.midi];
 
         return (
           <div
@@ -186,12 +143,19 @@ export function PianoKeyboard() {
             className={`relative z-0 flex-1 border-r border-zinc-300 transition-colors duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0 ${
               isActive ? 'bg-zinc-300' : inScope ? 'bg-violet-100' : 'bg-white'
             }`}
-          />
+          >
+            {mappedLetter && inScope ? (
+              <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-500">
+                {mappedLetter}
+              </span>
+            ) : null}
+          </div>
         );
       })}
       {blackKeys.map((key) => {
         const inScope = isInScope(key.midi, scopeStartMidi);
         const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
+        const mappedLetter = midiToPhysical[key.midi];
 
         return (
           <div
@@ -209,7 +173,13 @@ export function PianoKeyboard() {
               width: 'calc(100% / 52 * 0.65)',
               height: '65%',
             }}
-          />
+          >
+            {mappedLetter && inScope ? (
+              <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-400">
+                {mappedLetter}
+              </span>
+            ) : null}
+          </div>
         );
       })}
     </div>

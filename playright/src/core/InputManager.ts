@@ -1,6 +1,6 @@
 import type { AudioEngine } from './AudioEngine.ts';
 
-function getDynamicKeyMap(scopeStart: number): Record<string, number> {
+export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const map: Record<string, number> = {};
 
   const whitePhysicals = [
@@ -63,6 +63,22 @@ function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   }
 
   return finalMap;
+}
+
+export function formatKeyCode(code: string): string {
+  if (code.startsWith('Key')) {
+    return code.replace('Key', '');
+  }
+
+  const symbols: Record<string, string> = {
+    Semicolon: ';',
+    Quote: "'",
+    BracketLeft: '[',
+    BracketRight: ']',
+    Backslash: '\\',
+  };
+
+  return symbols[code] ?? code;
 }
 
 export class InputManager {
