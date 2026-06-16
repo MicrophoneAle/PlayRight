@@ -33,12 +33,11 @@ export function Lid({ onScriptLoaded }: LidProps) {
 
       try {
         const script = MusicXMLParser.parse(text);
-        onScriptLoaded?.(script);
+        console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', script);
+        if (onScriptLoaded) onScriptLoaded(script);
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Unknown import error.';
-        console.error('[PlayRight] MusicXML import failed:', error);
-        alert(message);
+        console.error('🚨 PARSE FAILED:', error);
+        alert('Failed to load piece: ' + (error as Error).message);
       }
     };
 
