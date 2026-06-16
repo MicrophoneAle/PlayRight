@@ -1,10 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { Dashboard } from './components/Dashboard.tsx';
+import type { PlaybackScript } from './types/index.ts';
 
 function App() {
   const initializedRef = useRef(false);
+  const [playbackScript, setPlaybackScript] = useState<PlaybackScript | null>(
+    null,
+  );
 
   useEffect(() => {
     if (initializedRef.current) {
@@ -22,7 +26,20 @@ function App() {
     };
   }, []);
 
-  return <Dashboard />;
+  const handleScriptLoaded = (script: PlaybackScript) => {
+    setPlaybackScript(script);
+    console.log(
+      `[PlayRight] PlaybackScript loaded (${script.length} steps)`,
+      script,
+    );
+  };
+
+  return (
+    <Dashboard
+      onScriptLoaded={handleScriptLoaded}
+      playbackScript={playbackScript}
+    />
+  );
 }
 
 export default App;
