@@ -1,134 +1,72 @@
-interface ActiveVoice {
-  osc: OscillatorNode;
-  gain: GainNode;
-}
+import * as Tone from 'tone';
+import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from './pianoSamples.ts';
 
-type WebAudioContextConstructor = typeof AudioContext;
-
-interface WindowWithWebkitAudioContext extends Window {
-  webkitAudioContext?: WebAudioContextConstructor;
-}
-
-const ATTACK_SECONDS = 0.02;
-const DECAY_SECONDS = 1.5;
-const SUSTAIN_LEVEL = 0.3;
-const RELEASE_SECONDS = 0.1;
-const MASTER_VOLUME = 0.2;
+const RELEASE_SECONDS = 0.8;
+const MASTER_VOLUME_DB = -14;
 
 export class AudioEngine {
-  private audioCtx: AudioContext | null = null;
-  private masterGain: GainNode | null = null;
-  private readonly activeVoices = new Map<number, ActiveVoice>();
+  private sampler: Tone.Sampler | null = null;
+  private initialized = false;
+  private loaded = false;
 
   async init(): Promise<void> {
-    if (this.audioCtx !== null) {
-      if (this.audioCtx.state === 'suspended') {
-        await this.audioCtx.resume();
-      }
+    if (this.initialized) {
       return;
     }
 
-    const windowWithWebkit = window as WindowWithWebkitAudioContext;
-    const AudioContextClass =
-      window.AudioContext ?? windowWithWebkit.webkitAudioContext;
+    this.initialized = true;
 
-    if (AudioContextClass === undefined) {
-      throw new Error('[AudioEngine] Web Audio API is not supported in this browser.');
-    }
+    await Tone.start();
 
-    this.audioCtx = new AudioContextClass();
-    this.masterGain = this.audioCtx.createGain();
-    this.masterGain.gain.value = MASTER_VOLUME;
-    this.masterGain.connect(this.audioCtx.destination);
+    this.sampler = new Tone.Sampler({
+      urls: PIANO_SAMPLE_URLS,
+      baseUrl: PIANO_SAMPLE_BASE_URL,
+      attack: 0,
+      release: RELEASE_SECONDS,
+      volume: MASTER_VOLUME_DB,
+      onerror: (error) => {
+        console.error('[AudioEngine] sample load error:', error);
+      },
+    }).toDestination();
 
-    if (this.audioCtx.state === 'suspended') {
-      await this.audioCtx.resume();
-    }
+    await Tone.loaded();
+    this.loaded = true;
   }
 
-  noteOn(midi: number): void {
-    if (this.audioCtx === null || this.masterGain === null) {
+  get isReady(): boolean {
+    return this.loaded && this.sampler !== null;
+  }
+
+  noteOn(midi: number, velocity = 0.8): void {
+    if (!this.isReady) {
       return;
     }
 
-    this.stopVoice(midi);
-
-    const frequency = 440 * Math.pow(2, (midi - 69) / 12);
-    const osc = this.audioCtx.createOscillator();
-    const gain = this.audioCtx.createGain();
-
-    osc.type = 'triangle';
-    osc.frequency.value = frequency;
-    osc.connect(gain);
-    gain.connect(this.masterGain);
-
-    const now = this.audioCtx.currentTime;
-    const attackEnd = now + ATTACK_SECONDS;
-    const decayEnd = attackEnd + DECAY_SECONDS;
-
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(1, attackEnd);
-    gain.gain.exponentialRampToValueAtTime(SUSTAIN_LEVEL, decayEnd);
-
-    osc.start(now);
-    this.activeVoices.set(midi, { osc, gain });
+    const note = Tone.Frequency(midi, 'midi').toNote();
+    this.sampler!.triggerAttack(note, undefined, velocity);
   }
 
   noteOff(midi: number): void {
-    if (this.audioCtx === null) {
+    if (!this.isReady) {
       return;
     }
 
-    const voice = this.activeVoices.get(midi);
-    if (voice === undefined) {
+    const note = Tone.Frequency(midi, 'midi').toNote();
+    this.sampler!.triggerRelease(note);
+  }
+
+  releaseAll(): void {
+    if (!this.isReady) {
       return;
     }
 
-    const now = this.audioCtx.currentTime;
-    const releaseEnd = now + RELEASE_SECONDS;
-
-    voice.gain.gain.cancelScheduledValues(now);
-    voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
-    voice.gain.gain.exponentialRampToValueAtTime(0.001, releaseEnd);
-    voice.osc.stop(releaseEnd);
-
-    this.activeVoices.delete(midi);
+    this.sampler!.releaseAll();
   }
 
   destroy(): void {
-    for (const midi of [...this.activeVoices.keys()]) {
-      this.stopVoice(midi);
-    }
-
-    if (this.masterGain !== null) {
-      this.masterGain.disconnect();
-      this.masterGain = null;
-    }
-
-    if (this.audioCtx !== null) {
-      void this.audioCtx.close();
-      this.audioCtx = null;
-    }
-  }
-
-  private stopVoice(midi: number): void {
-    const voice = this.activeVoices.get(midi);
-    if (voice === undefined || this.audioCtx === null) {
-      return;
-    }
-
-    const now = this.audioCtx.currentTime;
-
-    try {
-      voice.gain.gain.cancelScheduledValues(now);
-      voice.gain.gain.setValueAtTime(0, now);
-      voice.osc.stop(now);
-    } catch {
-      // Oscillator may already be stopped.
-    }
-
-    voice.gain.disconnect();
-    voice.osc.disconnect();
-    this.activeVoices.delete(midi);
+    this.sampler?.dispose();
+    this.sampler = null;
+    this.initialized = false;
+    this.loaded = false;
   }
 }
