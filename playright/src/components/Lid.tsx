@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Music2, Pause, Play, Settings, Upload } from 'lucide-react';
 import { MusicXMLParser } from '../core/parser/index.ts';
+import { saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 
 export function Lid() {
@@ -56,7 +57,11 @@ export function Lid() {
 
       try {
         const script = MusicXMLParser.parse(text);
-        loadScript(script, text, file.name.replace('.musicxml', ''));
+        const title = file.name.replace('.musicxml', '');
+        loadScript(script, text, title);
+        saveScoreToLibrary(title, text).catch((err) =>
+          console.error('[scoreLibrary] Unexpected save error:', err),
+        );
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', script);
       } catch (error) {
         console.error('🚨 PARSE FAILED:', error);
