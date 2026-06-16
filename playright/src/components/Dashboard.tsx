@@ -4,10 +4,6 @@ import { useEngineStore } from '../store/useEngineStore.ts';
 
 export function Dashboard() {
   const script = useEngineStore((state) => state.script);
-  const shiftMode = useEngineStore((state) => state.shiftMode);
-  const toggleShiftMode = useEngineStore(
-    (state) => state.actions.toggleShiftMode,
-  );
   const stepCount = script?.length ?? 0;
 
   return (
@@ -24,19 +20,9 @@ export function Dashboard() {
               Import a MusicXML file to load a piece
             </p>
           )}
-          <div className="mt-4 flex flex-col items-center gap-2">
-            <span className="text-sm text-zinc-500">
-              Use Arrow Keys to shift scope
-            </span>
-            <button
-              type="button"
-              onClick={toggleShiftMode}
-              className="rounded-full bg-zinc-800 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-700"
-            >
-              Shift Mode:{' '}
-              {shiftMode === 'octave' ? 'Full Octave' : 'Single Note'}
-            </button>
-          </div>
+          <p className="mt-2 text-sm text-zinc-500">
+            Use Arrow Keys to shift scope
+          </p>
         </div>
       </main>
       <PianoKeyboard />
