@@ -55,6 +55,14 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     }
   }
 
+  const lastMidiInScope = scopeStart + SCOPE_SIZE - 1;
+  if (
+    isBlack(lastMidiInScope) &&
+    !Object.values(map).includes(lastMidiInScope)
+  ) {
+    map.BracketLeft = lastMidiInScope;
+  }
+
   const finalMap: Record<string, number> = {};
   for (const key in map) {
     if (map[key] >= scopeStart && map[key] < scopeStart + SCOPE_SIZE) {
