@@ -69,7 +69,11 @@ function extractFingering(note: RawRecord): number {
     return 0;
   }
 
-  return toNumber(technical.fingering, 0);
+  const fingering = technical.fingering;
+  const primary =
+    Array.isArray(fingering) ? fingering[0] : fingering;
+
+  return toNumber(primary, 0);
 }
 
 function hasTieStop(note: RawRecord): boolean {
