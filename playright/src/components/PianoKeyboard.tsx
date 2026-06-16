@@ -1,25 +1,55 @@
+import { useMemo } from 'react';
+
+const START_MIDI = 21;
+const END_MIDI = 108;
+const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
+
+interface KeyLayout {
+  midi: number;
+  offsetIndex: number;
+}
+
 export function PianoKeyboard() {
+  const { whiteKeys, blackKeys } = useMemo(() => {
+    const whiteKeys: KeyLayout[] = [];
+    const blackKeys: KeyLayout[] = [];
+    let whiteKeyCount = 0;
+
+    for (let midi = START_MIDI; midi <= END_MIDI; midi += 1) {
+      if (isBlackKey(midi)) {
+        blackKeys.push({ midi, offsetIndex: whiteKeyCount });
+      } else {
+        whiteKeys.push({ midi, offsetIndex: whiteKeyCount });
+        whiteKeyCount += 1;
+      }
+    }
+
+    return { whiteKeys, blackKeys };
+  }, []);
+
   return (
-    <section
-      className="flex shrink-0 flex-col items-center justify-center border-t border-zinc-800 bg-zinc-900/60 px-6 py-8"
-      aria-label="Virtual piano keyboard"
+    <div
+      className="relative flex h-40 w-full select-none overflow-hidden rounded-b-md border-t border-zinc-800 shadow-2xl"
+      aria-label="88-key piano keyboard"
     >
-      <div className="flex w-full max-w-5xl flex-col items-center gap-3 rounded-xl border border-dashed border-zinc-700/80 bg-zinc-950/50 px-8 py-10">
-        <div className="flex gap-1 opacity-40" aria-hidden>
-          {Array.from({ length: 52 }, (_, index) => (
-            <div
-              key={`white-${index}`}
-              className="h-16 w-3 rounded-sm bg-zinc-200"
-            />
-          ))}
-        </div>
-        <p className="text-center text-sm font-medium tracking-wide text-zinc-500">
-          Virtual 88-Key Piano Component Placeholder
-        </p>
-        <p className="text-center text-xs text-zinc-600">
-          Visual feedback strip — keys Q through \ map to the practice window
-        </p>
-      </div>
-    </section>
+      {whiteKeys.map((key) => (
+        <div
+          key={key.midi}
+          className="relative z-0 flex-1 border-r border-zinc-300 bg-white transition-colors duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0 hover:bg-zinc-100"
+        />
+      ))}
+      {blackKeys.map((key) => (
+        <div
+          key={key.midi}
+          className="absolute z-10 rounded-b-sm bg-zinc-900 shadow-md transition-colors duration-75 hover:bg-zinc-700"
+          style={{
+            left: `calc(${(key.offsetIndex / 52) * 100}%)`,
+            transform: 'translateX(-50%)',
+            width: 'calc(100% / 52 * 0.65)',
+            height: '65%',
+          }}
+        />
+      ))}
+    </div>
   );
 }
