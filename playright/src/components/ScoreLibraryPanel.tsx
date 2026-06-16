@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { fetchScoreLibrary, type LibraryEntry } from '../core/scoreLibrary.ts';
 
@@ -65,14 +66,14 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
     onClose();
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="flex max-h-[min(32rem,80vh)] w-full max-w-md flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+        className="my-auto flex max-h-[min(32rem,calc(100vh-2rem))] w-full max-w-md flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -123,6 +124,7 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
