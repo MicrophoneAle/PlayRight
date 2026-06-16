@@ -47,6 +47,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     if (!container || !musicXml) return;
 
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,                   // reflow on window resize, self-managed
       backend: "svg",                     // svg is easy to inspect / recolor later
@@ -58,11 +59,19 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
     osmd.OnXMLRead = prepareMusicXmlForDisplay;
 
+    const safeRender = () => {
+      if (cancelled || container.clientWidth === 0) {
+        return;
+      }
+      osmd.render();
+    };
+
     osmd
       .load(musicXml)
       .then(() => {
         if (cancelled) return;
-        osmd.render();
+        resizeObserver = new ResizeObserver(() => safeRender());
+        resizeObserver.observe(container); // fires once immediately, performing the initial render
       })
       .catch((err) => {
         if (!cancelled) {
@@ -72,6 +81,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
     return () => {
       cancelled = true;        // stop a late .then() from rendering post-unmount
+      resizeObserver?.disconnect();
       container.innerHTML = ""; // clear OSMD's SVG so a remount/new score starts clean
     };
   }, [musicXml]);
