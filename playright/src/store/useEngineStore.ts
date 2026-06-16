@@ -20,7 +20,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   script: null,
   songTitle: null,
   scopeStartMidi: 60,
-  shiftMode: 'octave',
+  shiftMode: 'semitone',
   actions: {
     loadScript: (script, title) => {
       set({
