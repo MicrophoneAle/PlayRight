@@ -107,10 +107,11 @@ export class InputManager {
       return;
     }
 
-    void this.ensureInitialized();
-
     this.activePhysicalKeys.add(event.code);
-    this.audioEngine.triggerNoteOn(midiPitch);
+
+    void this.ensureInitialized().then(() => {
+      this.audioEngine.noteOn(midiPitch);
+    });
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
@@ -126,7 +127,7 @@ export class InputManager {
     }
 
     this.activePhysicalKeys.delete(event.code);
-    this.audioEngine.triggerNoteOff(midiPitch);
+    this.audioEngine.noteOff(midiPitch);
   };
 
   constructor(audioEngine: AudioEngine, getScopeStart: () => number = () => 60) {
