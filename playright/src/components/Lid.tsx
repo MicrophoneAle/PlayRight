@@ -1,14 +1,12 @@
 import { useRef, type ChangeEvent } from 'react';
 import { Music2, Pause, Play, Upload } from 'lucide-react';
 import { MusicXMLParser } from '../core/parser/index.ts';
-import type { PlaybackScript } from '../types/index.ts';
+import { useEngineStore } from '../store/useEngineStore.ts';
 
-export interface LidProps {
-  onScriptLoaded?: (script: PlaybackScript) => void;
-}
-
-export function Lid({ onScriptLoaded }: LidProps) {
+export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const songTitle = useEngineStore((state) => state.songTitle);
+  const loadScript = useEngineStore((state) => state.actions.loadScript);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -33,8 +31,8 @@ export function Lid({ onScriptLoaded }: LidProps) {
 
       try {
         const script = MusicXMLParser.parse(text);
+        loadScript(script, file.name.replace('.musicxml', ''));
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', script);
-        if (onScriptLoaded) onScriptLoaded(script);
       } catch (error) {
         console.error('🚨 PARSE FAILED:', error);
         alert('Failed to load piece: ' + (error as Error).message);
@@ -79,7 +77,9 @@ export function Lid({ onScriptLoaded }: LidProps) {
           <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
             Piece
           </span>
-          <span className="truncate text-sm text-zinc-400">No Piece Loaded</span>
+          <span className="truncate text-sm text-zinc-400">
+            {songTitle ?? 'No Piece Loaded'}
+          </span>
         </div>
       </div>
 

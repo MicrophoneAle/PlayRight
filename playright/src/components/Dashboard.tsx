@@ -1,21 +1,17 @@
 import { Lid } from './Lid.tsx';
 import { PianoKeyboard } from './PianoKeyboard.tsx';
-import type { PlaybackScript } from '../types/index.ts';
+import { useEngineStore } from '../store/useEngineStore.ts';
 
-export interface DashboardProps {
-  onScriptLoaded?: (script: PlaybackScript) => void;
-  playbackScript?: PlaybackScript | null;
-}
-
-export function Dashboard({ onScriptLoaded, playbackScript }: DashboardProps) {
-  const stepCount = playbackScript?.length ?? 0;
+export function Dashboard() {
+  const script = useEngineStore((state) => state.script);
+  const stepCount = script?.length ?? 0;
 
   return (
     <div className="flex h-svh w-full flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-      <Lid onScriptLoaded={onScriptLoaded} />
+      <Lid />
       <main className="flex min-h-0 flex-1 items-center justify-center px-6">
         <div className="text-center">
-          {playbackScript ? (
+          {script ? (
             <>
               <p className="text-sm font-medium text-zinc-300">
                 Piece loaded — {stepCount} step{stepCount === 1 ? '' : 's'}
