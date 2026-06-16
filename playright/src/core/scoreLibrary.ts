@@ -16,6 +16,7 @@ export interface LibraryEntry {
 export async function saveScoreToLibrary(title: string, rawXml: string): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) {
+    console.error('[scoreLibrary] Failed to save score: Supabase not configured.');
     return;
   }
 

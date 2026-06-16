@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { fetchScoreLibrary, type LibraryEntry } from '../core/scoreLibrary.ts';
+import { isSupabaseConfigured } from '../core/supabaseClient.ts';
 
 interface ScoreLibraryPanelProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchFailed, setFetchFailed] = useState(false);
+  const [notConfigured, setNotConfigured] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -35,7 +37,14 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
     let cancelled = false;
     setLoading(true);
     setFetchFailed(false);
+    setNotConfigured(false);
     setEntries([]);
+
+    if (!isSupabaseConfigured()) {
+      setNotConfigured(true);
+      setLoading(false);
+      return;
+    }
 
     fetchScoreLibrary().then((data) => {
       if (cancelled) {
@@ -96,6 +105,11 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {loading ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">Loading scores…</p>
+          ) : notConfigured ? (
+            <p className="px-2 py-6 text-center text-sm text-zinc-500">
+              Score library is not configured. Add VITE_SUPABASE_URL and
+              VITE_SUPABASE_ANON_KEY to your deployment environment.
+            </p>
           ) : fetchFailed ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">
               Could not load saved scores.
