@@ -154,7 +154,7 @@ export function PianoKeyboard() {
             }`}
           >
             {mappedLetter && inScope ? (
-              <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-500">
+              <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
                 {mappedLetter}
               </span>
             ) : null}
@@ -184,7 +184,7 @@ export function PianoKeyboard() {
             }}
           >
             {mappedLetter && inScope ? (
-              <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-400">
+              <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-200">
                 {mappedLetter}
               </span>
             ) : null}
