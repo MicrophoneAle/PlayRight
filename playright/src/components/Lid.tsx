@@ -116,7 +116,7 @@ export function Lid() {
             PlayRight
           </h1>
           <p className="truncate text-xs text-zinc-500">
-            Keyboard-controlled piano practice
+            Keyboard-Controlled Piano Practice
           </p>
         </div>
       </div>
