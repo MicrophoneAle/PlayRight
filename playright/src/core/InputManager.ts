@@ -1,5 +1,7 @@
 import type { AudioEngine } from './AudioEngine.ts';
 
+export const SCOPE_SIZE = 17;
+
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const map: Record<string, number> = {};
 
@@ -34,7 +36,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const isBlack = (m: number) => [1, 3, 6, 8, 10].includes(m % 12);
 
   let whiteIndex = 0;
-  for (let midi = scopeStart; midi <= scopeStart + 13; midi += 1) {
+  for (let midi = scopeStart; midi <= scopeStart + SCOPE_SIZE; midi += 1) {
     if (!isBlack(midi)) {
       if (whiteIndex < whitePhysicals.length) {
         map[whitePhysicals[whiteIndex]] = midi;
@@ -43,7 +45,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     }
   }
 
-  for (let midi = scopeStart; midi <= scopeStart + 13; midi += 1) {
+  for (let midi = scopeStart; midi <= scopeStart + SCOPE_SIZE; midi += 1) {
     if (isBlack(midi)) {
       const rightWhiteMidi = midi + 1;
       const rightWhitePhysical = Object.keys(map).find(
@@ -57,7 +59,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
 
   const finalMap: Record<string, number> = {};
   for (const key in map) {
-    if (map[key] >= scopeStart && map[key] < scopeStart + 13) {
+    if (map[key] >= scopeStart && map[key] < scopeStart + SCOPE_SIZE) {
       finalMap[key] = map[key];
     }
   }

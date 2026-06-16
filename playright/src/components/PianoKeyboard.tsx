@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   formatKeyCode,
   getDynamicKeyMap,
+  SCOPE_SIZE,
 } from '../core/InputManager.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 const START_MIDI = 21;
 const END_MIDI = 108;
-const SCOPE_SIZE = 13;
 const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
 
 interface KeyLayout {
