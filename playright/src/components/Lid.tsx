@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Music2, Pause, Play, Settings, Upload } from 'lucide-react';
-import { MusicXMLParser } from '../core/parser/index.ts';
-import { saveScoreToLibrary } from '../core/scoreLibrary.ts';
+import { Library, Music2, Pause, Play, Settings, Upload } from 'lucide-react';
+import { parseMusicXmlToScript } from '../core/parser/index.ts';
+import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
+import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const songTitle = useEngineStore((state) => state.songTitle);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
@@ -56,7 +58,7 @@ export function Lid() {
       }
 
       try {
-        const script = MusicXMLParser.parse(text);
+        const script = parseMusicXmlToScript(text);
         const title = file.name.replace('.musicxml', '');
         loadScript(script, text, title);
         saveScoreToLibrary(title, text).catch((err) =>
@@ -76,6 +78,21 @@ export function Lid() {
 
     reader.readAsText(file);
     event.target.value = '';
+  };
+
+  const handleSelectFromLibrary = async (id: string) => {
+    const saved = await fetchScoreById(id);
+    if (!saved) {
+      return;
+    }
+
+    try {
+      const script = parseMusicXmlToScript(saved.raw_xml);
+      loadScript(script, saved.raw_xml, saved.title);
+    } catch (error) {
+      console.error('🚨 PARSE FAILED:', error);
+      alert('Failed to load piece: ' + (error as Error).message);
+    }
   };
 
   return (
@@ -114,6 +131,14 @@ export function Lid() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setIsLibraryOpen(true)}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <Library size={15} strokeWidth={2} aria-hidden />
+          Songs
+        </button>
         <button
           type="button"
           onClick={handleImportClick}
@@ -182,6 +207,11 @@ export function Lid() {
           ) : null}
         </div>
       </div>
+      <ScoreLibraryPanel
+        isOpen={isLibraryOpen}
+        onClose={() => setIsLibraryOpen(false)}
+        onSelect={handleSelectFromLibrary}
+      />
     </header>
   );
 }

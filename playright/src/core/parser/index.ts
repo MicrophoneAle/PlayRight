@@ -13,4 +13,8 @@ export class MusicXMLParser {
   }
 }
 
+export function parseMusicXmlToScript(rawXml: string): PlaybackScript {
+  return MusicXMLParser.parse(rawXml);
+}
+
 export { MusicXMLIngestor, MusicXMLMapper, MusicXMLNormalizer, MusicXMLValidator };
