@@ -16,7 +16,6 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     'KeyK',
     'KeyL',
     'Semicolon',
-    'Quote',
   ];
 
   const topLeftMap: Record<string, string> = {
@@ -30,7 +29,6 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     KeyK: 'KeyI',
     KeyL: 'KeyO',
     Semicolon: 'KeyP',
-    Quote: 'BracketLeft',
   };
 
   const isBlack = (m: number) => [1, 3, 6, 8, 10].includes(m % 12);
