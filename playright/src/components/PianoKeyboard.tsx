@@ -4,11 +4,22 @@ import {
   getDynamicKeyMap,
   SCOPE_SIZE,
 } from '../core/InputManager.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
+import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 
 const START_MIDI = 21;
 const END_MIDI = 108;
 const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
+
+function getShiftAmount(mode: ShiftMode): number {
+  switch (mode) {
+    case 'octave':
+      return 12;
+    case 'semitone':
+      return 1;
+    case 'full-range':
+      return SCOPE_SIZE;
+  }
+}
 
 interface KeyLayout {
   midi: number;
@@ -73,8 +84,7 @@ export function PianoKeyboard() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        const shiftAmount =
-          useEngineStore.getState().shiftMode === 'octave' ? 12 : 1;
+        const shiftAmount = getShiftAmount(useEngineStore.getState().shiftMode);
         setScopeStart((prev) =>
           Math.min(prev + shiftAmount, END_MIDI - (SCOPE_SIZE - 1)),
         );
@@ -83,8 +93,7 @@ export function PianoKeyboard() {
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        const shiftAmount =
-          useEngineStore.getState().shiftMode === 'octave' ? 12 : 1;
+        const shiftAmount = getShiftAmount(useEngineStore.getState().shiftMode);
         setScopeStart((prev) => Math.max(prev - shiftAmount, START_MIDI));
         return;
       }

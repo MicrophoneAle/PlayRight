@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Music2, Pause, Play, Settings, Upload } from 'lucide-react';
 import { MusicXMLParser } from '../core/parser/index.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
+import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -10,9 +10,7 @@ export function Lid() {
   const songTitle = useEngineStore((state) => state.songTitle);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
-  const toggleShiftMode = useEngineStore(
-    (state) => state.actions.toggleShiftMode,
-  );
+  const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -156,14 +154,24 @@ export function Lid() {
                 Settings
               </p>
               <div className="flex flex-col gap-2">
-                <span className="text-xs text-zinc-400">Scope shift mode</span>
-                <button
-                  type="button"
-                  onClick={toggleShiftMode}
-                  className="rounded-md bg-zinc-800 px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-700"
+                <label
+                  htmlFor="shift-mode-select"
+                  className="text-xs text-zinc-400"
                 >
-                  {shiftMode === 'octave' ? 'Full Octave' : 'Single Note'}
-                </button>
+                  Scope shift mode
+                </label>
+                <select
+                  id="shift-mode-select"
+                  value={shiftMode}
+                  onChange={(event) =>
+                    setShiftMode(event.target.value as ShiftMode)
+                  }
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                >
+                  <option value="octave">Octave</option>
+                  <option value="semitone">Single Note</option>
+                  <option value="full-range">Full Range</option>
+                </select>
               </div>
             </div>
           ) : null}

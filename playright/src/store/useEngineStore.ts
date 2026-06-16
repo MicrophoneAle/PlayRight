@@ -1,16 +1,18 @@
 import { create } from 'zustand';
 import type { PlaybackScript } from '../types/index.ts';
 
+export type ShiftMode = 'octave' | 'semitone' | 'full-range';
+
 interface EngineState {
   script: PlaybackScript | null;
   songTitle: string | null;
   scopeStartMidi: number;
-  shiftMode: 'octave' | 'semitone';
+  shiftMode: ShiftMode;
   actions: {
     loadScript: (script: PlaybackScript, title?: string) => void;
     clearScript: () => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
-    toggleShiftMode: () => void;
+    setShiftMode: (mode: ShiftMode) => void;
   };
 }
 
@@ -38,10 +40,8 @@ export const useEngineStore = create<EngineState>((set) => ({
           typeof midi === 'function' ? midi(state.scopeStartMidi) : midi,
       }));
     },
-    toggleShiftMode: () => {
-      set((state) => ({
-        shiftMode: state.shiftMode === 'octave' ? 'semitone' : 'octave',
-      }));
+    setShiftMode: (mode) => {
+      set({ shiftMode: mode });
     },
   },
 }));
