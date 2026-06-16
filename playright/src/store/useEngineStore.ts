@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PlaybackScript } from '../types/index.ts';
+import type { EngineMode, PlaybackScript } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 
@@ -9,11 +9,13 @@ interface EngineState {
   songTitle: string | null;
   scopeStartMidi: number;
   shiftMode: ShiftMode;
+  engineMode: EngineMode;
   actions: {
     loadScript: (script: PlaybackScript, rawXml: string, title?: string) => void;
     clearScript: () => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
+    setEngineMode: (mode: EngineMode) => void;
   };
 }
 
@@ -23,6 +25,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   songTitle: null,
   scopeStartMidi: 60,
   shiftMode: 'semitone',
+  engineMode: 'one-hand',
   actions: {
     loadScript: (script, rawXml, title) => {
       set({
@@ -46,6 +49,13 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setShiftMode: (mode) => {
       set({ shiftMode: mode });
+    },
+    setEngineMode: (mode) => {
+      if (mode === 'two-hand') {
+        return;
+      }
+
+      set({ engineMode: mode });
     },
   },
 }));

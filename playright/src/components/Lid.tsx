@@ -12,8 +12,10 @@ export function Lid() {
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const songTitle = useEngineStore((state) => state.songTitle);
   const shiftMode = useEngineStore((state) => state.shiftMode);
+  const engineMode = useEngineStore((state) => state.engineMode);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
+  const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -183,25 +185,56 @@ export function Lid() {
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
                 Settings
               </p>
-              <div className="flex flex-col gap-2">
-                <label
-                  htmlFor="shift-mode-select"
-                  className="text-xs text-zinc-400"
-                >
-                  Scope shift mode
-                </label>
-                <select
-                  id="shift-mode-select"
-                  value={shiftMode}
-                  onChange={(event) =>
-                    setShiftMode(event.target.value as ShiftMode)
-                  }
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                >
-                  <option value="octave">Octave</option>
-                  <option value="semitone">Single Note</option>
-                  <option value="full-range">Full Range</option>
-                </select>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs text-zinc-400">Practice mode</span>
+                  <div
+                    className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800/50 p-0.5"
+                    role="group"
+                    aria-label="Practice mode"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setEngineMode('one-hand')}
+                      aria-pressed={engineMode === 'one-hand'}
+                      className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                        engineMode === 'one-hand'
+                          ? 'bg-violet-600 text-white'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      One hand
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      title="Coming soon"
+                      className="flex-1 cursor-not-allowed rounded px-2 py-1.5 text-xs font-medium text-zinc-600"
+                    >
+                      Two hand
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label
+                    htmlFor="shift-mode-select"
+                    className="text-xs text-zinc-400"
+                  >
+                    Scope shift mode
+                  </label>
+                  <select
+                    id="shift-mode-select"
+                    value={shiftMode}
+                    onChange={(event) =>
+                      setShiftMode(event.target.value as ShiftMode)
+                    }
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                  >
+                    <option value="octave">Octave</option>
+                    <option value="semitone">Single Note</option>
+                    <option value="full-range">Full Range</option>
+                  </select>
+                </div>
               </div>
             </div>
           ) : null}
