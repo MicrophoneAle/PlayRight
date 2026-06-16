@@ -56,7 +56,7 @@ export function Lid() {
 
       try {
         const script = MusicXMLParser.parse(text);
-        loadScript(script, file.name.replace('.musicxml', ''));
+        loadScript(script, text, file.name.replace('.musicxml', ''));
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', script);
       } catch (error) {
         console.error('🚨 PARSE FAILED:', error);

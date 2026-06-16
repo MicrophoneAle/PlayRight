@@ -5,11 +5,12 @@ export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 
 interface EngineState {
   script: PlaybackScript | null;
+  rawXml: string | null;
   songTitle: string | null;
   scopeStartMidi: number;
   shiftMode: ShiftMode;
   actions: {
-    loadScript: (script: PlaybackScript, title?: string) => void;
+    loadScript: (script: PlaybackScript, rawXml: string, title?: string) => void;
     clearScript: () => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
@@ -18,19 +19,22 @@ interface EngineState {
 
 export const useEngineStore = create<EngineState>((set) => ({
   script: null,
+  rawXml: null,
   songTitle: null,
   scopeStartMidi: 60,
   shiftMode: 'semitone',
   actions: {
-    loadScript: (script, title) => {
+    loadScript: (script, rawXml, title) => {
       set({
         script,
+        rawXml,
         songTitle: title ?? null,
       });
     },
     clearScript: () => {
       set({
         script: null,
+        rawXml: null,
         songTitle: null,
       });
     },
