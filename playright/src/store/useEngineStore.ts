@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
 import type { EngineMode, Hand, PlaybackScript } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
@@ -19,6 +20,7 @@ interface EngineState {
     clearScript: () => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
+    cycleShiftMode: (direction: 'up' | 'down') => void;
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
@@ -63,6 +65,11 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setShiftMode: (mode) => {
       set({ shiftMode: mode });
+    },
+    cycleShiftMode: (direction) => {
+      set((state) => ({
+        shiftMode: cycleShiftModeValue(state.shiftMode, direction),
+      }));
     },
     setEngineMode: (mode) => {
       if (mode === 'two-hand') {

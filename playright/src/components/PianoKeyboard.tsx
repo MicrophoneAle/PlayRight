@@ -109,6 +109,18 @@ export function PianoKeyboard() {
         return;
       }
 
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        useEngineStore.getState().actions.cycleShiftMode('up');
+        return;
+      }
+
+      if (event.code === 'Digit3') {
+        event.preventDefault();
+        useEngineStore.getState().actions.cycleShiftMode('down');
+        return;
+      }
+
       const midi = keyMap[event.code];
       if (midi === undefined) {
         return;

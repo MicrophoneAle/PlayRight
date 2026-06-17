@@ -5,6 +5,7 @@ import {
   countCompletedPracticeSteps,
   countPracticeSteps,
 } from '../core/practiceSteps.ts';
+import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 function formatHandLabel(hand: 'L' | 'R'): string {
@@ -18,6 +19,7 @@ export function Dashboard() {
   const totalSteps = useEngineStore((state) => state.totalSteps);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
+  const shiftMode = useEngineStore((state) => state.shiftMode);
 
   const practiceStepTotal =
     script && engineMode === 'one-hand'
@@ -51,7 +53,8 @@ export function Dashboard() {
             </p>
           )}
           <p className="mt-1 text-sm text-zinc-500">
-            Use Arrow Keys or 1 / 2 to shift scope
+            Use ← / → or 1 / 2 to move scope · ↑ / 3 to change distance (
+            {SHIFT_MODE_LABELS[shiftMode]})
           </p>
         </div>
       </main>
