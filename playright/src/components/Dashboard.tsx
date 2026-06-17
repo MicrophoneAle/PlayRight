@@ -24,7 +24,7 @@ export function Dashboard() {
             </p>
           )}
           <p className="mt-1 text-sm text-zinc-500">
-            Use Arrow Keys to shift scope
+            Use Arrow Keys or 1 / 2 to shift scope
           </p>
         </div>
       </main>

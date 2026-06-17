@@ -22,6 +22,20 @@ function getShiftAmount(mode: ShiftMode): number {
   }
 }
 
+function shiftScope(
+  direction: 'up' | 'down',
+  setScopeStart: (midi: number | ((prev: number) => number)) => void,
+): void {
+  const shiftAmount = getShiftAmount(useEngineStore.getState().shiftMode);
+  if (direction === 'up') {
+    setScopeStart((prev) =>
+      Math.min(prev + shiftAmount, END_MIDI - (SCOPE_SIZE - 1)),
+    );
+  } else {
+    setScopeStart((prev) => Math.max(prev - shiftAmount, START_MIDI));
+  }
+}
+
 interface KeyLayout {
   midi: number;
   offsetIndex: number;
@@ -83,19 +97,15 @@ export function PianoKeyboard() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowRight') {
+      if (event.key === 'ArrowRight' || event.code === 'Digit2') {
         event.preventDefault();
-        const shiftAmount = getShiftAmount(useEngineStore.getState().shiftMode);
-        setScopeStart((prev) =>
-          Math.min(prev + shiftAmount, END_MIDI - (SCOPE_SIZE - 1)),
-        );
+        shiftScope('up', setScopeStart);
         return;
       }
 
-      if (event.key === 'ArrowLeft') {
+      if (event.key === 'ArrowLeft' || event.code === 'Digit1') {
         event.preventDefault();
-        const shiftAmount = getShiftAmount(useEngineStore.getState().shiftMode);
-        setScopeStart((prev) => Math.max(prev - shiftAmount, START_MIDI));
+        shiftScope('down', setScopeStart);
         return;
       }
 
