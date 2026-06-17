@@ -5,6 +5,7 @@ import { practiceEngine } from '../core/PracticeEngine.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 import type { Hand } from '../types/index.ts';
+import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
 
@@ -254,11 +255,11 @@ export function Lid() {
               </p>
               <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-2">
-                  <span className="text-xs text-zinc-400">Practice mode</span>
+                  <span className="text-xs text-zinc-400">Practice Mode</span>
                   <div
                     className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800/50 p-0.5"
                     role="group"
-                    aria-label="Practice mode"
+                    aria-label="Practice Mode"
                   >
                     <button
                       type="button"
@@ -270,7 +271,7 @@ export function Lid() {
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      One hand
+                      One Hand
                     </button>
                     <button
                       type="button"
@@ -278,7 +279,7 @@ export function Lid() {
                       title="Coming soon"
                       className="flex-1 cursor-not-allowed rounded px-2 py-1.5 text-xs font-medium text-zinc-600"
                     >
-                      Two hand
+                      Two Hands
                     </button>
                   </div>
                 </div>
@@ -287,7 +288,7 @@ export function Lid() {
                     htmlFor="shift-mode-select"
                     className="text-xs text-zinc-400"
                   >
-                    Scope shift mode
+                    Scope Shift Mode
                   </label>
                   <select
                     id="shift-mode-select"
@@ -297,9 +298,11 @@ export function Lid() {
                     }
                     className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
                   >
-                    <option value="octave">Octave</option>
-                    <option value="semitone">Single Note</option>
-                    <option value="full-range">Full Range</option>
+                    <option value="semitone">{SHIFT_MODE_LABELS.semitone}</option>
+                    <option value="octave">{SHIFT_MODE_LABELS.octave}</option>
+                    <option value="full-range">
+                      {SHIFT_MODE_LABELS['full-range']}
+                    </option>
                   </select>
                 </div>
               </div>

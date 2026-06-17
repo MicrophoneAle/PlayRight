@@ -7,9 +7,9 @@ export const SHIFT_MODE_ORDER: readonly ShiftMode[] = [
 ];
 
 export const SHIFT_MODE_LABELS: Record<ShiftMode, string> = {
-  semitone: 'Single note',
+  semitone: 'Single Note',
   octave: 'Octave',
-  'full-range': 'Full range',
+  'full-range': 'Full Range',
 };
 
 export function cycleShiftMode(
