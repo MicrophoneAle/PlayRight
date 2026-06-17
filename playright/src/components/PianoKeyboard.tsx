@@ -57,6 +57,8 @@ function isMidiActive(
 
 export function PianoKeyboard() {
   const scopeStartMidi = useEngineStore((state) => state.scopeStartMidi);
+  const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
+  const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const setScopeStart = useEngineStore((state) => state.actions.setScopeStart);
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
     () => new Set(),
@@ -164,13 +166,21 @@ export function PianoKeyboard() {
       {whiteKeys.map((key) => {
         const inScope = isInScope(key.midi, scopeStartMidi);
         const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
+        const isExpected =
+          isPracticeActive && expectedMidiNotes.includes(key.midi);
         const mappedLetter = midiToPhysical[key.midi];
 
         return (
           <div
             key={key.midi}
             className={`relative z-0 flex-1 border-r border-zinc-300 first:rounded-bl-md last:rounded-br-md last:border-r-0 ${
-              isActive ? 'bg-zinc-300' : inScope ? 'bg-violet-100' : 'bg-white'
+              isActive
+                ? 'bg-zinc-300'
+                : isExpected
+                  ? 'bg-emerald-100 ring-2 ring-inset ring-emerald-400'
+                  : inScope
+                    ? 'bg-violet-100'
+                    : 'bg-white'
             }`}
           >
             {mappedLetter && inScope ? (
@@ -184,6 +194,8 @@ export function PianoKeyboard() {
       {blackKeys.map((key) => {
         const inScope = isInScope(key.midi, scopeStartMidi);
         const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
+        const isExpected =
+          isPracticeActive && expectedMidiNotes.includes(key.midi);
         const mappedLetter = midiToPhysical[key.midi];
 
         return (
@@ -192,9 +204,11 @@ export function PianoKeyboard() {
             className={`absolute z-10 rounded-b-sm shadow-md ${
               isActive
                 ? 'bg-zinc-600'
-                : inScope
-                  ? 'bg-violet-900'
-                  : 'bg-zinc-900'
+                : isExpected
+                  ? 'bg-emerald-800 ring-2 ring-inset ring-emerald-400'
+                  : inScope
+                    ? 'bg-violet-900'
+                    : 'bg-zinc-900'
             }`}
             style={{
               left: `calc(${(key.offsetIndex / 52) * 100}%)`,

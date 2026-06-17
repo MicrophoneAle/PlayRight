@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
   musicXml: string | null;
@@ -36,12 +37,29 @@ function prepareMusicXmlForDisplay(xml: string): string {
   );
 }
 
+function syncOsmdCursor(
+  osmd: OpenSheetMusicDisplay,
+  currentStepIndex: number,
+  isPracticeActive: boolean,
+): void {
+  if (!isPracticeActive) {
+    osmd.cursor.hide();
+    return;
+  }
+
+  osmd.cursor.show();
+  osmd.cursor.reset();
+  for (let i = 0; i < currentStepIndex; i += 1) {
+    osmd.cursor.next();
+  }
+}
+
 export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
+  const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
 
-  // One effect handles create -> load -> render -> teardown, keyed on the XML.
-  // Recreating the instance per score is cheap and avoids the StrictMode
-  // double-mount bug where a ref-held instance never gets load() called.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !musicXml) return;
@@ -49,14 +67,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
     const osmd = new OpenSheetMusicDisplay(container, {
-      autoResize: true,                   // reflow on window resize, self-managed
-      backend: "svg",                     // svg is easy to inspect / recolor later
-      drawingParameters: "compacttight",  // tighter vertical layout for practice view
+      autoResize: true,
+      backend: "svg",
+      drawingParameters: "compacttight",
       drawTitle: false,
-      // compacttight defaults to left-side fingerings; above/below centers on noteheads.
       fingeringPosition: "aboveorbelow",
     });
 
+    osmdRef.current = osmd;
     osmd.OnXMLRead = prepareMusicXmlForDisplay;
 
     const safeRender = () => {
@@ -64,6 +82,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         return;
       }
       osmd.render();
+      const { currentStepIndex, isPracticeActive } = useEngineStore.getState();
+      syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
     };
 
     osmd
@@ -71,7 +91,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       .then(() => {
         if (cancelled) return;
         resizeObserver = new ResizeObserver(() => safeRender());
-        resizeObserver.observe(container); // fires once immediately, performing the initial render
+        resizeObserver.observe(container);
       })
       .catch((err) => {
         if (!cancelled) {
@@ -80,11 +100,21 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       });
 
     return () => {
-      cancelled = true;        // stop a late .then() from rendering post-unmount
+      cancelled = true;
       resizeObserver?.disconnect();
-      container.innerHTML = ""; // clear OSMD's SVG so a remount/new score starts clean
+      osmdRef.current = null;
+      container.innerHTML = "";
     };
   }, [musicXml]);
+
+  useEffect(() => {
+    const osmd = osmdRef.current;
+    if (!osmd) {
+      return;
+    }
+
+    syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
+  }, [currentStepIndex, isPracticeActive, musicXml]);
 
   return <div ref={containerRef} className="w-full overflow-auto bg-white rounded-lg p-4" />;
 }

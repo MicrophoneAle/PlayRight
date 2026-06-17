@@ -15,6 +15,7 @@ interface EngineState {
   isPracticeActive: boolean;
   currentStepIndex: number;
   totalSteps: number;
+  expectedMidiNotes: number[];
   actions: {
     loadScript: (script: PlaybackScript, rawXml: string, title?: string) => void;
     clearScript: () => void;
@@ -25,6 +26,7 @@ interface EngineState {
     setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
     setStepIndex: (index: number) => void;
+    setExpectedNotes: (notes: number[]) => void;
   };
 }
 
@@ -39,6 +41,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   isPracticeActive: false,
   currentStepIndex: 0,
   totalSteps: 0,
+  expectedMidiNotes: [],
   actions: {
     loadScript: (script, rawXml, title) => {
       set({
@@ -48,6 +51,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         currentStepIndex: 0,
         totalSteps: script.length,
         isPracticeActive: false,
+        expectedMidiNotes: [],
       });
     },
     clearScript: () => {
@@ -55,6 +59,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         script: null,
         rawXml: null,
         songTitle: null,
+        expectedMidiNotes: [],
       });
     },
     setScopeStart: (midi) => {
@@ -83,6 +88,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         activeHand: hand,
         currentStepIndex: 0,
         isPracticeActive: false,
+        expectedMidiNotes: [],
       });
     },
     setPracticeActive: (isActive) => {
@@ -90,6 +96,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setStepIndex: (index) => {
       set({ currentStepIndex: index });
+    },
+    setExpectedNotes: (notes) => {
+      set({ expectedMidiNotes: notes });
     },
   },
 }));

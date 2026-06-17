@@ -30,7 +30,9 @@ export class PracticeEngine {
   }
 
   pause(): void {
-    useEngineStore.getState().actions.setPracticeActive(false);
+    const { actions } = useEngineStore.getState();
+    actions.setPracticeActive(false);
+    actions.setExpectedNotes([]);
   }
 
   switchHand(resumePractice: boolean): void {
@@ -84,6 +86,7 @@ export class PracticeEngine {
     this.expectedNotes.clear();
 
     if (!script) {
+      actions.setExpectedNotes([]);
       return;
     }
 
@@ -103,6 +106,7 @@ export class PracticeEngine {
 
     if (index >= script.length) {
       actions.setPracticeActive(false);
+      actions.setExpectedNotes([]);
       return;
     }
 
@@ -110,6 +114,8 @@ export class PracticeEngine {
     for (const note of practiceNotes) {
       this.expectedNotes.add(note.midi);
     }
+
+    actions.setExpectedNotes(Array.from(this.expectedNotes));
 
     if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
@@ -128,6 +134,7 @@ export class PracticeEngine {
 
     if (!script || nextIndex >= script.length) {
       actions.setPracticeActive(false);
+      actions.setExpectedNotes([]);
       this.hitNotes.clear();
       this.expectedNotes.clear();
       return;
