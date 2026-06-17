@@ -7,6 +7,12 @@ const PREVIEW_VOLUME_DB = -12;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 
+const audioContext = new Tone.Context({
+  latencyHint: 'interactive',
+  lookAhead: 0.02,
+});
+Tone.setContext(audioContext);
+
 function midiToNote(midi: number): string {
   const octave = Math.floor(midi / 12) - 1;
   return `${NOTE_NAMES[midi % 12]}${octave}`;
@@ -14,11 +20,33 @@ function midiToNote(midi: number): string {
 
 export class AudioEngine {
   private sampler: Tone.Sampler | null = null;
-  private previewSynth: Tone.PolySynth<Tone.Synth> | null = null;
+  private readonly previewSynth: Tone.PolySynth<Tone.Synth>;
   private initPromise: Promise<void> | null = null;
+  private warmPromise: Promise<void> | null = null;
   private loaded = false;
 
+  constructor() {
+    this.previewSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0, decay: 0.02, sustain: 0.8, release: 0.08 },
+      volume: PREVIEW_VOLUME_DB,
+    }).toDestination();
+  }
+
+  warm(): Promise<void> {
+    if (!this.warmPromise) {
+      this.warmPromise = this.prepareAudio();
+    }
+    return this.warmPromise;
+  }
+
+  private async prepareAudio(): Promise<void> {
+    await Tone.start();
+    this.primeOutput();
+  }
+
   async init(): Promise<void> {
+    await this.warm();
     if (this.initPromise) {
       return this.initPromise;
     }
@@ -28,7 +56,9 @@ export class AudioEngine {
   }
 
   private async loadSampler(): Promise<void> {
-    await Tone.start();
+    if (this.sampler) {
+      return;
+    }
 
     this.sampler = new Tone.Sampler({
       urls: PIANO_SAMPLE_URLS,
@@ -43,9 +73,7 @@ export class AudioEngine {
 
     await Tone.loaded();
     this.loaded = true;
-    this.previewSynth?.releaseAll();
-    this.previewSynth?.dispose();
-    this.previewSynth = null;
+    this.previewSynth.releaseAll();
   }
 
   get isReady(): boolean {
@@ -53,54 +81,54 @@ export class AudioEngine {
   }
 
   noteOn(midi: number, velocity = 0.8): void {
-    const note = midiToNote(midi);
-    const time = Tone.now();
+    this.resumeContextIfNeeded();
 
+    const note = midiToNote(midi);
     if (this.isReady) {
-      this.sampler!.triggerAttack(note, time, velocity);
+      this.sampler!.triggerAttack(note, undefined, velocity);
       return;
     }
 
-    void this.init();
-    this.ensurePreviewSynth();
-    this.previewSynth!.triggerAttack(note, time, velocity);
+    this.previewSynth.triggerAttack(note, undefined, velocity);
   }
 
   noteOff(midi: number): void {
     const note = midiToNote(midi);
-    const time = Tone.now();
 
     if (this.isReady) {
-      this.sampler!.triggerRelease(note, time);
+      this.sampler!.triggerRelease(note, undefined);
     }
 
-    this.previewSynth?.triggerRelease(note, time);
+    this.previewSynth.triggerRelease(note, undefined);
   }
 
   releaseAll(): void {
-    const time = Tone.now();
-    this.sampler?.releaseAll(time);
-    this.previewSynth?.releaseAll(time);
+    this.sampler?.releaseAll();
+    this.previewSynth.releaseAll();
   }
 
   destroy(): void {
-    this.previewSynth?.dispose();
-    this.previewSynth = null;
+    this.previewSynth.dispose();
     this.sampler?.dispose();
     this.sampler = null;
     this.initPromise = null;
+    this.warmPromise = null;
     this.loaded = false;
   }
 
-  private ensurePreviewSynth(): void {
-    if (this.previewSynth || this.loaded) {
-      return;
+  private resumeContextIfNeeded(): void {
+    const context = Tone.getContext();
+    if (context.state !== 'running') {
+      void context.resume();
     }
+  }
 
-    this.previewSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'triangle' },
-      envelope: { attack: 0.001, decay: 0.05, sustain: 0.25, release: 0.2 },
-      volume: PREVIEW_VOLUME_DB,
-    }).toDestination();
+  private primeOutput(): void {
+    const rawContext = Tone.getContext().rawContext;
+    const buffer = rawContext.createBuffer(1, 1, rawContext.sampleRate);
+    const source = rawContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(rawContext.destination);
+    source.start();
   }
 }

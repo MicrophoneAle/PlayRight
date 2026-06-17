@@ -102,16 +102,15 @@ export class InputManager {
       return;
     }
 
-    event.preventDefault();
-
     if (this.activePhysicalKeys.has(event.code)) {
       return;
     }
 
     this.activePhysicalKeys.add(event.code);
-
-    void this.audioEngine.init();
+    void this.audioEngine.warm();
     this.audioEngine.noteOn(midiPitch);
+
+    event.preventDefault();
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
