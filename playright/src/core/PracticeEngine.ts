@@ -26,8 +26,9 @@ export class PracticeEngine {
       return;
     }
 
+    engine.noteOn(midi);
+
     if (!useEngineStore.getState().isPracticeActive) {
-      engine.noteOn(midi);
       return;
     }
 
@@ -35,11 +36,6 @@ export class PracticeEngine {
       return;
     }
 
-    if (this.hitNotes.has(midi)) {
-      return;
-    }
-
-    engine.noteOn(midi);
     this.hitNotes.add(midi);
     this.checkStepCompletion();
   }
