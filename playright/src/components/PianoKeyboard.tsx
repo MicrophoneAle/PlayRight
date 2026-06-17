@@ -109,15 +109,9 @@ export function PianoKeyboard() {
         return;
       }
 
-      if (event.key === 'ArrowUp') {
+      if (event.key === 'ArrowUp' || event.code === 'Digit3') {
         event.preventDefault();
         useEngineStore.getState().actions.cycleShiftMode('up');
-        return;
-      }
-
-      if (event.code === 'Digit3') {
-        event.preventDefault();
-        useEngineStore.getState().actions.cycleShiftMode('down');
         return;
       }
 

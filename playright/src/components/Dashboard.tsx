@@ -53,7 +53,7 @@ export function Dashboard() {
             </p>
           )}
           <p className="mt-1 text-sm text-zinc-500">
-            Use ← / → or 1 / 2 to move scope · ↑ / 3 to change distance (
+            Use ← / → or 1 / 2 to move scope · ↑ or 3 to change distance (
             {SHIFT_MODE_LABELS[shiftMode]})
           </p>
         </div>
