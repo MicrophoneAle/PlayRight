@@ -6,11 +6,13 @@ import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 import type { Hand } from '../types/index.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
+import { ShortcutsMenu } from './ShortcutsMenu.tsx';
 
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
@@ -214,10 +216,22 @@ export function Lid() {
           </div>
         ) : null}
 
+        <ShortcutsMenu
+          isOpen={shortcutsOpen}
+          onToggle={() => {
+            setSettingsOpen(false);
+            setShortcutsOpen((open) => !open);
+          }}
+          onClose={() => setShortcutsOpen(false)}
+        />
+
         <div className="relative" ref={settingsRef}>
           <button
             type="button"
-            onClick={() => setSettingsOpen((open) => !open)}
+            onClick={() => {
+              setShortcutsOpen(false);
+              setSettingsOpen((open) => !open);
+            }}
             aria-expanded={settingsOpen}
             aria-haspopup="true"
             aria-label="Settings"
