@@ -10,12 +10,17 @@ interface EngineState {
   scopeStartMidi: number;
   shiftMode: ShiftMode;
   engineMode: EngineMode;
+  isPracticeActive: boolean;
+  currentStepIndex: number;
+  totalSteps: number;
   actions: {
     loadScript: (script: PlaybackScript, rawXml: string, title?: string) => void;
     clearScript: () => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
     setEngineMode: (mode: EngineMode) => void;
+    setPracticeActive: (isActive: boolean) => void;
+    setStepIndex: (index: number) => void;
   };
 }
 
@@ -26,12 +31,18 @@ export const useEngineStore = create<EngineState>((set) => ({
   scopeStartMidi: 60,
   shiftMode: 'semitone',
   engineMode: 'one-hand',
+  isPracticeActive: false,
+  currentStepIndex: 0,
+  totalSteps: 0,
   actions: {
     loadScript: (script, rawXml, title) => {
       set({
         script,
         rawXml,
         songTitle: title ?? null,
+        currentStepIndex: 0,
+        totalSteps: script.length,
+        isPracticeActive: false,
       });
     },
     clearScript: () => {
@@ -56,6 +67,12 @@ export const useEngineStore = create<EngineState>((set) => ({
       }
 
       set({ engineMode: mode });
+    },
+    setPracticeActive: (isActive) => {
+      set({ isPracticeActive: isActive });
+    },
+    setStepIndex: (index) => {
+      set({ currentStepIndex: index });
     },
   },
 }));

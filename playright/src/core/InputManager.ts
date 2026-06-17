@@ -1,4 +1,5 @@
 import type { AudioEngine } from './AudioEngine.ts';
+import { practiceEngine } from './PracticeEngine.ts';
 
 export const SCOPE_SIZE = 17;
 
@@ -108,7 +109,7 @@ export class InputManager {
 
     this.activePhysicalKeys.add(event.code);
     void this.audioEngine.warm();
-    this.audioEngine.noteOn(midiPitch);
+    practiceEngine.handleNoteOn(midiPitch);
 
     event.preventDefault();
   };
@@ -132,6 +133,7 @@ export class InputManager {
   constructor(audioEngine: AudioEngine, getScopeStart: () => number = () => 60) {
     this.audioEngine = audioEngine;
     this.getScopeStart = getScopeStart;
+    practiceEngine.attachAudioEngine(audioEngine);
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
   }

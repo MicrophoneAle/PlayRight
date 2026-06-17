@@ -6,7 +6,8 @@ import { useEngineStore } from '../store/useEngineStore.ts';
 export function Dashboard() {
   const script = useEngineStore((state) => state.script);
   const rawXml = useEngineStore((s) => s.rawXml);
-  const stepCount = script?.length ?? 0;
+  const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
+  const totalSteps = useEngineStore((state) => state.totalSteps);
 
   return (
     <div className="flex h-svh w-full flex-col overflow-hidden bg-zinc-950 text-zinc-100">
@@ -16,7 +17,9 @@ export function Dashboard() {
         <div className="mt-2 text-center">
           {script ? (
             <p className="text-sm font-medium text-zinc-300">
-              Piece loaded — {stepCount} step{stepCount === 1 ? '' : 's'}
+              {currentStepIndex >= totalSteps
+                ? 'Piece complete'
+                : `Step ${currentStepIndex + 1} of ${totalSteps}`}
             </p>
           ) : (
             <p className="text-sm font-medium text-zinc-500">

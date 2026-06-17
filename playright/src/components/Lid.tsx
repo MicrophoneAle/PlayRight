@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Library, Music2, Pause, Play, Settings, Upload } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
+import { practiceEngine } from '../core/PracticeEngine.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -11,6 +12,8 @@ export function Lid() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const songTitle = useEngineStore((state) => state.songTitle);
+  const script = useEngineStore((state) => state.script);
+  const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
@@ -151,14 +154,18 @@ export function Lid() {
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500"
+          onClick={() => practiceEngine.start()}
+          disabled={!script || isPracticeActive}
+          className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Play size={15} strokeWidth={2} aria-hidden />
           Start
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          onClick={() => practiceEngine.pause()}
+          disabled={!isPracticeActive}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Pause size={15} strokeWidth={2} aria-hidden />
           Pause
