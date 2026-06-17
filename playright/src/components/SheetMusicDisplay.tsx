@@ -1,10 +1,17 @@
 import { useEffect, useRef } from "react";
-import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import { CursorType, OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
   musicXml: string | null;
 }
+
+const OSMD_CURSOR_OPTIONS = {
+  type: CursorType.Standard,
+  color: "#7c3aed",
+  alpha: 0.28,
+  follow: true,
+} as const;
 
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
 function prepareMusicXmlForDisplay(xml: string): string {
@@ -42,36 +49,48 @@ function syncOsmdCursor(
   currentStepIndex: number,
   isPracticeActive: boolean,
 ): void {
-  if (!isPracticeActive) {
-    osmd.cursor.hide();
+  const cursor = osmd.cursor;
+  if (!cursor) {
     return;
   }
 
-  osmd.cursor.show();
-  osmd.cursor.reset();
+  if (!isPracticeActive) {
+    cursor.hide();
+    return;
+  }
+
+  cursor.show();
+  cursor.reset();
   for (let i = 0; i < currentStepIndex; i += 1) {
-    osmd.cursor.next();
+    cursor.next();
   }
 }
 
 export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const osmdReadyRef = useRef(false);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !musicXml) return;
+    if (!container || !musicXml) {
+      osmdReadyRef.current = false;
+      return;
+    }
 
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
+    osmdReadyRef.current = false;
+
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,
       backend: "svg",
       drawingParameters: "compacttight",
       drawTitle: false,
       fingeringPosition: "aboveorbelow",
+      cursorsOptions: [OSMD_CURSOR_OPTIONS],
     });
 
     osmdRef.current = osmd;
@@ -81,7 +100,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       if (cancelled || container.clientWidth === 0) {
         return;
       }
+
       osmd.render();
+
+      if (!osmd.cursor) {
+        return;
+      }
+
+      osmdReadyRef.current = true;
       const { currentStepIndex, isPracticeActive } = useEngineStore.getState();
       syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
     };
@@ -89,7 +115,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     osmd
       .load(musicXml)
       .then(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
+
+        osmd.enableOrDisableCursors(true);
         resizeObserver = new ResizeObserver(() => safeRender());
         resizeObserver.observe(container);
       })
@@ -101,6 +131,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
     return () => {
       cancelled = true;
+      osmdReadyRef.current = false;
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";
@@ -109,7 +140,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     const osmd = osmdRef.current;
-    if (!osmd) {
+    if (!osmd || !osmdReadyRef.current || !osmd.cursor) {
       return;
     }
 
