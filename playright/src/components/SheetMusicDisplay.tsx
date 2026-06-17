@@ -74,6 +74,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const osmdReadyRef = useRef(false);
+  const cursorsEnabledRef = useRef(false);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
 
@@ -81,12 +82,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     const container = containerRef.current;
     if (!container || !musicXml) {
       osmdReadyRef.current = false;
+      cursorsEnabledRef.current = false;
       return;
     }
 
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
     osmdReadyRef.current = false;
+    cursorsEnabledRef.current = false;
 
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,
@@ -109,6 +112,12 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         osmd.render();
         osmdReadyRef.current = true;
 
+        if (!cursorsEnabledRef.current) {
+          osmd.enableOrDisableCursors(true);
+          cursorsEnabledRef.current = true;
+          osmd.render();
+        }
+
         const { currentStepIndex, isPracticeActive } = useEngineStore.getState();
         syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
       } catch (err) {
@@ -123,7 +132,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           return;
         }
 
-        osmd.enableOrDisableCursors(true);
         resizeObserver = new ResizeObserver(() => safeRender());
         resizeObserver.observe(container);
 
@@ -140,6 +148,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     return () => {
       cancelled = true;
       osmdReadyRef.current = false;
+      cursorsEnabledRef.current = false;
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";
