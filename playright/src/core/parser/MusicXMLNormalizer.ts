@@ -8,6 +8,7 @@ export interface NormalizedNote {
   isRest: boolean;
   isGrace: boolean;
   isTieStop: boolean;
+  isChord: boolean;
 }
 
 export interface NormalizedControl {
@@ -58,6 +59,106 @@ function isRecord(value: unknown): value is RawRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function readOrderedText(nodes: unknown): unknown {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    return undefined;
+  }
+
+  const first = nodes[0];
+  if (isRecord(first) && '#text' in first) {
+    return first['#text'];
+  }
+
+  return undefined;
+}
+
+function orderedChildrenToRecord(children: unknown[]): RawRecord {
+  const record: RawRecord = {};
+
+  for (const child of children) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (!tag) {
+      continue;
+    }
+
+    const value = child[tag];
+
+    if (tag === 'chord' || tag === 'rest' || tag === 'grace') {
+      record[tag] = true;
+      continue;
+    }
+
+    if (tag === 'pitch' && Array.isArray(value)) {
+      const pitch: RawRecord = {};
+      for (const pitchChild of value) {
+        if (!isRecord(pitchChild)) {
+          continue;
+        }
+
+        const pitchTag = Object.keys(pitchChild).find((key) => key !== ':@');
+        if (pitchTag === 'step' || pitchTag === 'octave') {
+          pitch[pitchTag] = readOrderedText(pitchChild[pitchTag]);
+        }
+      }
+      record.pitch = pitch;
+      continue;
+    }
+
+    if (tag === 'notations' && Array.isArray(value)) {
+      record.notations = orderedNotationsToRecord(value);
+      continue;
+    }
+
+    if (tag === 'tie' && Array.isArray(value)) {
+      record.tie = value.map((entry) => {
+        if (!isRecord(entry)) {
+          return entry;
+        }
+
+        const attrs = isRecord(entry[':@']) ? entry[':@'] : {};
+        return { '@_type': attrs['@_type'] };
+      });
+      continue;
+    }
+
+    record[tag] = readOrderedText(value);
+  }
+
+  return record;
+}
+
+function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
+  const record: RawRecord = {};
+
+  for (const child of notationChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (tag !== 'technical' || !Array.isArray(child.technical)) {
+      continue;
+    }
+
+    const technical: RawRecord = {};
+    for (const technicalChild of child.technical) {
+      if (!isRecord(technicalChild) || !Array.isArray(technicalChild.fingering)) {
+        continue;
+      }
+
+      technical.fingering = readOrderedText(technicalChild.fingering);
+    }
+
+    record.technical = technical;
+  }
+
+  return record;
+}
+
 function extractFingering(note: RawRecord): number {
   const notations = note.notations;
   if (!isRecord(notations)) {
@@ -105,6 +206,7 @@ function normalizeNote(rawNote: unknown): NormalizedNote {
     isRest: note.rest != null,
     isGrace: note.grace != null,
     isTieStop: hasTieStop(note),
+    isChord: note.chord != null,
   };
 }
 
@@ -120,67 +222,74 @@ function normalizeControl(
   };
 }
 
-function collectMeasureElements(
-  measure: unknown,
+function collectOrderedMeasureElements(
+  measureChildren: unknown[],
   results: NormalizedElement[],
 ): void {
-  if (!isRecord(measure)) {
-    return;
-  }
-
-  for (const [key, value] of Object.entries(measure)) {
-    if (key.startsWith('@_')) {
+  for (const child of measureChildren) {
+    if (!isRecord(child)) {
       continue;
     }
 
-    if (key === 'note') {
-      for (const rawNote of asArray(value)) {
-        results.push(normalizeNote(rawNote));
-      }
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (!tag) {
       continue;
     }
 
-    if (key === 'backup') {
-      for (const rawControl of asArray(value)) {
-        results.push(normalizeControl('backup', rawControl));
-      }
+    if (tag === 'note' && Array.isArray(child.note)) {
+      results.push(normalizeNote(orderedChildrenToRecord(child.note)));
       continue;
     }
 
-    if (key === 'forward') {
-      for (const rawControl of asArray(value)) {
-        results.push(normalizeControl('forward', rawControl));
-      }
+    if ((tag === 'backup' || tag === 'forward') && Array.isArray(child[tag])) {
+      results.push(
+        normalizeControl(tag, orderedChildrenToRecord(child[tag] as unknown[])),
+      );
     }
   }
+}
+
+function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
+  const results: NormalizedElement[] = [];
+  const scorePartwiseEntry = rawXmlObj.find(
+    (entry) => isRecord(entry) && entry['score-partwise'] != null,
+  );
+
+  if (!isRecord(scorePartwiseEntry)) {
+    return results;
+  }
+
+  const scorePartwise = scorePartwiseEntry['score-partwise'];
+  if (!Array.isArray(scorePartwise)) {
+    return results;
+  }
+
+  const partEntry = scorePartwise.find(
+    (entry) => isRecord(entry) && entry.part != null,
+  );
+
+  if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
+    return results;
+  }
+
+  for (const measureWrapper of partEntry.part) {
+    if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
+      continue;
+    }
+
+    collectOrderedMeasureElements(measureWrapper.measure, results);
+  }
+
+  return results;
 }
 
 export class MusicXMLNormalizer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 2 accepts raw Phase 1 tree
   static normalize(rawXmlObj: any): NormalizedElement[] {
-    const results: NormalizedElement[] = [];
-
-    if (!isRecord(rawXmlObj)) {
-      return results;
+    if (Array.isArray(rawXmlObj)) {
+      return normalizePreserveOrder(rawXmlObj);
     }
 
-    const scorePartwise = rawXmlObj['score-partwise'];
-    if (!isRecord(scorePartwise)) {
-      return results;
-    }
-
-    const parts = asArray(scorePartwise.part);
-
-    for (const part of parts) {
-      if (!isRecord(part)) {
-        continue;
-      }
-
-      for (const measure of asArray(part.measure)) {
-        collectMeasureElements(measure, results);
-      }
-    }
-
-    return results;
+    return [];
   }
 }

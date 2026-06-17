@@ -69,6 +69,11 @@ export function PianoKeyboard() {
     [scopeStartMidi],
   );
 
+  const expectedMidiSet = useMemo(
+    () => new Set(expectedMidiNotes),
+    [expectedMidiNotes],
+  );
+
   const midiToPhysical = useMemo(() => {
     const currentMap = getDynamicKeyMap(scopeStartMidi);
     return Object.entries(currentMap).reduce<Record<number, string>>(
@@ -167,7 +172,7 @@ export function PianoKeyboard() {
         const inScope = isInScope(key.midi, scopeStartMidi);
         const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
         const isExpected =
-          isPracticeActive && expectedMidiNotes.includes(key.midi);
+          isPracticeActive && expectedMidiSet.has(key.midi);
         const mappedLetter = midiToPhysical[key.midi];
 
         return (
@@ -195,7 +200,7 @@ export function PianoKeyboard() {
         const inScope = isInScope(key.midi, scopeStartMidi);
         const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
         const isExpected =
-          isPracticeActive && expectedMidiNotes.includes(key.midi);
+          isPracticeActive && expectedMidiSet.has(key.midi);
         const mappedLetter = midiToPhysical[key.midi];
 
         return (

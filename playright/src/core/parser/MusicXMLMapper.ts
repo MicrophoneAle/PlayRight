@@ -122,8 +122,13 @@ export class MusicXMLMapper {
           finger: mapFingering(element.fingering),
         };
 
-        absoluteNotes.push({ note: scriptNote, onset: currentTime });
-        currentTime += element.duration;
+        if (element.isChord && absoluteNotes.length > 0) {
+          const chordOnset = absoluteNotes[absoluteNotes.length - 1].onset;
+          absoluteNotes.push({ note: scriptNote, onset: chordOnset });
+        } else {
+          absoluteNotes.push({ note: scriptNote, onset: currentTime });
+          currentTime += element.duration;
+        }
       }
     }
 

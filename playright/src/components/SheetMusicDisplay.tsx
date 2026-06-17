@@ -10,7 +10,7 @@ const OSMD_CURSOR_OPTIONS = {
   type: CursorType.Standard,
   color: "#7c3aed",
   alpha: 0.28,
-  follow: true,
+  follow: false,
 } as const;
 
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
@@ -54,15 +54,19 @@ function syncOsmdCursor(
     return;
   }
 
-  if (!isPracticeActive) {
-    cursor.hide();
-    return;
-  }
+  try {
+    if (!isPracticeActive) {
+      cursor.hide();
+      return;
+    }
 
-  cursor.show();
-  cursor.reset();
-  for (let i = 0; i < currentStepIndex; i += 1) {
-    cursor.next();
+    cursor.show();
+    cursor.reset();
+    for (let i = 0; i < currentStepIndex; i += 1) {
+      cursor.next();
+    }
+  } catch (err) {
+    console.warn("[SheetMusicDisplay] OSMD cursor sync failed:", err);
   }
 }
 
@@ -101,15 +105,15 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         return;
       }
 
-      osmd.render();
+      try {
+        osmd.render();
+        osmdReadyRef.current = true;
 
-      if (!osmd.cursor) {
-        return;
+        const { currentStepIndex, isPracticeActive } = useEngineStore.getState();
+        syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
+      } catch (err) {
+        console.error("[SheetMusicDisplay] OSMD render failed:", err);
       }
-
-      osmdReadyRef.current = true;
-      const { currentStepIndex, isPracticeActive } = useEngineStore.getState();
-      syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
     };
 
     osmd
@@ -122,10 +126,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         osmd.enableOrDisableCursors(true);
         resizeObserver = new ResizeObserver(() => safeRender());
         resizeObserver.observe(container);
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(safeRender);
+        });
       })
       .catch((err) => {
         if (!cancelled) {
-          console.error("[SheetMusicDisplay] OSMD load/render failed:", err);
+          console.error("[SheetMusicDisplay] OSMD load failed:", err);
         }
       });
 
@@ -140,12 +148,17 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     const osmd = osmdRef.current;
-    if (!osmd || !osmdReadyRef.current || !osmd.cursor) {
+    if (!osmd || !osmdReadyRef.current) {
       return;
     }
 
     syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
   }, [currentStepIndex, isPracticeActive, musicXml]);
 
-  return <div ref={containerRef} className="w-full overflow-auto bg-white rounded-lg p-4" />;
+  return (
+    <div
+      ref={containerRef}
+      className="min-h-[280px] w-full overflow-auto rounded-lg bg-white p-4 [&_svg]:max-w-full"
+    />
+  );
 }
