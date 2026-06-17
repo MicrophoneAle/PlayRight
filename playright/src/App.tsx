@@ -20,7 +20,16 @@ function App() {
       () => useEngineStore.getState().scopeStartMidi,
     );
 
+    const warmAudio = () => {
+      void audioEngine.init();
+    };
+
+    window.addEventListener('pointerdown', warmAudio, { once: true, capture: true });
+    window.addEventListener('keydown', warmAudio, { once: true, capture: true });
+
     return () => {
+      window.removeEventListener('pointerdown', warmAudio, { capture: true });
+      window.removeEventListener('keydown', warmAudio, { capture: true });
       inputManager.destroy();
       audioEngine.destroy();
     };

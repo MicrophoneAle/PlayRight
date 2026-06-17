@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   formatKeyCode,
   getDynamicKeyMap,
@@ -98,43 +99,46 @@ export function PianoKeyboard() {
         return;
       }
 
-      const scopeStart = useEngineStore.getState().scopeStartMidi;
-      const midi = getDynamicKeyMap(scopeStart)[event.code];
+      const midi = keyMap[event.code];
       if (midi === undefined) {
         return;
       }
 
-      setActivePhysicalKeys((previous) => {
-        if (previous.has(event.code)) {
-          return previous;
-        }
+      flushSync(() => {
+        setActivePhysicalKeys((previous) => {
+          if (previous.has(event.code)) {
+            return previous;
+          }
 
-        const next = new Set(previous);
-        next.add(event.code);
-        return next;
+          const next = new Set(previous);
+          next.add(event.code);
+          return next;
+        });
       });
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      setActivePhysicalKeys((previous) => {
-        if (!previous.has(event.code)) {
-          return previous;
-        }
+      flushSync(() => {
+        setActivePhysicalKeys((previous) => {
+          if (!previous.has(event.code)) {
+            return previous;
+          }
 
-        const next = new Set(previous);
-        next.delete(event.code);
-        return next;
+          const next = new Set(previous);
+          next.delete(event.code);
+          return next;
+        });
       });
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      window.removeEventListener('keyup', handleKeyUp, { capture: true });
     };
-  }, [setScopeStart]);
+  }, [setScopeStart, keyMap]);
 
   return (
     <div
@@ -149,7 +153,7 @@ export function PianoKeyboard() {
         return (
           <div
             key={key.midi}
-            className={`relative z-0 flex-1 border-r border-zinc-300 transition-colors duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0 ${
+            className={`relative z-0 flex-1 border-r border-zinc-300 first:rounded-bl-md last:rounded-br-md last:border-r-0 ${
               isActive ? 'bg-zinc-300' : inScope ? 'bg-violet-100' : 'bg-white'
             }`}
           >
@@ -169,7 +173,7 @@ export function PianoKeyboard() {
         return (
           <div
             key={key.midi}
-            className={`absolute z-10 rounded-b-sm shadow-md transition-colors duration-75 ${
+            className={`absolute z-10 rounded-b-sm shadow-md ${
               isActive
                 ? 'bg-zinc-600'
                 : inScope

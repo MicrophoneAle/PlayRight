@@ -93,7 +93,8 @@ export class InputManager {
   private readonly audioEngine: AudioEngine;
   private readonly getScopeStart: () => number;
   private readonly activePhysicalKeys = new Set<string>();
-  private initialized = false;
+  private cachedScopeStart: number | null = null;
+  private cachedKeyMap: Record<string, number> = {};
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     const midiPitch = this.resolveMidiPitch(event.code);
@@ -109,9 +110,8 @@ export class InputManager {
 
     this.activePhysicalKeys.add(event.code);
 
-    void this.ensureInitialized().then(() => {
-      this.audioEngine.noteOn(midiPitch);
-    });
+    void this.audioEngine.init();
+    this.audioEngine.noteOn(midiPitch);
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
@@ -133,27 +133,22 @@ export class InputManager {
   constructor(audioEngine: AudioEngine, getScopeStart: () => number = () => 60) {
     this.audioEngine = audioEngine;
     this.getScopeStart = getScopeStart;
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('keydown', this.handleKeyDown, { capture: true });
+    window.addEventListener('keyup', this.handleKeyUp, { capture: true });
   }
 
   destroy(): void {
-    window.removeEventListener('keydown', this.handleKeyDown);
-    window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
+    window.removeEventListener('keyup', this.handleKeyUp, { capture: true });
     this.activePhysicalKeys.clear();
   }
 
-  private async ensureInitialized(): Promise<void> {
-    if (this.initialized) {
-      return;
-    }
-
-    await this.audioEngine.init();
-    this.initialized = true;
-  }
-
   private resolveMidiPitch(keyCode: string): number | undefined {
-    const keyMap = getDynamicKeyMap(this.getScopeStart());
-    return keyMap[keyCode];
+    const scopeStart = this.getScopeStart();
+    if (this.cachedScopeStart !== scopeStart) {
+      this.cachedScopeStart = scopeStart;
+      this.cachedKeyMap = getDynamicKeyMap(scopeStart);
+    }
+    return this.cachedKeyMap[keyCode];
   }
 }
