@@ -33,6 +33,11 @@ export class PracticeEngine {
     useEngineStore.getState().actions.setPracticeActive(false);
   }
 
+  onHandChanged(): void {
+    this.hitNotes.clear();
+    this.expectedNotes.clear();
+  }
+
   handleNoteOn(midi: number): void {
     const engine = this.audioEngine;
     if (!engine) {

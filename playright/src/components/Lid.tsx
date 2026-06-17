@@ -4,6 +4,7 @@ import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
+import type { Hand } from '../types/index.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 
 export function Lid() {
@@ -102,6 +103,20 @@ export function Lid() {
     }
   };
 
+  const handleHandChange = (hand: Hand) => {
+    if (hand === activeHand) {
+      return;
+    }
+
+    setActiveHand(hand);
+    practiceEngine.onHandChanged();
+  };
+
+  const handToggleClass = (selected: boolean) =>
+    selected
+      ? 'bg-violet-600 text-white'
+      : 'text-zinc-400 hover:text-zinc-200';
+
   return (
     <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
       <input
@@ -173,6 +188,31 @@ export function Lid() {
           Pause
         </button>
 
+        {script && engineMode === 'one-hand' ? (
+          <div
+            className="flex gap-1 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
+            role="group"
+            aria-label="Active hand"
+          >
+            <button
+              type="button"
+              onClick={() => handleHandChange('L')}
+              aria-pressed={activeHand === 'L'}
+              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L')}`}
+            >
+              LH
+            </button>
+            <button
+              type="button"
+              onClick={() => handleHandChange('R')}
+              aria-pressed={activeHand === 'R'}
+              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R')}`}
+            >
+              RH
+            </button>
+          </div>
+        ) : null}
+
         <div className="relative" ref={settingsRef}>
           <button
             type="button"
@@ -234,27 +274,17 @@ export function Lid() {
                     >
                       <button
                         type="button"
-                        onClick={() => setActiveHand('L')}
+                        onClick={() => handleHandChange('L')}
                         aria-pressed={activeHand === 'L'}
-                        disabled={isPracticeActive}
-                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                          activeHand === 'L'
-                            ? 'bg-violet-600 text-white'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
+                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L')}`}
                       >
                         Left
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveHand('R')}
+                        onClick={() => handleHandChange('R')}
                         aria-pressed={activeHand === 'R'}
-                        disabled={isPracticeActive}
-                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                          activeHand === 'R'
-                            ? 'bg-violet-600 text-white'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
+                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R')}`}
                       >
                         Right
                       </button>
