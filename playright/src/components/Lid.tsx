@@ -21,14 +21,13 @@ export function Lid() {
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
-  const setActiveHand = useEngineStore((state) => state.actions.setActiveHand);
 
   useEffect(() => {
     if (!settingsOpen) {
       return;
     }
 
-    const handlePointerDown = (event: MouseEvent) => {
+    const handleOutsideClick = (event: MouseEvent) => {
       if (
         settingsRef.current &&
         !settingsRef.current.contains(event.target as Node)
@@ -37,10 +36,10 @@ export function Lid() {
       }
     };
 
-    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('click', handleOutsideClick);
 
     return () => {
-      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('click', handleOutsideClick);
     };
   }, [settingsOpen]);
 
@@ -104,12 +103,14 @@ export function Lid() {
   };
 
   const handleHandChange = (hand: Hand) => {
-    if (hand === activeHand) {
+    const state = useEngineStore.getState();
+    if (hand === state.activeHand) {
       return;
     }
 
-    setActiveHand(hand);
-    practiceEngine.onHandChanged();
+    const wasPracticing = state.isPracticeActive;
+    state.actions.setActiveHand(hand);
+    practiceEngine.switchHand(wasPracticing);
   };
 
   const handToggleClass = (selected: boolean) =>
@@ -230,7 +231,10 @@ export function Lid() {
           </button>
 
           {settingsOpen ? (
-            <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+            <div
+              className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
                 Settings
               </p>
@@ -264,33 +268,6 @@ export function Lid() {
                     </button>
                   </div>
                 </div>
-                {engineMode === 'one-hand' ? (
-                  <div className="flex flex-col gap-2">
-                    <span className="text-xs text-zinc-400">Active hand</span>
-                    <div
-                      className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800/50 p-0.5"
-                      role="group"
-                      aria-label="Active hand"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleHandChange('L')}
-                        aria-pressed={activeHand === 'L'}
-                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L')}`}
-                      >
-                        Left
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleHandChange('R')}
-                        aria-pressed={activeHand === 'R'}
-                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R')}`}
-                      >
-                        Right
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
                 <div className="flex flex-col gap-2">
                   <label
                     htmlFor="shift-mode-select"

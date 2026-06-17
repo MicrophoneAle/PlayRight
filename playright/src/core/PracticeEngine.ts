@@ -26,16 +26,34 @@ export class PracticeEngine {
     }
 
     actions.setPracticeActive(true);
-    this.loadCurrentStep();
+    this.loadCurrentStep({ alignScope: true });
   }
 
   pause(): void {
     useEngineStore.getState().actions.setPracticeActive(false);
   }
 
-  onHandChanged(): void {
+  switchHand(resumePractice: boolean): void {
     this.hitNotes.clear();
     this.expectedNotes.clear();
+
+    if (!useEngineStore.getState().script) {
+      return;
+    }
+
+    if (resumePractice) {
+      this.start();
+      return;
+    }
+
+    this.prepareCurrentHand();
+  }
+
+  /** Load the first step for the active hand without starting practice. */
+  prepareCurrentHand(): void {
+    const { actions } = useEngineStore.getState();
+    actions.setStepIndex(0);
+    this.loadCurrentStep({ alignScope: true });
   }
 
   handleNoteOn(midi: number): void {
@@ -58,7 +76,8 @@ export class PracticeEngine {
     this.checkStepCompletion();
   }
 
-  loadCurrentStep(): void {
+  loadCurrentStep(options: { alignScope?: boolean } = {}): void {
+    const { alignScope = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
     this.hitNotes.clear();
@@ -92,7 +111,7 @@ export class PracticeEngine {
       this.expectedNotes.add(note.midi);
     }
 
-    if (useEngineStore.getState().isPracticeActive) {
+    if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
     }
   }
