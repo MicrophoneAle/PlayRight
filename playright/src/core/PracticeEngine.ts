@@ -1,4 +1,8 @@
 import type { AudioEngine } from './AudioEngine.ts';
+import {
+  getPracticeNotes,
+  stepHasPracticeNotes,
+} from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 export class PracticeEngine {
@@ -41,17 +45,36 @@ export class PracticeEngine {
   }
 
   loadCurrentStep(): void {
-    const { script, currentStepIndex } = useEngineStore.getState();
+    const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
     this.hitNotes.clear();
     this.expectedNotes.clear();
 
-    if (!script || currentStepIndex >= script.length) {
+    if (!script) {
       return;
     }
 
-    const step = script[currentStepIndex];
-    for (const note of step.notes) {
+    let index = useEngineStore.getState().currentStepIndex;
+
+    while (index < script.length) {
+      const step = script[index];
+      if (stepHasPracticeNotes(step, engineMode, activeHand)) {
+        break;
+      }
+      index += 1;
+    }
+
+    if (index !== useEngineStore.getState().currentStepIndex) {
+      actions.setStepIndex(index);
+    }
+
+    if (index >= script.length) {
+      actions.setPracticeActive(false);
+      return;
+    }
+
+    const practiceNotes = getPracticeNotes(script[index], engineMode, activeHand);
+    for (const note of practiceNotes) {
       this.expectedNotes.add(note.midi);
     }
   }
@@ -61,12 +84,12 @@ export class PracticeEngine {
       return;
     }
 
-    const { currentStepIndex, totalSteps, actions } = useEngineStore.getState();
+    const { script, currentStepIndex, actions } = useEngineStore.getState();
     const nextIndex = currentStepIndex + 1;
 
     actions.setStepIndex(nextIndex);
 
-    if (nextIndex >= totalSteps) {
+    if (!script || nextIndex >= script.length) {
       actions.setPracticeActive(false);
       this.hitNotes.clear();
       this.expectedNotes.clear();

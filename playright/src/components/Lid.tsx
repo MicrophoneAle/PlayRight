@@ -16,9 +16,11 @@ export function Lid() {
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const engineMode = useEngineStore((state) => state.engineMode);
+  const activeHand = useEngineStore((state) => state.activeHand);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
+  const setActiveHand = useEngineStore((state) => state.actions.setActiveHand);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -222,6 +224,43 @@ export function Lid() {
                     </button>
                   </div>
                 </div>
+                {engineMode === 'one-hand' ? (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs text-zinc-400">Active hand</span>
+                    <div
+                      className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800/50 p-0.5"
+                      role="group"
+                      aria-label="Active hand"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setActiveHand('L')}
+                        aria-pressed={activeHand === 'L'}
+                        disabled={isPracticeActive}
+                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          activeHand === 'L'
+                            ? 'bg-violet-600 text-white'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        Left
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveHand('R')}
+                        aria-pressed={activeHand === 'R'}
+                        disabled={isPracticeActive}
+                        className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                          activeHand === 'R'
+                            ? 'bg-violet-600 text-white'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        Right
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex flex-col gap-2">
                   <label
                     htmlFor="shift-mode-select"

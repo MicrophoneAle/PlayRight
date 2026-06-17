@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { EngineMode, PlaybackScript } from '../types/index.ts';
+import type { EngineMode, Hand, PlaybackScript } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 
@@ -10,6 +10,7 @@ interface EngineState {
   scopeStartMidi: number;
   shiftMode: ShiftMode;
   engineMode: EngineMode;
+  activeHand: Hand;
   isPracticeActive: boolean;
   currentStepIndex: number;
   totalSteps: number;
@@ -19,6 +20,7 @@ interface EngineState {
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
     setEngineMode: (mode: EngineMode) => void;
+    setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
     setStepIndex: (index: number) => void;
   };
@@ -31,6 +33,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   scopeStartMidi: 60,
   shiftMode: 'semitone',
   engineMode: 'one-hand',
+  activeHand: 'R',
   isPracticeActive: false,
   currentStepIndex: 0,
   totalSteps: 0,
@@ -67,6 +70,13 @@ export const useEngineStore = create<EngineState>((set) => ({
       }
 
       set({ engineMode: mode });
+    },
+    setActiveHand: (hand) => {
+      set({
+        activeHand: hand,
+        currentStepIndex: 0,
+        isPracticeActive: false,
+      });
     },
     setPracticeActive: (isActive) => {
       set({ isPracticeActive: isActive });
