@@ -3,6 +3,7 @@ import {
   getPracticeNotes,
   stepHasPracticeNotes,
 } from './practiceSteps.ts';
+import { alignScopeToMidis } from './scopeAlign.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 export class PracticeEngine {
@@ -15,7 +16,15 @@ export class PracticeEngine {
   }
 
   start(): void {
-    const { actions } = useEngineStore.getState();
+    const { script, currentStepIndex, actions } = useEngineStore.getState();
+    if (!script) {
+      return;
+    }
+
+    if (currentStepIndex >= script.length) {
+      actions.setStepIndex(0);
+    }
+
     actions.setPracticeActive(true);
     this.loadCurrentStep();
   }
@@ -76,6 +85,10 @@ export class PracticeEngine {
     const practiceNotes = getPracticeNotes(script[index], engineMode, activeHand);
     for (const note of practiceNotes) {
       this.expectedNotes.add(note.midi);
+    }
+
+    if (useEngineStore.getState().isPracticeActive) {
+      alignScopeToMidis(this.expectedNotes);
     }
   }
 
