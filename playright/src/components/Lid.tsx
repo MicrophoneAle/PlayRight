@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Library, Music2, Pause, Play, Settings, Upload } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
+import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
 import type { Hand } from '../types/index.ts';
@@ -57,19 +58,11 @@ export function Lid() {
       return;
     }
 
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const text = reader.result;
-
-      if (typeof text !== 'string') {
-        alert('[PlayRight] Failed to read file: unexpected result type.');
-        return;
-      }
-
+    void (async () => {
       try {
+        const text = await readMusicXmlFromFile(file);
         const script = parseMusicXmlToScript(text);
-        const title = file.name.replace('.musicxml', '');
+        const title = titleFromFileName(file.name);
         loadScript(script, text, title);
         saveScoreToLibrary(title, text).catch((err) =>
           console.error('[scoreLibrary] Unexpected save error:', err),
@@ -79,14 +72,8 @@ export function Lid() {
         console.error('🚨 PARSE FAILED:', error);
         alert('Failed to load piece: ' + (error as Error).message);
       }
-    };
+    })();
 
-    reader.onerror = () => {
-      console.error('[PlayRight] FileReader error:', reader.error);
-      alert('[PlayRight] Failed to read the selected file.');
-    };
-
-    reader.readAsText(file);
     event.target.value = '';
   };
 
@@ -125,7 +112,7 @@ export function Lid() {
     <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
       <input
         type="file"
-        accept=".xml,.musicxml"
+        accept=".xml,.musicxml,.mxl"
         className="hidden"
         ref={fileInputRef}
         onChange={handleFileUpload}

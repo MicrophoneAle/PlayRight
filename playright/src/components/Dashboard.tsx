@@ -47,7 +47,7 @@ export function Dashboard() {
             </p>
           ) : (
             <p className="text-sm font-medium text-zinc-500">
-              Import a MusicXML file to load a piece
+              Import a MusicXML or MXL file to load a piece
             </p>
           )}
         </div>
