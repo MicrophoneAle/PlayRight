@@ -5,10 +5,10 @@ import {
 } from "opensheetmusicdisplay";
 import {
   buildPracticeVisualIndex,
-  type HighlightSnapshot,
   type PracticeVisualIndex,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
+import type { GraphicalNote } from "opensheetmusicdisplay";
 import { getPracticeNotes } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
@@ -20,7 +20,7 @@ const OSMD_CURSOR_OPTIONS = {
   type: CursorType.CurrentArea,
   color: "#7c3aed",
   alpha: 0.2,
-  follow: false,
+  follow: true,
 } as const;
 
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
@@ -90,7 +90,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const cursorsEnabledRef = useRef(false);
   const visualIndexRef = useRef<PracticeVisualIndex | null>(null);
   const visualIndexGenerationRef = useRef(0);
-  const highlightedElementsRef = useRef<HighlightSnapshot[]>([]);
+  const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
   const script = useEngineStore((state) => state.script);
   const engineMode = useEngineStore((state) => state.engineMode);
@@ -115,13 +115,13 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           )
         : [];
 
-    highlightedElementsRef.current = syncSheetMusicPracticeVisuals(osmd, {
+    highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
       visualIndex: visualIndexRef.current,
       expectedMidiNotes: state.expectedMidiNotes,
       practiceNotes,
       container,
-      highlightedElements: highlightedElementsRef.current,
+      highlightedNotes: highlightedNotesRef.current,
       cursorOffsetRef,
     });
   };
@@ -169,7 +169,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       osmdReadyRef.current = false;
       cursorsEnabledRef.current = false;
       visualIndexRef.current = null;
-      highlightedElementsRef.current = [];
+      highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
       return;
     }
@@ -179,7 +179,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     osmdReadyRef.current = false;
     cursorsEnabledRef.current = false;
     visualIndexRef.current = null;
-    highlightedElementsRef.current = [];
+    highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
     visualIndexGenerationRef.current += 1;
 
@@ -249,7 +249,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       osmdReadyRef.current = false;
       cursorsEnabledRef.current = false;
       visualIndexRef.current = null;
-      highlightedElementsRef.current = [];
+      highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
       resizeObserver?.disconnect();
       osmdRef.current = null;

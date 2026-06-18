@@ -7,18 +7,20 @@ import { getPracticeNotes } from './practiceSteps.ts';
 import type { EngineMode, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 const HIGHLIGHT_COLOR = '#10b981';
+const DEFAULT_NOTE_COLOR = '#000000';
 
-export interface HighlightSnapshot {
-  element: Element;
-  fill: string;
-  stroke: string;
-}
-
-interface VexFlowGraphicNote extends GraphicalNote {
-  getNoteheadSVGs?: () => HTMLElement[];
-  getStemSVG?: () => HTMLElement;
-  getTieSVGs?: () => HTMLElement[];
-}
+/** Color note engraving only — avoids fingerings (separate staff labels). */
+const NOTE_HIGHLIGHT_OPTIONS = {
+  applyToNoteheads: true,
+  applyToStem: true,
+  applyToFlag: true,
+  applyToBeams: true,
+  applyToTies: true,
+  applyToModifiers: true,
+  applyToLedgerLines: true,
+  applyToSlurs: false,
+  applyToLyrics: false,
+} as const;
 
 export interface PracticeVisualIndex {
   stepCursorOffsets: number[];
@@ -273,65 +275,71 @@ function moveCursorToOffset(
   cursor.update();
 }
 
-function collectHighlightElements(gNote: GraphicalNote): HTMLElement[] {
-  const vfNote = gNote as VexFlowGraphicNote;
-  const elements: HTMLElement[] = [];
-
-  if (typeof vfNote.getNoteheadSVGs === 'function') {
-    elements.push(...vfNote.getNoteheadSVGs());
-  }
-
-  if (typeof vfNote.getStemSVG === 'function') {
-    const stem = vfNote.getStemSVG();
-    if (stem) {
-      elements.push(stem);
-    }
-  }
-
-  if (typeof vfNote.getTieSVGs === 'function') {
-    elements.push(...vfNote.getTieSVGs());
-  }
-
-  return elements;
-}
-
-function readSvgColor(element: HTMLElement, property: 'fill' | 'stroke'): string {
-  return element.style[property] || element.getAttribute(property) || '';
-}
-
-function restoreHighlightedElements(snapshots: HighlightSnapshot[]): void {
-  for (const snapshot of snapshots) {
-    const element = snapshot.element as HTMLElement;
-    if (snapshot.fill) {
-      element.style.fill = snapshot.fill;
-    } else {
-      element.style.removeProperty('fill');
-    }
-
-    if (snapshot.stroke) {
-      element.style.stroke = snapshot.stroke;
-    } else {
-      element.style.removeProperty('stroke');
-    }
+function resetGraphicalNotes(notes: GraphicalNote[]): void {
+  for (const gNote of notes) {
+    gNote.setColor(DEFAULT_NOTE_COLOR, NOTE_HIGHLIGHT_OPTIONS);
   }
 }
 
-function highlightGraphicalNotes(notes: GraphicalNote[]): HighlightSnapshot[] {
-  const snapshots: HighlightSnapshot[] = [];
+function highlightGraphicalNotes(notes: GraphicalNote[]): void {
+  for (const gNote of notes) {
+    gNote.setColor(HIGHLIGHT_COLOR, NOTE_HIGHLIGHT_OPTIONS);
+  }
+}
+
+interface VexFlowGraphicNote extends GraphicalNote {
+  getVFNoteSVG?: () => HTMLElement;
+  getTieSVGs?: () => HTMLElement[];
+}
+
+function scrollContainerToNotes(
+  container: HTMLElement,
+  notes: GraphicalNote[],
+): void {
+  const margin = 64;
+  const containerRect = container.getBoundingClientRect();
+  let minTop = Infinity;
+  let maxBottom = -Infinity;
+
+  const includeBounds = (element: Element | null | undefined): void => {
+    if (!element) {
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      return;
+    }
+
+    minTop = Math.min(minTop, rect.top);
+    maxBottom = Math.max(maxBottom, rect.bottom);
+  };
 
   for (const gNote of notes) {
-    for (const element of collectHighlightElements(gNote)) {
-      snapshots.push({
-        element,
-        fill: readSvgColor(element, 'fill'),
-        stroke: readSvgColor(element, 'stroke'),
-      });
-      element.style.fill = HIGHLIGHT_COLOR;
-      element.style.stroke = HIGHLIGHT_COLOR;
+    const vfNote = gNote as VexFlowGraphicNote;
+    includeBounds(
+      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null,
+    );
+
+    if (typeof vfNote.getTieSVGs === 'function') {
+      for (const tieElement of vfNote.getTieSVGs()) {
+        includeBounds(tieElement);
+      }
     }
   }
 
-  return snapshots;
+  if (!Number.isFinite(minTop)) {
+    return;
+  }
+
+  const visibleTop = containerRect.top + margin;
+  const visibleBottom = containerRect.bottom - margin;
+
+  if (minTop < visibleTop) {
+    container.scrollTop += minTop - visibleTop;
+  } else if (maxBottom > visibleBottom) {
+    container.scrollTop += maxBottom - visibleBottom;
+  }
 }
 
 export function syncSheetMusicPracticeVisuals(
@@ -342,21 +350,21 @@ export function syncSheetMusicPracticeVisuals(
     expectedMidiNotes: number[];
     practiceNotes: ScriptNote[];
     container: HTMLElement;
-    highlightedElements: HighlightSnapshot[];
+    highlightedNotes: GraphicalNote[];
     cursorOffsetRef: { current: number };
   },
-): HighlightSnapshot[] {
+): GraphicalNote[] {
   const {
     stepIndex,
     visualIndex,
     expectedMidiNotes,
     practiceNotes,
     container,
-    highlightedElements,
+    highlightedNotes,
     cursorOffsetRef,
   } = options;
 
-  restoreHighlightedElements(highlightedElements);
+  resetGraphicalNotes(highlightedNotes);
 
   const cursor = osmd.cursor;
   if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
@@ -390,19 +398,8 @@ export function syncSheetMusicPracticeVisuals(
     return [];
   }
 
-  const nextHighlights = highlightGraphicalNotes(toHighlight);
+  highlightGraphicalNotes(toHighlight);
+  scrollContainerToNotes(container, toHighlight);
 
-  const cursorElement = cursor.cursorElement;
-  if (cursorElement) {
-    const containerRect = container.getBoundingClientRect();
-    const cursorRect = cursorElement.getBoundingClientRect();
-    if (
-      cursorRect.top < containerRect.top ||
-      cursorRect.bottom > containerRect.bottom
-    ) {
-      cursorElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
-  }
-
-  return nextHighlights;
+  return toHighlight;
 }
