@@ -303,3 +303,289 @@ export function fingerPhrase(notes: NoteEvent[], hand: Hand): Finger[] {
 
   return out;
 }
+
+function chordPairDeviation(
+  fLower: Finger,
+  fHigher: Finger,
+  midiSpan: number,
+): number {
+  const lo = Math.min(fLower, fHigher);
+  const hi = Math.max(fLower, fHigher);
+  const ideal = IDEAL[`${lo}-${hi}`];
+  return Math.abs(midiSpan - ideal);
+}
+
+function scoreChordFingerAssignment(
+  chord: NoteEvent[],
+  fingers: Finger[],
+): number {
+  let cost = 0;
+
+  for (let index = 0; index < fingers.length - 1; index += 1) {
+    const midiSpan = chord[index + 1].midi - chord[index].midi;
+    cost += chordPairDeviation(fingers[index], fingers[index + 1], midiSpan);
+  }
+
+  return cost;
+}
+
+function chordFingerSpread(fingers: Finger[]): number {
+  return Math.max(...fingers) - Math.min(...fingers);
+}
+
+function chordAssignmentBeats(
+  left: Finger[],
+  leftCost: number,
+  right: Finger[],
+  rightCost: number,
+): boolean {
+  if (leftCost !== rightCost) {
+    return leftCost < rightCost;
+  }
+
+  const leftSpread = chordFingerSpread(left);
+  const rightSpread = chordFingerSpread(right);
+  if (leftSpread !== rightSpread) {
+    return leftSpread < rightSpread;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return left[index] < right[index];
+    }
+  }
+
+  return false;
+}
+
+function satisfiesChordAnchors(
+  chord: NoteEvent[],
+  fingers: Finger[],
+): boolean {
+  for (let index = 0; index < chord.length; index += 1) {
+    const anchor = chord[index].authoredFinger;
+    if (anchor !== null && fingers[index] !== anchor) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function* monotonicChordFingerAssignments(
+  hand: Hand,
+  count: number,
+): Generator<Finger[]> {
+  if (count <= 0 || count > 5) {
+    return;
+  }
+
+  function* build(
+    nextFinger: number,
+    remaining: number,
+    assignment: Finger[],
+  ): Generator<Finger[]> {
+    if (remaining === 0) {
+      yield [...assignment] as Finger[];
+      return;
+    }
+
+    if (hand === 'R') {
+      for (let finger = nextFinger; finger <= 5 - remaining + 1; finger += 1) {
+        assignment.push(finger as Finger);
+        yield* build(finger + 1, remaining - 1, assignment);
+        assignment.pop();
+      }
+      return;
+    }
+
+    for (let finger = nextFinger; finger >= remaining; finger -= 1) {
+      assignment.push(finger as Finger);
+      yield* build(finger - 1, remaining - 1, assignment);
+      assignment.pop();
+    }
+  }
+
+  yield* build(hand === 'R' ? 1 : 5, count, []);
+}
+
+function selectBestFiveChordIndices(chord: NoteEvent[]): number[] {
+  const noteCount = chord.length;
+  let bestIndices: number[] = [];
+  let bestSpan = -1;
+
+  const choose = (start: number, picked: number[]): void => {
+    if (picked.length === 5) {
+      const span = chord[picked[4]].midi - chord[picked[0]].midi;
+      const isBetter =
+        span > bestSpan ||
+        (span === bestSpan &&
+          picked.join(',') < bestIndices.join(','));
+
+      if (isBetter) {
+        bestSpan = span;
+        bestIndices = [...picked];
+      }
+      return;
+    }
+
+    for (
+      let index = start;
+      index <= noteCount - (5 - picked.length);
+      index += 1
+    ) {
+      picked.push(index);
+      choose(index + 1, picked);
+      picked.pop();
+    }
+  };
+
+  choose(0, []);
+  return bestIndices;
+}
+
+function assignChordFingersToPlayableNotes(
+  chord: NoteEvent[],
+  hand: Hand,
+): Finger[] {
+  let bestAssignment: Finger[] | null = null;
+  let bestCost = Infinity;
+
+  for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
+    if (!satisfiesChordAnchors(chord, assignment)) {
+      continue;
+    }
+
+    const cost = scoreChordFingerAssignment(chord, assignment);
+    if (
+      bestAssignment === null ||
+      chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
+    ) {
+      bestAssignment = assignment;
+      bestCost = cost;
+    }
+  }
+
+  if (bestAssignment === null) {
+    for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
+      const cost = scoreChordFingerAssignment(chord, assignment);
+      if (
+        bestAssignment === null ||
+        chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
+      ) {
+        bestAssignment = assignment;
+        bestCost = cost;
+      }
+    }
+  }
+
+  if (bestAssignment === null) {
+    return chord.map((_, index) => (index + 1) as Finger);
+  }
+
+  return bestAssignment;
+}
+
+export function assignChordFingers(
+  chord: NoteEvent[],
+  hand: Hand,
+): (Finger | null)[] {
+  if (chord.length === 0) {
+    return [];
+  }
+
+  if (chord.length === 1) {
+    return [chord[0].authoredFinger];
+  }
+
+  if (chord.length > 5) {
+    const playableIndices = selectBestFiveChordIndices(chord);
+    const playableNotes = playableIndices.map((index) => chord[index]);
+    const playableFingers = assignChordFingersToPlayableNotes(playableNotes, hand);
+    const result: (Finger | null)[] = chord.map(() => null);
+
+    playableIndices.forEach((chordIndex, playableIndex) => {
+      result[chordIndex] = playableFingers[playableIndex];
+    });
+
+    return result;
+  }
+
+  return assignChordFingersToPlayableNotes(chord, hand);
+}
+
+function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
+  const onsets: NoteEvent[][] = [];
+  let current: NoteEvent[] = [phrase[0]];
+
+  for (let index = 1; index < phrase.length; index += 1) {
+    const event = phrase[index];
+    if (event.stepIndex === current[0].stepIndex) {
+      current.push(event);
+      continue;
+    }
+
+    onsets.push(current);
+    current = [event];
+  }
+
+  onsets.push(current);
+  return onsets;
+}
+
+export function fingerPhraseWithChords(
+  phrase: NoteEvent[],
+  hand: Hand,
+): (Finger | null)[] {
+  if (phrase.length === 0) {
+    return [];
+  }
+
+  const onsets = groupPhraseOnsets(phrase);
+  const chordFingersByStep = new Map<number, (Finger | null)[]>();
+  const onsetNotesByStep = new Map<number, NoteEvent[]>();
+  const representatives: NoteEvent[] = [];
+
+  for (const onset of onsets) {
+    const stepIndex = onset[0].stepIndex;
+    onsetNotesByStep.set(stepIndex, onset);
+
+    if (onset.length === 1) {
+      representatives.push(onset[0]);
+      continue;
+    }
+
+    const chordFingers = assignChordFingers(onset, hand);
+    chordFingersByStep.set(stepIndex, chordFingers);
+
+    const representativeIndex = hand === 'R' ? onset.length - 1 : 0;
+    const representative = onset[representativeIndex];
+
+    representatives.push({
+      stepIndex: representative.stepIndex,
+      midi: representative.midi,
+      authoredFinger: chordFingers[representativeIndex],
+      onset: representative.onset,
+    });
+  }
+
+  const solvedByStep = new Map<number, Finger>();
+  const solved = fingerPhrase(representatives, hand);
+
+  representatives.forEach((representative, index) => {
+    solvedByStep.set(representative.stepIndex, solved[index]);
+  });
+
+  return phrase.map((note) => {
+    const chordFingers = chordFingersByStep.get(note.stepIndex);
+    if (chordFingers) {
+      const onsetNotes = onsetNotesByStep.get(note.stepIndex) ?? [];
+      const noteIndex = onsetNotes.findIndex(
+        (onsetNote) => onsetNote.midi === note.midi,
+      );
+      return noteIndex >= 0 ? chordFingers[noteIndex] : null;
+    }
+
+    return solvedByStep.get(note.stepIndex) ?? null;
+  });
+}
