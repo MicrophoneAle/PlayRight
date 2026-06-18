@@ -313,6 +313,33 @@ function parseSvgTranslateY(element: Element): number | null {
   return match ? parseFloat(match[1]) : null;
 }
 
+function getMusicSystemKey(gNote: GraphicalNote): string | null {
+  const parentStaffEntry = gNote.parentVoiceEntry?.parentStaffEntry;
+  const parentMeasure = parentStaffEntry?.parentMeasure as
+    | { ParentMusicSystem?: { Id: number; Parent?: { PageNumber: number } } }
+    | undefined;
+  const musicSystem = parentMeasure?.ParentMusicSystem;
+
+  if (musicSystem) {
+    const pageNumber = musicSystem.Parent?.PageNumber ?? 0;
+    return `sys-p${pageNumber}-id${musicSystem.Id}`;
+  }
+
+  const staves = getTopStavesForNote(gNote);
+  if (staves.length === 0) {
+    return null;
+  }
+
+  const topStave = staves[0];
+  const translateY = parseSvgTranslateY(topStave);
+  if (translateY !== null) {
+    return `sys-y-${Math.round(translateY)}`;
+  }
+
+  const staveId = topStave.getAttribute('id');
+  return staveId ? `sys-id-${staveId}` : null;
+}
+
 function getTopStavesForNote(gNote: GraphicalNote): Element[] {
   const vfNote = gNote as VexFlowGraphicNote;
   const noteElement =
@@ -328,23 +355,6 @@ function getTopStavesForNote(gNote: GraphicalNote): Element[] {
 
   const parent = stave.parentElement;
   return parent ? [...parent.querySelectorAll('.vf-stave')] : [stave];
-}
-
-/** Stable staff-system id (SVG y), unchanged by container scroll. */
-function getMusicSystemKey(gNote: GraphicalNote): string | null {
-  const staves = getTopStavesForNote(gNote);
-  if (staves.length === 0) {
-    return null;
-  }
-
-  const topStave = staves[0];
-  const translateY = parseSvgTranslateY(topStave);
-  if (translateY !== null) {
-    return `sys-y-${Math.round(translateY)}`;
-  }
-
-  const staveId = topStave.getAttribute('id');
-  return staveId ? `sys-id-${staveId}` : null;
 }
 
 function getNotesSystemKey(notes: GraphicalNote[]): string | null {
