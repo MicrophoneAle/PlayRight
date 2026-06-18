@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
@@ -15,7 +16,12 @@ import { AccountSection } from './AccountSection.tsx';
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsMenuPosition, setSettingsMenuPosition] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const collapsed = useEngineStore((state) => state.headerCollapsed);
@@ -44,12 +50,15 @@ export function Lid() {
     }
 
     const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
-        settingsRef.current &&
-        !settingsRef.current.contains(event.target as Node)
+        settingsRef.current?.contains(target) ||
+        settingsPanelRef.current?.contains(target)
       ) {
-        setSettingsOpen(false);
+        return;
       }
+
+      setSettingsOpen(false);
     };
 
     window.addEventListener('click', handleOutsideClick);
@@ -58,6 +67,123 @@ export function Lid() {
       window.removeEventListener('click', handleOutsideClick);
     };
   }, [settingsOpen]);
+
+  useLayoutEffect(() => {
+    if (!settingsOpen || !settingsRef.current) {
+      setSettingsMenuPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      if (!settingsRef.current) {
+        return;
+      }
+
+      const rect = settingsRef.current.getBoundingClientRect();
+      setSettingsMenuPosition({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [settingsOpen]);
+
+  const settingsPanel = settingsOpen && settingsMenuPosition ? (
+    <div
+      ref={settingsPanelRef}
+      className="fixed z-[200] w-56 rounded-lg border border-zinc-700 bg-zinc-950 p-3 shadow-2xl"
+      style={{
+        top: settingsMenuPosition.top,
+        right: settingsMenuPosition.right,
+        backgroundColor: '#09090b',
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+        Settings
+      </p>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-zinc-400">Practice Mode</span>
+          <div
+            className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800 p-0.5"
+            role="group"
+            aria-label="Practice Mode"
+          >
+            <button
+              type="button"
+              onClick={() => setEngineMode('one-hand')}
+              aria-pressed={engineMode === 'one-hand'}
+              className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                engineMode === 'one-hand'
+                  ? 'bg-violet-600 text-white'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              One Hand
+            </button>
+            <button
+              type="button"
+              disabled
+              title="Coming soon"
+              className="flex-1 cursor-not-allowed rounded px-2 py-1.5 text-xs font-medium text-zinc-600"
+            >
+              Two Hands
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label
+            htmlFor="sheet-scroll-mode-select"
+            className="text-xs text-zinc-400"
+          >
+            Line Scroll
+          </label>
+          <select
+            id="sheet-scroll-mode-select"
+            value={sheetScrollMode}
+            onChange={(event) =>
+              setSheetScrollMode(event.target.value as SheetScrollMode)
+            }
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+          >
+            <option value="smooth">Smooth scroll</option>
+            <option value="instant">Instant jump</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label
+            htmlFor="shift-mode-select"
+            className="text-xs text-zinc-400"
+          >
+            Scope Shift Mode
+          </label>
+          <select
+            id="shift-mode-select"
+            value={shiftMode}
+            onChange={(event) =>
+              setShiftMode(event.target.value as ShiftMode)
+            }
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+          >
+            <option value="semitone">{SHIFT_MODE_LABELS.semitone}</option>
+            <option value="octave">{SHIFT_MODE_LABELS.octave}</option>
+            <option value="full-range">
+              {SHIFT_MODE_LABELS['full-range']}
+            </option>
+          </select>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const handleImportClick = () => {
     if (!canManageLibrary) {
@@ -330,91 +456,9 @@ export function Lid() {
           >
             <Settings size={15} strokeWidth={2} aria-hidden />
           </button>
-
-          {settingsOpen ? (
-            <div
-              className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-700 bg-zinc-950 p-3 shadow-xl ring-1 ring-zinc-800 backdrop-blur-none"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Settings
-              </p>
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs text-zinc-400">Practice Mode</span>
-                  <div
-                    className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800 p-0.5"
-                    role="group"
-                    aria-label="Practice Mode"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setEngineMode('one-hand')}
-                      aria-pressed={engineMode === 'one-hand'}
-                      className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
-                        engineMode === 'one-hand'
-                          ? 'bg-violet-600 text-white'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      One Hand
-                    </button>
-                    <button
-                      type="button"
-                      disabled
-                      title="Coming soon"
-                      className="flex-1 cursor-not-allowed rounded px-2 py-1.5 text-xs font-medium text-zinc-600"
-                    >
-                      Two Hands
-                    </button>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label
-                    htmlFor="sheet-scroll-mode-select"
-                    className="text-xs text-zinc-400"
-                  >
-                    Line Scroll
-                  </label>
-                  <select
-                    id="sheet-scroll-mode-select"
-                    value={sheetScrollMode}
-                    onChange={(event) =>
-                      setSheetScrollMode(event.target.value as SheetScrollMode)
-                    }
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                  >
-                    <option value="smooth">Smooth scroll</option>
-                    <option value="instant">Instant jump</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label
-                    htmlFor="shift-mode-select"
-                    className="text-xs text-zinc-400"
-                  >
-                    Scope Shift Mode
-                  </label>
-                  <select
-                    id="shift-mode-select"
-                    value={shiftMode}
-                    onChange={(event) =>
-                      setShiftMode(event.target.value as ShiftMode)
-                    }
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                  >
-                    <option value="semitone">{SHIFT_MODE_LABELS.semitone}</option>
-                    <option value="octave">{SHIFT_MODE_LABELS.octave}</option>
-                    <option value="full-range">
-                      {SHIFT_MODE_LABELS['full-range']}
-                    </option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
+      {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel
         isOpen={isLibraryOpen}
         onClose={() => setIsLibraryOpen(false)}
