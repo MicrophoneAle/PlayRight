@@ -9,7 +9,7 @@ import type { Hand } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
-import { AuthControls } from './AuthControls.tsx';
+import { AccountSection } from './AccountSection.tsx';
 
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -111,7 +111,7 @@ export function Lid() {
       : 'text-zinc-400 hover:text-zinc-200';
 
   return (
-    <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
+    <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4">
       <input
         type="file"
         accept=".xml,.musicxml,.mxl"
@@ -120,32 +120,40 @@ export function Lid() {
         onChange={handleFileUpload}
       />
 
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
-          <Music2 size={18} strokeWidth={2} aria-hidden />
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
+              <Music2 size={18} strokeWidth={2} aria-hidden />
+            </div>
+            <div className="min-w-0 text-left">
+              <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
+                PlayRight
+              </h1>
+              <p className="hidden truncate text-xs text-zinc-500 sm:block">
+                Keyboard-Controlled Piano Practice
+              </p>
+            </div>
+          </div>
+
+          <div className="hidden h-8 w-px shrink-0 bg-zinc-800 sm:block" aria-hidden />
+
+          <AccountSection />
         </div>
-        <div className="min-w-0 text-left">
-          <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
-            PlayRight
-          </h1>
-          <p className="truncate text-xs text-zinc-500">
-            Keyboard-Controlled Piano Practice
-          </p>
+
+        <div className="flex min-w-0 flex-1 items-center justify-end px-2 sm:justify-center sm:px-4">
+          <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5">
+            <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
+              Piece
+            </span>
+            <span className="truncate text-sm text-zinc-400">
+              {songTitle ?? 'No Piece Loaded'}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center justify-center px-4">
-        <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-2.5">
-          <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
-            Piece
-          </span>
-          <span className="truncate text-sm text-zinc-400">
-            {songTitle ?? 'No Piece Loaded'}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 overflow-x-auto pb-0.5">
         <button
           type="button"
           onClick={() => setIsLibraryOpen(true)}
@@ -226,9 +234,7 @@ export function Lid() {
           onClose={() => setShortcutsOpen(false)}
         />
 
-        <AuthControls />
-
-        <div className="relative" ref={settingsRef}>
+        <div className="relative ml-auto" ref={settingsRef}>
           <button
             type="button"
             onClick={() => {
