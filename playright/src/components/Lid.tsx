@@ -436,8 +436,6 @@ export function Lid() {
           onClose={() => setShortcutsOpen(false)}
         />
 
-        <AccountSection />
-
         <div className="relative" ref={settingsRef}>
           <button
             type="button"
@@ -457,6 +455,8 @@ export function Lid() {
             <Settings size={15} strokeWidth={2} aria-hidden />
           </button>
         </div>
+
+        <AccountSection />
       </div>
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel
