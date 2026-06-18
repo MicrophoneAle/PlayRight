@@ -68,19 +68,32 @@ export async function fetchScoreById(id: string): Promise<SavedScore | null> {
   return data;
 }
 
-export async function deleteScoreFromLibrary(id: string): Promise<boolean> {
+export async function deleteScoreFromLibrary(
+  id: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const supabase = getSupabase();
   if (!supabase) {
     console.error('[scoreLibrary] Failed to delete score: Supabase not configured.');
-    return false;
+    return { ok: false, reason: 'Score library is not configured.' };
   }
 
-  const { error } = await supabase.from('scores').delete().eq('id', id);
+  const { data, error } = await supabase
+    .from('scores')
+    .delete()
+    .eq('id', id)
+    .select('id');
 
   if (error) {
     console.error('[scoreLibrary] Failed to delete score:', error.message);
-    return false;
+    return { ok: false, reason: error.message };
   }
 
-  return true;
+  if (!data?.length) {
+    const reason =
+      'Delete was blocked (no rows removed). Run supabase/scores_rls.sql in the Supabase SQL editor to add the delete policy.';
+    console.error('[scoreLibrary]', reason);
+    return { ok: false, reason };
+  }
+
+  return { ok: true };
 }

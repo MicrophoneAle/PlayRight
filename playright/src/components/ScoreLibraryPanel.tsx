@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Trash2, X } from 'lucide-react';
+import { AlertTriangle, Trash2, X } from 'lucide-react';
 import {
   deleteScoreFromLibrary,
   fetchScoreLibrary,
@@ -39,6 +39,8 @@ export function ScoreLibraryPanel({
   const [fetchFailed, setFetchFailed] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<LibraryEntry | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadEntries = useCallback(async () => {
     setLoading(true);
@@ -65,46 +67,153 @@ export function ScoreLibraryPanel({
 
   useEffect(() => {
     if (!isOpen) {
+      setDeleteTarget(null);
+      setDeleteError(null);
       return;
     }
 
     void loadEntries();
   }, [isOpen, loadEntries]);
 
-  if (!isOpen) {
-    return null;
-  }
+  useEffect(() => {
+    if (!deleteTarget) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && deletingId === null) {
+        setDeleteTarget(null);
+        setDeleteError(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [deleteTarget, deletingId]);
+
+  const handleDeleteClick = (entry: LibraryEntry) => {
+    if (!canDelete) {
+      return;
+    }
+
+    setDeleteError(null);
+    setDeleteTarget(entry);
+  };
+
+  const handleCancelDelete = () => {
+    if (deletingId !== null) {
+      return;
+    }
+
+    setDeleteTarget(null);
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !canDelete) {
+      return;
+    }
+
+    setDeletingId(deleteTarget.id);
+    setDeleteError(null);
+    const result = await deleteScoreFromLibrary(deleteTarget.id);
+    setDeletingId(null);
+
+    if (!result.ok) {
+      setDeleteError(result.reason);
+      return;
+    }
+
+    setEntries((previous) =>
+      previous.filter((item) => item.id !== deleteTarget.id),
+    );
+    setDeleteTarget(null);
+  };
+
+  const deleteDialog =
+    deleteTarget &&
+    createPortal(
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+        onClick={handleCancelDelete}
+        role="presentation"
+      >
+        <div
+          className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="delete-score-title"
+          aria-describedby="delete-score-description"
+        >
+          <div className="border-b border-zinc-800 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-400">
+                <Trash2 size={16} strokeWidth={2} aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <h3
+                  id="delete-score-title"
+                  className="text-sm font-semibold text-zinc-100"
+                >
+                  Delete score?
+                </h3>
+                <p
+                  id="delete-score-description"
+                  className="mt-1 text-sm text-zinc-400"
+                >
+                  <span className="font-medium text-zinc-200">
+                    {deleteTarget.title}
+                  </span>{' '}
+                  will be removed from your library. This cannot be undone.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {deleteError ? (
+            <div className="flex items-start gap-2 border-b border-zinc-800 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              <AlertTriangle size={15} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
+              <p>{deleteError}</p>
+            </div>
+          ) : null}
+
+          <div className="flex justify-end gap-2 px-4 py-3">
+            <button
+              type="button"
+              onClick={handleCancelDelete}
+              disabled={deletingId !== null}
+              className="inline-flex items-center rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirmDelete()}
+              disabled={deletingId !== null}
+              className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deletingId !== null ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
 
   const handleSelect = (id: string) => {
     onSelect(id);
     onClose();
   };
 
-  const handleDelete = async (entry: LibraryEntry) => {
-    if (!canDelete) {
-      return;
-    }
+  if (!isOpen) {
+    return deleteDialog;
+  }
 
-    const confirmed = window.confirm(
-      `Delete "${entry.title}" from your library? This cannot be undone.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingId(entry.id);
-    const deleted = await deleteScoreFromLibrary(entry.id);
-    setDeletingId(null);
-
-    if (!deleted) {
-      alert('Failed to delete this score. Check your connection and try again.');
-      return;
-    }
-
-    setEntries((previous) => previous.filter((item) => item.id !== entry.id));
-  };
-
-  return createPortal(
+  return (
+    <>
+      {deleteDialog}
+      {createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4"
       onClick={onClose}
@@ -165,7 +274,10 @@ export function ScoreLibraryPanel({
                     {canDelete ? (
                       <button
                         type="button"
-                        onClick={() => void handleDelete(entry)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteClick(entry);
+                        }}
                         disabled={deletingId === entry.id}
                         aria-label={`Delete ${entry.title}`}
                         className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
@@ -182,5 +294,7 @@ export function ScoreLibraryPanel({
       </div>
     </div>,
     document.body,
+      )}
+    </>
   );
 }
