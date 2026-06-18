@@ -16,6 +16,14 @@ export class PracticeEngine {
   private hitNoteIndices: Set<number> = new Set();
   private completionFrame: number | null = null;
 
+  constructor() {
+    useEngineStore.subscribe((state, prevState) => {
+      if (state.script !== prevState.script) {
+        this.syncAfterScriptChange();
+      }
+    });
+  }
+
   attachAudioEngine(audioEngine: AudioEngine): void {
     this.audioEngine = audioEngine;
   }
@@ -213,6 +221,13 @@ export class PracticeEngine {
       cancelAnimationFrame(this.completionFrame);
       this.completionFrame = null;
     }
+  }
+
+  private syncAfterScriptChange(): void {
+    this.cancelCompletionCheck();
+    this.loadCurrentStep({
+      alignScope: useEngineStore.getState().script !== null,
+    });
   }
 
   loadCurrentStep(options: { alignScope?: boolean } = {}): void {
