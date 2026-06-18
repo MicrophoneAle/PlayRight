@@ -188,6 +188,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const activeHand = useEngineStore((state) => state.activeHand);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
+  const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
 
   const syncPracticeVisuals = () => {
     const osmd = osmdRef.current;
@@ -215,6 +216,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       highlightedNotes: highlightedNotesRef.current,
       cursorOffsetRef,
       scrollStateRef,
+      scrollMode: state.sheetScrollMode,
     });
   };
 
@@ -359,7 +361,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     syncPracticeVisuals();
-  }, [currentStepIndex, expectedMidiNotes]);
+  }, [currentStepIndex, expectedMidiNotes, sheetScrollMode]);
 
   if (!musicXml) {
     return null;
@@ -368,7 +370,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 w-full scroll-smooth overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }

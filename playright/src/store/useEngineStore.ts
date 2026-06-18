@@ -3,6 +3,18 @@ import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
 import type { EngineMode, Hand, PlaybackScript } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
+export type SheetScrollMode = 'smooth' | 'instant';
+
+const SHEET_SCROLL_MODE_STORAGE_KEY = 'playright-sheet-scroll-mode';
+
+function readStoredSheetScrollMode(): SheetScrollMode {
+  if (typeof window === 'undefined') {
+    return 'smooth';
+  }
+
+  const stored = window.localStorage.getItem(SHEET_SCROLL_MODE_STORAGE_KEY);
+  return stored === 'instant' ? 'instant' : 'smooth';
+}
 
 interface EngineState {
   script: PlaybackScript | null;
@@ -10,6 +22,7 @@ interface EngineState {
   songTitle: string | null;
   scopeStartMidi: number;
   shiftMode: ShiftMode;
+  sheetScrollMode: SheetScrollMode;
   engineMode: EngineMode;
   activeHand: Hand;
   isPracticeActive: boolean;
@@ -23,6 +36,7 @@ interface EngineState {
     clearScript: () => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
+    setSheetScrollMode: (mode: SheetScrollMode) => void;
     cycleShiftMode: (direction: 'up' | 'down') => void;
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
@@ -39,6 +53,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   songTitle: null,
   scopeStartMidi: 60,
   shiftMode: 'semitone',
+  sheetScrollMode: readStoredSheetScrollMode(),
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
@@ -76,6 +91,10 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setShiftMode: (mode) => {
       set({ shiftMode: mode });
+    },
+    setSheetScrollMode: (mode) => {
+      window.localStorage.setItem(SHEET_SCROLL_MODE_STORAGE_KEY, mode);
+      set({ sheetScrollMode: mode });
     },
     cycleShiftMode: (direction) => {
       set((state) => ({

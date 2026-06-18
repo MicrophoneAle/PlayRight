@@ -5,7 +5,7 @@ import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
-import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
+import { useEngineStore, type ShiftMode, type SheetScrollMode } from '../store/useEngineStore.ts';
 import type { Hand } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -25,10 +25,12 @@ export function Lid() {
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const hasPracticeStarted = useEngineStore((state) => state.hasPracticeStarted);
   const shiftMode = useEngineStore((state) => state.shiftMode);
+  const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
+  const setSheetScrollMode = useEngineStore((state) => state.actions.setSheetScrollMode);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
 
   const canManageLibrary = isAuthLoaded && isSignedIn && Boolean(userId);
@@ -225,10 +227,9 @@ export function Lid() {
           aria-expanded={false}
           aria-label="Show header"
           title="Show header"
-          className="fixed left-3 top-2 z-50 flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950/95 px-3 py-1.5 text-xs font-medium text-zinc-300 shadow-lg backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900 hover:text-zinc-100 sm:left-4"
+          className="fixed left-1 top-1 z-50 flex h-6 w-6 items-center justify-center rounded border border-zinc-700/70 bg-zinc-950/75 text-zinc-400 opacity-80 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/90 hover:text-zinc-200 hover:opacity-100"
         >
-          <ChevronDown size={14} strokeWidth={2} aria-hidden />
-          Menu
+          <ChevronDown size={12} strokeWidth={2.5} aria-hidden />
         </button>
 
         <ScoreLibraryPanel
@@ -368,6 +369,25 @@ export function Lid() {
                       Two Hands
                     </button>
                   </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label
+                    htmlFor="sheet-scroll-mode-select"
+                    className="text-xs text-zinc-400"
+                  >
+                    Line Scroll
+                  </label>
+                  <select
+                    id="sheet-scroll-mode-select"
+                    value={sheetScrollMode}
+                    onChange={(event) =>
+                      setSheetScrollMode(event.target.value as SheetScrollMode)
+                    }
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                  >
+                    <option value="smooth">Smooth scroll</option>
+                    <option value="instant">Instant jump</option>
+                  </select>
                 </div>
                 <div className="flex flex-col gap-2">
                   <label

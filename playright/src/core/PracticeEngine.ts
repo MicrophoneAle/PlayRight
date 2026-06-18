@@ -3,13 +3,17 @@ import {
   getPracticeNotes,
   stepHasPracticeNotes,
 } from './practiceSteps.ts';
+import { reconcileHeldPracticeKeys } from './practiceKeyReconcile.ts';
 import { alignScopeToMidis } from './scopeAlign.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+import type { ScriptNote } from '../types/index.ts';
 
 export class PracticeEngine {
   private audioEngine: AudioEngine | null = null;
   private expectedNotes: Set<number> = new Set();
-  private hitNotes: Set<number> = new Set();
+  private practiceNotesForStep: ScriptNote[] = [];
+  private hitNoteIndices: Set<number> = new Set();
+  private completionFrame: number | null = null;
 
   attachAudioEngine(audioEngine: AudioEngine): void {
     this.audioEngine = audioEngine;
@@ -36,8 +40,9 @@ export class PracticeEngine {
       return;
     }
 
-    this.hitNotes.clear();
+    this.hitNoteIndices.clear();
     this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
     actions.setStepIndex(0);
     actions.setPracticeActive(true);
     this.loadCurrentStep({ alignScope: true });
@@ -50,8 +55,9 @@ export class PracticeEngine {
   }
 
   switchHand(resumePractice: boolean): void {
-    this.hitNotes.clear();
+    this.hitNoteIndices.clear();
     this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
 
     if (!useEngineStore.getState().script) {
       return;
@@ -84,20 +90,63 @@ export class PracticeEngine {
       return;
     }
 
-    if (!this.expectedNotes.has(midi)) {
+    this.registerPracticeHit(midi);
+  }
+
+  /** Re-register held keys after a step or scope change. */
+  registerPracticeHit(midi: number): void {
+    if (!useEngineStore.getState().isPracticeActive) {
       return;
     }
 
-    this.hitNotes.add(midi);
-    this.checkStepCompletion();
+    const { engineMode, activeHand } = useEngineStore.getState();
+
+    for (let index = 0; index < this.practiceNotesForStep.length; index += 1) {
+      if (this.hitNoteIndices.has(index)) {
+        continue;
+      }
+
+      const note = this.practiceNotesForStep[index];
+      if (note.midi !== midi) {
+        continue;
+      }
+
+      if (engineMode === 'one-hand' && note.hand !== activeHand) {
+        continue;
+      }
+
+      this.hitNoteIndices.add(index);
+      break;
+    }
+
+    this.scheduleCompletionCheck();
+  }
+
+  private scheduleCompletionCheck(): void {
+    if (this.completionFrame !== null) {
+      return;
+    }
+
+    this.completionFrame = requestAnimationFrame(() => {
+      this.completionFrame = null;
+      this.checkStepCompletion();
+    });
+  }
+
+  private cancelCompletionCheck(): void {
+    if (this.completionFrame !== null) {
+      cancelAnimationFrame(this.completionFrame);
+      this.completionFrame = null;
+    }
   }
 
   loadCurrentStep(options: { alignScope?: boolean } = {}): void {
     const { alignScope = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
-    this.hitNotes.clear();
+    this.hitNoteIndices.clear();
     this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
 
     if (!script) {
       actions.setExpectedNotes([]);
@@ -125,6 +174,7 @@ export class PracticeEngine {
     }
 
     const practiceNotes = getPracticeNotes(script[index], engineMode, activeHand);
+    this.practiceNotesForStep = practiceNotes;
     for (const note of practiceNotes) {
       this.expectedNotes.add(note.midi);
     }
@@ -134,10 +184,12 @@ export class PracticeEngine {
     if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
     }
+
+    reconcileHeldPracticeKeys();
   }
 
   private checkStepCompletion(): void {
-    if (this.hitNotes.size !== this.expectedNotes.size) {
+    if (this.hitNoteIndices.size !== this.practiceNotesForStep.length) {
       return;
     }
 
@@ -149,8 +201,10 @@ export class PracticeEngine {
     if (!script || nextIndex >= script.length) {
       actions.setPracticeActive(false);
       actions.setExpectedNotes([]);
-      this.hitNotes.clear();
+      this.hitNoteIndices.clear();
       this.expectedNotes.clear();
+      this.practiceNotesForStep = [];
+      this.cancelCompletionCheck();
       return;
     }
 

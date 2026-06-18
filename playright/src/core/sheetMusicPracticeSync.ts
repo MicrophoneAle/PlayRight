@@ -5,6 +5,7 @@ import type {
 } from 'opensheetmusicdisplay';
 import { getPracticeNotes } from './practiceSteps.ts';
 import type { EngineMode, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type { SheetScrollMode } from '../store/useEngineStore.ts';
 
 const HIGHLIGHT_COLOR = '#10b981';
 const DEFAULT_NOTE_COLOR = '#000000';
@@ -344,10 +345,59 @@ function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
   return bounds;
 }
 
+const activeScrollAnimations = new WeakMap<HTMLElement, number>();
+
+function animateScrollTop(
+  container: HTMLElement,
+  targetScrollTop: number,
+  scrollMode: SheetScrollMode,
+): void {
+  const existing = activeScrollAnimations.get(container);
+  if (existing !== undefined) {
+    cancelAnimationFrame(existing);
+    activeScrollAnimations.delete(container);
+  }
+
+  const clampedTarget = Math.max(0, targetScrollTop);
+
+  if (scrollMode === 'instant') {
+    container.scrollTop = clampedTarget;
+    return;
+  }
+
+  const startScrollTop = container.scrollTop;
+  const distance = clampedTarget - startScrollTop;
+
+  if (Math.abs(distance) < 1) {
+    container.scrollTop = clampedTarget;
+    return;
+  }
+
+  const duration = Math.min(700, Math.max(280, Math.abs(distance) * 0.75));
+  const startTime = performance.now();
+
+  const tick = (now: number) => {
+    const progress = Math.min(1, (now - startTime) / duration);
+    const eased = 1 - (1 - progress) ** 3;
+    container.scrollTop = startScrollTop + distance * eased;
+
+    if (progress < 1) {
+      const frame = requestAnimationFrame(tick);
+      activeScrollAnimations.set(container, frame);
+    } else {
+      activeScrollAnimations.delete(container);
+    }
+  };
+
+  const frame = requestAnimationFrame(tick);
+  activeScrollAnimations.set(container, frame);
+}
+
 function scrollContainerToMusicSystem(
   container: HTMLElement,
   notes: GraphicalNote[],
   scrollState: { current: { systemTop: number | null } },
+  scrollMode: SheetScrollMode,
 ): void {
   const padding = 12;
   const systemRect = getNotesSystemBounds(notes);
@@ -373,15 +423,8 @@ function scrollContainerToMusicSystem(
   }
 
   const targetScrollTop = Math.max(0, systemTop - padding);
-  const previousSystemTop = scrollState.current.systemTop;
-  const isNewLine =
-    previousSystemTop === null ||
-    Math.abs(systemTop - previousSystemTop) > 20;
 
-  container.scrollTo({
-    top: targetScrollTop,
-    behavior: isNewLine ? 'smooth' : 'auto',
-  });
+  animateScrollTop(container, targetScrollTop, scrollMode);
 
   scrollState.current.systemTop = systemTop;
 }
@@ -397,6 +440,7 @@ export function syncSheetMusicPracticeVisuals(
     highlightedNotes: GraphicalNote[];
     cursorOffsetRef: { current: number };
     scrollStateRef: { current: { systemTop: number | null } };
+    scrollMode: SheetScrollMode;
   },
 ): GraphicalNote[] {
   const {
@@ -408,6 +452,7 @@ export function syncSheetMusicPracticeVisuals(
     highlightedNotes,
     cursorOffsetRef,
     scrollStateRef,
+    scrollMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -445,7 +490,7 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerToMusicSystem(container, toHighlight, scrollStateRef);
+  scrollContainerToMusicSystem(container, toHighlight, scrollStateRef, scrollMode);
 
   return toHighlight;
 }
