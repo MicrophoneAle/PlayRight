@@ -576,7 +576,6 @@ function computeLineAnchorScrollTop(
   systemTop: number,
   systemBottom: number,
   handExtentBounds: DOMRect | null,
-  activeHand: Hand,
   viewportHeight: number,
   padding: number,
   maxScrollTop: number,
@@ -594,21 +593,11 @@ function computeLineAnchorScrollTop(
   const containerRect = container.getBoundingClientRect();
   const extentTop =
     handExtentBounds.top - containerRect.top + scrollTop;
-  const extentBottom =
-    handExtentBounds.bottom - containerRect.top + scrollTop;
 
-  let target = maxScrollForSystemTop;
-
-  if (activeHand === 'R') {
-    target = Math.min(maxScrollForSystemTop, extentTop - padding);
-  } else {
-    const minScrollForLowest = extentBottom - viewportHeight + padding;
-    if (minScrollForLowest > target) {
-      target = minScrollForLowest;
-    }
-  }
-
-  target = Math.max(target, minScrollForSystemBottom);
+  const target = Math.max(
+    minScrollForSystemBottom,
+    Math.min(maxScrollForSystemTop, extentTop - padding),
+  );
 
   return Math.min(maxScrollTop, Math.max(0, target));
 }
@@ -720,7 +709,6 @@ function scrollContainerForPractice(
       systemTop,
       systemBottom,
       lineHandExtentBounds,
-      activeHand,
       viewportHeight,
       padding,
       maxScrollTop,
@@ -775,12 +763,9 @@ function scrollContainerForPractice(
   const visibleTop = extentTop - scrollTop;
   const visibleBottom = extentBottom - scrollTop;
 
-  if (activeHand === 'R' && visibleTop < padding) {
+  if (visibleTop < padding) {
     target = Math.max(0, extentTop - padding);
-  } else if (
-    activeHand === 'L' &&
-    visibleBottom > viewportHeight - padding
-  ) {
+  } else if (visibleBottom > viewportHeight - padding) {
     target = Math.min(maxScrollTop, extentBottom - viewportHeight + padding);
   }
 
