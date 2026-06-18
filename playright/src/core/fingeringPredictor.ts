@@ -4,6 +4,8 @@ export interface NoteEvent {
   stepIndex: number;
   midi: number;
   authoredFinger: Finger | null;
+  /** MusicXML division onset of this note's step (from StepOrder.onset). */
+  onset: number;
 }
 
 export function extractHandTimelines(
@@ -22,6 +24,7 @@ export function extractHandTimelines(
         stepIndex,
         midi: note.midi,
         authoredFinger,
+        onset: step.onset,
       });
     }
   });
@@ -33,6 +36,74 @@ export function extractHandTimelines(
   timelines.R.sort(compareEvents);
 
   return timelines;
+}
+
+/**
+ * Split between consecutive onsets when the hand must reposition across a wide leap.
+ * Conservative default — wide melodic motion within a phrase is left to the cost model.
+ */
+export const PHRASE_LARGE_LEAP_SEMITONES = 12;
+
+/**
+ * Split when consecutive onsets for this hand are separated by at least this many
+ * MusicXML divisions. Divisions-per-beat is not stored on PlaybackScript; 480 is one
+ * quarter note in scores that use the common divisions=480 default.
+ * Rest-based segmentation is deferred: rests advance parse time but are not represented
+ * on PlaybackScript, so only inter-onset gap is used here.
+ */
+export const PHRASE_MIN_ONSET_GAP_DIVISIONS = 480;
+
+export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
+  if (timeline.length === 0) {
+    return [];
+  }
+
+  const onsetGroups: NoteEvent[][] = [];
+  let currentGroup: NoteEvent[] = [timeline[0]];
+
+  for (let index = 1; index < timeline.length; index += 1) {
+    const event = timeline[index];
+    if (event.stepIndex === currentGroup[0].stepIndex) {
+      currentGroup.push(event);
+      continue;
+    }
+
+    onsetGroups.push(currentGroup);
+    currentGroup = [event];
+  }
+
+  onsetGroups.push(currentGroup);
+
+  if (onsetGroups.length === 1) {
+    return [timeline];
+  }
+
+  const phrases: NoteEvent[][] = [];
+  let phraseGroups: NoteEvent[][] = [onsetGroups[0]];
+
+  for (let index = 1; index < onsetGroups.length; index += 1) {
+    const previous = onsetGroups[index - 1];
+    const next = onsetGroups[index];
+    const previousLastMidi = previous[previous.length - 1].midi;
+    const nextFirstMidi = next[0].midi;
+    const leap = Math.abs(nextFirstMidi - previousLastMidi);
+    const onsetGap = next[0].onset - previous[0].onset;
+
+    const shouldSplit =
+      leap >= PHRASE_LARGE_LEAP_SEMITONES ||
+      onsetGap >= PHRASE_MIN_ONSET_GAP_DIVISIONS;
+
+    if (shouldSplit) {
+      phrases.push(phraseGroups.flat());
+      phraseGroups = [next];
+    } else {
+      phraseGroups.push(next);
+    }
+  }
+
+  phrases.push(phraseGroups.flat());
+
+  return phrases;
 }
 
 /** Ideal right-hand pitch distance in semitones (lower finger → higher finger). */
