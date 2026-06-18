@@ -72,6 +72,33 @@ function readOrderedText(nodes: unknown): unknown {
   return undefined;
 }
 
+function readTieTypesFromWrapper(child: RawRecord, tag: 'tie' | 'tied'): string[] {
+  const types: string[] = [];
+  const value = child[tag];
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+
+      const attrs = isRecord(entry[':@']) ? entry[':@'] : {};
+      const type = attrs['@_type'];
+      if (typeof type === 'string') {
+        types.push(type);
+      }
+    }
+  }
+
+  const wrapperAttrs = isRecord(child[':@']) ? child[':@'] : {};
+  const wrapperType = wrapperAttrs['@_type'];
+  if (typeof wrapperType === 'string') {
+    types.push(wrapperType);
+  }
+
+  return types;
+}
+
 function orderedChildrenToRecord(children: unknown[]): RawRecord {
   const record: RawRecord = {};
 
@@ -113,15 +140,11 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
       continue;
     }
 
-    if (tag === 'tie' && Array.isArray(value)) {
-      record.tie = value.map((entry) => {
-        if (!isRecord(entry)) {
-          return entry;
-        }
-
-        const attrs = isRecord(entry[':@']) ? entry[':@'] : {};
-        return { '@_type': attrs['@_type'] };
-      });
+    if (tag === 'tie') {
+      const tieTypes = readTieTypesFromWrapper(child, 'tie');
+      if (tieTypes.length > 0) {
+        record.tie = tieTypes.map((type) => ({ '@_type': type }));
+      }
       continue;
     }
 
@@ -133,6 +156,7 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
 
 function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
   const record: RawRecord = {};
+  const tied: RawRecord[] = [];
 
   for (const child of notationChildren) {
     if (!isRecord(child)) {
@@ -140,6 +164,14 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
     }
 
     const tag = Object.keys(child).find((key) => key !== ':@');
+
+    if (tag === 'tied') {
+      for (const type of readTieTypesFromWrapper(child, 'tied')) {
+        tied.push({ '@_type': type });
+      }
+      continue;
+    }
+
     if (tag !== 'technical' || !Array.isArray(child.technical)) {
       continue;
     }
@@ -154,6 +186,10 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
     }
 
     record.technical = technical;
+  }
+
+  if (tied.length > 0) {
+    record.tied = tied;
   }
 
   return record;
@@ -177,19 +213,29 @@ function extractFingering(note: RawRecord): number {
   return toNumber(primary, 0);
 }
 
-function hasTieStop(note: RawRecord): boolean {
-  const tie = note.tie;
-  if (tie == null) {
-    return false;
+function getTieTypes(note: RawRecord): string[] {
+  const types: string[] = [];
+
+  for (const entry of asArray(note.tie)) {
+    if (isRecord(entry) && typeof entry['@_type'] === 'string') {
+      types.push(entry['@_type']);
+    }
   }
 
-  return asArray(tie).some((entry) => {
-    if (!isRecord(entry)) {
-      return false;
+  const notations = note.notations;
+  if (isRecord(notations)) {
+    for (const entry of asArray(notations.tied)) {
+      if (isRecord(entry) && typeof entry['@_type'] === 'string') {
+        types.push(entry['@_type']);
+      }
     }
+  }
 
-    return entry['@_type'] === 'stop';
-  });
+  return types;
+}
+
+function hasTieStop(note: RawRecord): boolean {
+  return getTieTypes(note).includes('stop');
 }
 
 function normalizeNote(rawNote: unknown): NormalizedNote {
