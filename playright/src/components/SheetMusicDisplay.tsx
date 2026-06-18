@@ -182,7 +182,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const visualIndexGenerationRef = useRef(0);
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
-  const scrollStateRef = useRef<{ systemTop: number | null }>({ systemTop: null });
+  const scrollStateRef = useRef<{ systemKey: string | null }>({ systemKey: null });
   const script = useEngineStore((state) => state.script);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -265,7 +265,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
-      scrollStateRef.current.systemTop = null;
+      scrollStateRef.current.systemKey = null;
       return;
     }
 
@@ -276,7 +276,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexRef.current = null;
     highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
-    scrollStateRef.current.systemTop = null;
+    scrollStateRef.current.systemKey = null;
     visualIndexGenerationRef.current += 1;
 
     const osmd = new OpenSheetMusicDisplay(container, {
@@ -348,7 +348,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
-      scrollStateRef.current.systemTop = null;
+      scrollStateRef.current.systemKey = null;
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";

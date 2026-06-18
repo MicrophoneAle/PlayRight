@@ -301,27 +301,75 @@ function unionRects(a: DOMRect, b: DOMRect): DOMRect {
   return new DOMRect(left, top, right - left, bottom - top);
 }
 
-/** Grand-staff system bounds (both staves) for a graphical note. */
-function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
+function parseSvgTranslateY(element: Element): number | null {
+  const transform = element.getAttribute('transform');
+  if (!transform) {
+    return null;
+  }
+
+  const match = transform.match(
+    /translate\(\s*[-\d.eE+]+\s*,\s*([-\d.eE+]+)\s*\)/,
+  );
+  return match ? parseFloat(match[1]) : null;
+}
+
+function getTopStavesForNote(gNote: GraphicalNote): Element[] {
   const vfNote = gNote as VexFlowGraphicNote;
   const noteElement =
     typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
   if (!noteElement) {
-    return null;
+    return [];
   }
 
   const stave = noteElement.closest('.vf-stave');
   if (!stave) {
-    return noteElement.getBoundingClientRect();
+    return [];
   }
 
   const parent = stave.parentElement;
-  const staves = parent
-    ? [...parent.querySelectorAll('.vf-stave')]
-    : [stave];
+  return parent ? [...parent.querySelectorAll('.vf-stave')] : [stave];
+}
 
-  if (staves.length <= 1) {
-    return stave.getBoundingClientRect();
+/** Stable staff-system id (SVG y), unchanged by container scroll. */
+function getMusicSystemKey(gNote: GraphicalNote): string | null {
+  const staves = getTopStavesForNote(gNote);
+  if (staves.length === 0) {
+    return null;
+  }
+
+  const topStave = staves[0];
+  const translateY = parseSvgTranslateY(topStave);
+  if (translateY !== null) {
+    return `sys-y-${Math.round(translateY)}`;
+  }
+
+  const staveId = topStave.getAttribute('id');
+  return staveId ? `sys-id-${staveId}` : null;
+}
+
+function getNotesSystemKey(notes: GraphicalNote[]): string | null {
+  for (const gNote of notes) {
+    const key = getMusicSystemKey(gNote);
+    if (key) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
+/** Grand-staff system bounds (both staves) for a graphical note. */
+function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
+  const staves = getTopStavesForNote(gNote);
+  if (staves.length === 0) {
+    const vfNote = gNote as VexFlowGraphicNote;
+    const noteElement =
+      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
+    return noteElement ? noteElement.getBoundingClientRect() : null;
+  }
+
+  if (staves.length === 1) {
+    return staves[0].getBoundingClientRect();
   }
 
   return staves.reduce<DOMRect | null>((bounds, staveElement) => {
@@ -396,10 +444,15 @@ function animateScrollTop(
 function scrollContainerToMusicSystem(
   container: HTMLElement,
   notes: GraphicalNote[],
-  scrollState: { current: { systemTop: number | null } },
+  scrollState: { current: { systemKey: string | null } },
   scrollMode: SheetScrollMode,
 ): void {
   const padding = 12;
+  const systemKey = getNotesSystemKey(notes);
+  if (!systemKey) {
+    return;
+  }
+
   const systemRect = getNotesSystemBounds(notes);
   if (!systemRect) {
     return;
@@ -409,14 +462,13 @@ function scrollContainerToMusicSystem(
   const systemTop =
     systemRect.top - containerRect.top + container.scrollTop;
 
-  const previousSystemTop = scrollState.current.systemTop;
-  const isNewLine =
-    previousSystemTop === null ||
-    Math.abs(systemTop - previousSystemTop) > 20;
+  const previousSystemKey = scrollState.current.systemKey;
+  const isNewStaffLine =
+    previousSystemKey !== null && systemKey !== previousSystemKey;
 
-  scrollState.current.systemTop = systemTop;
+  scrollState.current.systemKey = systemKey;
 
-  if (!isNewLine) {
+  if (!isNewStaffLine) {
     return;
   }
 
@@ -434,7 +486,7 @@ export function syncSheetMusicPracticeVisuals(
     container: HTMLElement;
     highlightedNotes: GraphicalNote[];
     cursorOffsetRef: { current: number };
-    scrollStateRef: { current: { systemTop: number | null } };
+    scrollStateRef: { current: { systemKey: string | null } };
     scrollMode: SheetScrollMode;
   },
 ): GraphicalNote[] {
