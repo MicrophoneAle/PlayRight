@@ -132,8 +132,8 @@ export function Lid() {
 
   const headerToggleClass = (visible: boolean) =>
     visible
-      ? 'inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
-      : 'fixed left-6 top-4 z-50 inline-flex items-center justify-center rounded-lg border border-zinc-700/70 bg-zinc-900/30 p-2 text-zinc-300/90 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/50 hover:text-zinc-100';
+      ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
+      : 'fixed left-4 top-2 z-50 inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700/70 bg-zinc-900/30 text-zinc-300/90 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/50 hover:text-zinc-100 sm:left-6';
 
   const toggleCollapsed = () => {
     setCollapsed((value) => !value);
@@ -208,9 +208,9 @@ export function Lid() {
       className={headerToggleClass(!collapsed)}
     >
       {collapsed ? (
-        <ChevronDown size={15} strokeWidth={2} aria-hidden />
+        <ChevronDown size={12} strokeWidth={2.5} aria-hidden />
       ) : (
-        <ChevronUp size={15} strokeWidth={2} aria-hidden />
+        <ChevronUp size={12} strokeWidth={2.5} aria-hidden />
       )}
     </button>
   );

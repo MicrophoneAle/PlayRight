@@ -408,25 +408,20 @@ function scrollContainerToMusicSystem(
   const containerRect = container.getBoundingClientRect();
   const systemTop =
     systemRect.top - containerRect.top + container.scrollTop;
-  const systemBottom =
-    systemRect.bottom - containerRect.top + container.scrollTop;
-  const viewportHeight = container.clientHeight;
 
-  const visibleTop = container.scrollTop + padding;
-  const visibleBottom = container.scrollTop + viewportHeight - padding;
-  const systemFullyVisible =
-    systemTop >= visibleTop && systemBottom <= visibleBottom;
+  const previousSystemTop = scrollState.current.systemTop;
+  const isNewLine =
+    previousSystemTop === null ||
+    Math.abs(systemTop - previousSystemTop) > 20;
 
-  if (systemFullyVisible) {
-    scrollState.current.systemTop = systemTop;
+  scrollState.current.systemTop = systemTop;
+
+  if (!isNewLine) {
     return;
   }
 
   const targetScrollTop = Math.max(0, systemTop - padding);
-
   animateScrollTop(container, targetScrollTop, scrollMode);
-
-  scrollState.current.systemTop = systemTop;
 }
 
 export function syncSheetMusicPracticeVisuals(
