@@ -471,7 +471,7 @@ function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
   return getMusicSystemBounds(notes[0]);
 }
 
-function getHighlightedNotesBounds(notes: GraphicalNote[]): DOMRect | null {
+function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
   let bounds: DOMRect | null = null;
 
   const includeBounds = (element: Element | null | undefined): void => {
@@ -501,6 +501,78 @@ function getHighlightedNotesBounds(notes: GraphicalNote[]): DOMRect | null {
   }
 
   return bounds;
+}
+
+function collectLineHandGraphicalNotes(
+  visualIndex: PracticeVisualIndex,
+  systemKey: string,
+  activeHand: Hand,
+  engineMode: EngineMode,
+): GraphicalNote[] {
+  const results: GraphicalNote[] = [];
+
+  for (const gNotes of visualIndex.stepGraphicalNotes) {
+    if (gNotes.length === 0) {
+      continue;
+    }
+
+    if (getNotesSystemKey(gNotes) !== systemKey) {
+      continue;
+    }
+
+    for (const gNote of gNotes) {
+      if (
+        engineMode === 'one-hand' &&
+        osmdNoteHand(gNote.sourceNote) !== activeHand
+      ) {
+        continue;
+      }
+      results.push(gNote);
+    }
+  }
+
+  return results;
+}
+
+function computeLineAnchorScrollTop(
+  container: HTMLElement,
+  scrollTop: number,
+  systemTop: number,
+  systemBottom: number,
+  handExtentBounds: DOMRect | null,
+  activeHand: Hand,
+  viewportHeight: number,
+  padding: number,
+  maxScrollTop: number,
+): number {
+  const minScrollForSystemBottom = Math.max(
+    0,
+    systemBottom - viewportHeight + padding,
+  );
+  const maxScrollForSystemTop = Math.max(0, systemTop - padding);
+
+  if (!handExtentBounds) {
+    return Math.min(maxScrollTop, maxScrollForSystemTop);
+  }
+
+  const containerRect = container.getBoundingClientRect();
+  const extentTop =
+    handExtentBounds.top - containerRect.top + scrollTop;
+  const extentBottom =
+    handExtentBounds.bottom - containerRect.top + scrollTop;
+
+  let target =
+    activeHand === 'R'
+      ? Math.min(maxScrollForSystemTop, extentTop - padding)
+      : Math.max(
+          minScrollForSystemBottom,
+          extentBottom - viewportHeight + padding,
+        );
+
+  target = Math.min(target, maxScrollForSystemTop);
+  target = Math.max(target, minScrollForSystemBottom);
+
+  return Math.min(maxScrollTop, Math.max(0, target));
 }
 
 function isVerticallyInView(
@@ -568,6 +640,9 @@ function scrollContainerForPractice(
   notes: GraphicalNote[],
   scrollState: { current: PracticeScrollState },
   scrollMode: SheetScrollMode,
+  visualIndex: PracticeVisualIndex,
+  activeHand: Hand,
+  engineMode: EngineMode,
 ): void {
   const padding = 12;
   const systemKey = getNotesSystemKey(notes);
@@ -591,8 +666,27 @@ function scrollContainerForPractice(
   const systemTop = systemRect.top - containerRect.top + scrollTop;
   const systemBottom = systemTop + systemRect.height;
   const fullSystemFits = systemRect.height <= viewportHeight - 2 * padding;
-  const alignFullSystem = () =>
-    Math.min(maxScrollTop, Math.max(0, systemTop - padding));
+
+  const lineHandNotes = collectLineHandGraphicalNotes(
+    visualIndex,
+    systemKey,
+    activeHand,
+    engineMode,
+  );
+  const lineHandExtentBounds = getGraphicalNotesBounds(lineHandNotes);
+
+  const anchorForLine = () =>
+    computeLineAnchorScrollTop(
+      container,
+      scrollTop,
+      systemTop,
+      systemBottom,
+      lineHandExtentBounds,
+      activeHand,
+      viewportHeight,
+      padding,
+      maxScrollTop,
+    );
 
   const previousSystemKey = scrollState.current.systemKey;
   const isNewStaffLine =
@@ -600,7 +694,7 @@ function scrollContainerForPractice(
   const needsAnchor = previousSystemKey === null;
 
   if (isNewStaffLine || needsAnchor) {
-    const target = alignFullSystem();
+    const target = anchorForLine();
     scrollState.current = { systemKey, lineScrollTop: target };
     if (Math.abs(target - scrollTop) >= 1) {
       animateScrollTop(container, target, scrollMode);
@@ -618,18 +712,19 @@ function scrollContainerForPractice(
     return;
   }
 
-  const noteBounds = getHighlightedNotesBounds(notes);
-  if (!noteBounds) {
+  if (!lineHandExtentBounds) {
     return;
   }
 
-  const noteTop = noteBounds.top - containerRect.top + scrollTop;
-  const noteBottom = noteBounds.bottom - containerRect.top + scrollTop;
+  const extentTop =
+    lineHandExtentBounds.top - containerRect.top + scrollTop;
+  const extentBottom =
+    lineHandExtentBounds.bottom - containerRect.top + scrollTop;
 
   if (
     isVerticallyInView(
-      noteTop,
-      noteBottom,
+      extentTop,
+      extentBottom,
       scrollTop,
       viewportHeight,
       padding,
@@ -639,13 +734,13 @@ function scrollContainerForPractice(
   }
 
   let target = scrollTop;
-  const visibleNoteTop = noteTop - scrollTop;
-  const visibleNoteBottom = noteBottom - scrollTop;
+  const visibleTop = extentTop - scrollTop;
+  const visibleBottom = extentBottom - scrollTop;
 
-  if (visibleNoteTop < padding) {
-    target = Math.max(0, noteTop - padding);
-  } else if (visibleNoteBottom > viewportHeight - padding) {
-    target = Math.min(maxScrollTop, noteBottom - viewportHeight + padding);
+  if (activeHand === 'R' && visibleTop < padding) {
+    target = Math.max(0, extentTop - padding);
+  } else if (activeHand === 'L' && visibleBottom > viewportHeight - padding) {
+    target = Math.min(maxScrollTop, extentBottom - viewportHeight + padding);
   }
 
   const maxScrollForSystemTop = Math.max(0, systemTop - padding);
@@ -690,6 +785,8 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
+    activeHand,
+    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -732,6 +829,9 @@ export function syncSheetMusicPracticeVisuals(
     toHighlight,
     scrollStateRef,
     scrollMode,
+    visualIndex as PracticeVisualIndex,
+    activeHand,
+    engineMode,
   );
 
   return toHighlight;
