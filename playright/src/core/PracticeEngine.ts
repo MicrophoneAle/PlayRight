@@ -25,6 +25,20 @@ export class PracticeEngine {
       actions.setStepIndex(0);
     }
 
+    actions.setHasPracticeStarted(true);
+    actions.setPracticeActive(true);
+    this.loadCurrentStep({ alignScope: true });
+  }
+
+  restart(): void {
+    const { script, actions } = useEngineStore.getState();
+    if (!script) {
+      return;
+    }
+
+    this.hitNotes.clear();
+    this.expectedNotes.clear();
+    actions.setStepIndex(0);
     actions.setPracticeActive(true);
     this.loadCurrentStep({ alignScope: true });
   }

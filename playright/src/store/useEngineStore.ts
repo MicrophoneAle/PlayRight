@@ -13,6 +13,8 @@ interface EngineState {
   engineMode: EngineMode;
   activeHand: Hand;
   isPracticeActive: boolean;
+  /** True after Start is pressed for the current piece (enables Restart). */
+  hasPracticeStarted: boolean;
   currentStepIndex: number;
   totalSteps: number;
   expectedMidiNotes: number[];
@@ -25,6 +27,7 @@ interface EngineState {
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
+    setHasPracticeStarted: (started: boolean) => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
   };
@@ -39,6 +42,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
+  hasPracticeStarted: false,
   currentStepIndex: 0,
   totalSteps: 0,
   expectedMidiNotes: [],
@@ -51,6 +55,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         currentStepIndex: 0,
         totalSteps: script.length,
         isPracticeActive: false,
+        hasPracticeStarted: false,
         expectedMidiNotes: [],
       });
     },
@@ -59,6 +64,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         script: null,
         rawXml: null,
         songTitle: null,
+        hasPracticeStarted: false,
         expectedMidiNotes: [],
       });
     },
@@ -93,6 +99,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setPracticeActive: (isActive) => {
       set({ isPracticeActive: isActive });
+    },
+    setHasPracticeStarted: (started) => {
+      set({ hasPracticeStarted: started });
     },
     setStepIndex: (index) => {
       set({ currentStepIndex: index });

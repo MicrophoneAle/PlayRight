@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { Library, Music2, Pause, Play, Settings, Upload } from 'lucide-react';
+import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
@@ -19,6 +19,7 @@ export function Lid() {
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
+  const hasPracticeStarted = useEngineStore((state) => state.hasPracticeStarted);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -169,15 +170,26 @@ export function Lid() {
           <Play size={15} strokeWidth={2} aria-hidden />
           Start
         </button>
-        <button
-          type="button"
-          onClick={() => practiceEngine.pause()}
-          disabled={!isPracticeActive}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Pause size={15} strokeWidth={2} aria-hidden />
-          Pause
-        </button>
+        {isPracticeActive ? (
+          <button
+            type="button"
+            onClick={() => practiceEngine.pause()}
+            className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          >
+            <Pause size={15} strokeWidth={2} aria-hidden />
+            Pause
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => practiceEngine.restart()}
+            disabled={!script || !hasPracticeStarted}
+            className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RotateCcw size={15} strokeWidth={2} aria-hidden />
+            Restart
+          </button>
+        )}
 
         {script && engineMode === 'one-hand' ? (
           <div

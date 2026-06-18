@@ -67,3 +67,20 @@ export async function fetchScoreById(id: string): Promise<SavedScore | null> {
 
   return data;
 }
+
+export async function deleteScoreFromLibrary(id: string): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) {
+    console.error('[scoreLibrary] Failed to delete score: Supabase not configured.');
+    return false;
+  }
+
+  const { error } = await supabase.from('scores').delete().eq('id', id);
+
+  if (error) {
+    console.error('[scoreLibrary] Failed to delete score:', error.message);
+    return false;
+  }
+
+  return true;
+}

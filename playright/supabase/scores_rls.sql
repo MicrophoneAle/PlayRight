@@ -14,3 +14,9 @@ create policy "scores_insert_anon"
   for insert
   to anon
   with check (true);
+
+create policy "scores_delete_anon"
+  on public.scores
+  for delete
+  to anon
+  using (true);
