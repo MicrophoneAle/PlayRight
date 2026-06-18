@@ -340,6 +340,7 @@ export function syncSheetMusicPracticeVisuals(
     stepIndex: number;
     visualIndex: PracticeVisualIndex | null;
     expectedMidiNotes: number[];
+    practiceNotes: ScriptNote[];
     container: HTMLElement;
     highlightedElements: HighlightSnapshot[];
     cursorOffsetRef: { current: number };
@@ -349,6 +350,7 @@ export function syncSheetMusicPracticeVisuals(
     stepIndex,
     visualIndex,
     expectedMidiNotes,
+    practiceNotes,
     container,
     highlightedElements,
     cursorOffsetRef,
@@ -363,16 +365,31 @@ export function syncSheetMusicPracticeVisuals(
     return [];
   }
 
-  const toHighlight = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
+  const toHighlightFromIndex = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
+  const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
+  moveCursorToOffset(osmd, offset, cursorOffsetRef);
+  cursor.show();
+
+  let toHighlight = toHighlightFromIndex;
+  if (toHighlight.length === 0 && practiceNotes.length > 0) {
+    const attackGNotes = cursor
+      .GNotesUnderCursor()
+      .filter(
+        (gNote) =>
+          !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
+      );
+    toHighlight = collectGraphicalNotesWithTies(
+      osmd,
+      attackGNotes,
+      practiceNotes,
+    );
+  }
+
   if (toHighlight.length === 0) {
-    cursorOffsetRef.current = -1;
     cursor.hide();
     return [];
   }
 
-  const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
-  moveCursorToOffset(osmd, offset, cursorOffsetRef);
-  cursor.show();
   const nextHighlights = highlightGraphicalNotes(toHighlight);
 
   const cursorElement = cursor.cursorElement;

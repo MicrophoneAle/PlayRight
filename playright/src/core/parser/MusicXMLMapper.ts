@@ -1,60 +1,6 @@
 import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
+import { formatPitch, getMidiNumber } from './pitch.ts';
 import type { NormalizedElement } from './MusicXMLNormalizer.ts';
-
-const NATURAL_SEMITONES: Readonly<Record<string, number>> = {
-  C: 0,
-  D: 2,
-  E: 4,
-  F: 5,
-  G: 7,
-  A: 9,
-  B: 11,
-};
-
-function getAlterationOffset(step: string): number {
-  const suffix = step.slice(1);
-
-  if (suffix.includes('bb') || suffix.includes('♭♭')) {
-    return -2;
-  }
-
-  if (suffix.includes('##') || suffix.includes('x')) {
-    return 2;
-  }
-
-  if (suffix.includes('#') || suffix.includes('♯')) {
-    return 1;
-  }
-
-  if (suffix.includes('b') || suffix.includes('♭')) {
-    return -1;
-  }
-
-  return 0;
-}
-
-export function getMidiNumber(step: string, octave: number): number {
-  const trimmed = step.trim();
-
-  if (trimmed.length === 0) {
-    return 0;
-  }
-
-  const baseLetter = trimmed.charAt(0).toUpperCase();
-  const naturalSemitone = NATURAL_SEMITONES[baseLetter];
-
-  if (naturalSemitone === undefined) {
-    return 0;
-  }
-
-  const alteration = getAlterationOffset(trimmed);
-  return (octave + 1) * 12 + naturalSemitone + alteration;
-}
-
-function formatPitch(step: string, octave: number): string {
-  const trimmedStep = step.trim();
-  return trimmedStep.length > 0 ? `${trimmedStep}${octave}` : String(octave);
-}
 
 function mapStaffToHand(staff: number): Hand {
   return staff === 2 ? 'L' : 'R';
@@ -93,6 +39,8 @@ function groupByOnset(
   return script;
 }
 
+export { getMidiNumber, formatPitch } from './pitch.ts';
+
 export class MusicXMLMapper {
   static mapToDomain(elements: NormalizedElement[]): PlaybackScript {
     let currentTime = 0;
@@ -116,8 +64,8 @@ export class MusicXMLMapper {
         }
 
         const scriptNote: ScriptNote = {
-          pitch: formatPitch(element.step, element.octave),
-          midi: getMidiNumber(element.step, element.octave),
+          pitch: formatPitch(element.step, element.octave, element.alter),
+          midi: getMidiNumber(element.step, element.octave, element.alter),
           hand: mapStaffToHand(element.staff),
           finger: mapFingering(element.fingering),
         };

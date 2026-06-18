@@ -9,6 +9,7 @@ import {
   type PracticeVisualIndex,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
+import { getPracticeNotes } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -37,12 +38,17 @@ function trimTopWhitespace(container: HTMLElement): void {
     return;
   }
 
-  const containerTop = container.getBoundingClientRect().top;
-  const svgTop = svg.getBoundingClientRect().top;
-  const gap = svgTop - containerTop;
+  const firstStave =
+    container.querySelector(".vf-stave") ??
+    container.querySelector('[class*="stave"]');
 
-  if (gap > 10) {
-    svg.style.marginTop = `${-(gap - 6)}px`;
+  const reference = firstStave ?? svg;
+  const containerTop = container.getBoundingClientRect().top;
+  const referenceTop = reference.getBoundingClientRect().top;
+  const gap = referenceTop - containerTop;
+
+  if (gap > 6) {
+    svg.style.marginTop = `${-(gap - 4)}px`;
   }
 }
 
@@ -100,10 +106,20 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     const state = useEngineStore.getState();
+    const practiceNotes =
+      state.script && state.script[state.currentStepIndex]
+        ? getPracticeNotes(
+            state.script[state.currentStepIndex],
+            state.engineMode,
+            state.activeHand,
+          )
+        : [];
+
     highlightedElementsRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
       visualIndex: visualIndexRef.current,
       expectedMidiNotes: state.expectedMidiNotes,
+      practiceNotes,
       container,
       highlightedElements: highlightedElementsRef.current,
       cursorOffsetRef,

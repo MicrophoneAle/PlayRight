@@ -1,7 +1,10 @@
+import { keyAlterForStep } from './pitch.ts';
+
 export interface NormalizedNote {
   type: 'note';
   step: string;
   octave: number;
+  alter: number;
   duration: number;
   staff: number;
   fingering: number;
@@ -17,6 +20,10 @@ export interface NormalizedControl {
 }
 
 export type NormalizedElement = NormalizedNote | NormalizedControl;
+
+interface KeyContext {
+  fifths: number;
+}
 
 type RawRecord = Record<string, unknown>;
 
@@ -127,7 +134,7 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
         }
 
         const pitchTag = Object.keys(pitchChild).find((key) => key !== ':@');
-        if (pitchTag === 'step' || pitchTag === 'octave') {
+        if (pitchTag === 'step' || pitchTag === 'octave' || pitchTag === 'alter') {
           pitch[pitchTag] = readOrderedText(pitchChild[pitchTag]);
         }
       }
@@ -238,14 +245,46 @@ function hasTieStop(note: RawRecord): boolean {
   return getTieTypes(note).includes('stop');
 }
 
-function normalizeNote(rawNote: unknown): NormalizedNote {
+function extractKeyFifths(attributesChildren: unknown[]): number | null {
+  for (const child of attributesChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (tag !== 'key' || !Array.isArray(child.key)) {
+      continue;
+    }
+
+    for (const keyChild of child.key) {
+      if (!isRecord(keyChild)) {
+        continue;
+      }
+
+      const keyTag = Object.keys(keyChild).find((key) => key !== ':@');
+      if (keyTag === 'fifths') {
+        return toNumber(readOrderedText(keyChild.fifths), 0);
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeNote(rawNote: unknown, keyContext: KeyContext): NormalizedNote {
   const note = isRecord(rawNote) ? rawNote : {};
   const pitch = isRecord(note.pitch) ? note.pitch : {};
+  const step = toString(pitch.step, '').trim().charAt(0).toUpperCase();
+  const octave = toNumber(pitch.octave, 0);
+  const hasExplicitAlter = pitch.alter !== undefined && pitch.alter !== null;
+  const explicitAlter = hasExplicitAlter ? toNumber(pitch.alter, 0) : null;
 
   return {
     type: 'note',
-    step: toString(pitch.step, ''),
-    octave: toNumber(pitch.octave, 0),
+    step,
+    octave,
+    alter:
+      explicitAlter !== null ? explicitAlter : keyAlterForStep(step, keyContext.fifths),
     duration: toNumber(note.duration, 0),
     staff: toNumber(note.staff, 1),
     fingering: extractFingering(note),
@@ -271,6 +310,7 @@ function normalizeControl(
 function collectOrderedMeasureElements(
   measureChildren: unknown[],
   results: NormalizedElement[],
+  keyContext: KeyContext,
 ): void {
   for (const child of measureChildren) {
     if (!isRecord(child)) {
@@ -282,8 +322,16 @@ function collectOrderedMeasureElements(
       continue;
     }
 
+    if (tag === 'attributes' && Array.isArray(child.attributes)) {
+      const fifths = extractKeyFifths(child.attributes);
+      if (fifths !== null) {
+        keyContext.fifths = fifths;
+      }
+      continue;
+    }
+
     if (tag === 'note' && Array.isArray(child.note)) {
-      results.push(normalizeNote(orderedChildrenToRecord(child.note)));
+      results.push(normalizeNote(orderedChildrenToRecord(child.note), keyContext));
       continue;
     }
 
@@ -318,12 +366,14 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
     return results;
   }
 
+  const keyContext: KeyContext = { fifths: 0 };
+
   for (const measureWrapper of partEntry.part) {
     if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
       continue;
     }
 
-    collectOrderedMeasureElements(measureWrapper.measure, results);
+    collectOrderedMeasureElements(measureWrapper.measure, results, keyContext);
   }
 
   return results;
