@@ -137,8 +137,8 @@ function trimTopWhitespace(container: HTMLElement): void {
   const referenceTop = reference.getBoundingClientRect().top;
   const gap = referenceTop - containerTop;
 
-  if (gap > 6) {
-    svg.style.marginTop = `${-(gap - 4)}px`;
+  if (gap > 24) {
+    svg.style.marginTop = `${-(gap - 20)}px`;
   }
 }
 
@@ -363,7 +363,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-0 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }

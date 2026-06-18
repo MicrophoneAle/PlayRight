@@ -12,21 +12,13 @@ import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
 import { AccountSection } from './AccountSection.tsx';
 
-const HEADER_COLLAPSED_STORAGE_KEY = 'playright-header-collapsed';
-
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-
-    return window.localStorage.getItem(HEADER_COLLAPSED_STORAGE_KEY) === 'true';
-  });
+  const [collapsed, setCollapsed] = useState(false);
   const { isLoaded: isAuthLoaded, isSignedIn, userId } = useAuth();
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
@@ -137,11 +129,7 @@ export function Lid() {
       : 'text-zinc-400 hover:text-zinc-200';
 
   const toggleCollapsed = () => {
-    setCollapsed((value) => {
-      const next = !value;
-      window.localStorage.setItem(HEADER_COLLAPSED_STORAGE_KEY, String(next));
-      return next;
-    });
+    setCollapsed((value) => !value);
   };
 
   const playControls = (
@@ -237,7 +225,7 @@ export function Lid() {
           aria-expanded={false}
           aria-label="Show header"
           title="Show header"
-          className="fixed left-1/2 top-0 z-50 flex -translate-x-1/2 items-center gap-1.5 rounded-b-lg border border-t-0 border-zinc-700 bg-zinc-950/95 px-4 py-1.5 text-xs font-medium text-zinc-300 shadow-lg backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900 hover:text-zinc-100"
+          className="fixed left-3 top-2 z-50 flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-950/95 px-3 py-1.5 text-xs font-medium text-zinc-300 shadow-lg backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900 hover:text-zinc-100 sm:left-4"
         >
           <ChevronDown size={14} strokeWidth={2} aria-hidden />
           Menu
