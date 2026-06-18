@@ -20,7 +20,7 @@ const OSMD_CURSOR_OPTIONS = {
   type: CursorType.CurrentArea,
   color: "#7c3aed",
   alpha: 0.2,
-  follow: true,
+  follow: false,
 } as const;
 
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
@@ -272,7 +272,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-0 [&_svg]:max-w-full"
+      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-0 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden"
     />
   );
 }

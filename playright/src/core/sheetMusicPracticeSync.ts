@@ -292,53 +292,82 @@ interface VexFlowGraphicNote extends GraphicalNote {
   getTieSVGs?: () => HTMLElement[];
 }
 
-function scrollContainerToNotes(
+function unionRects(a: DOMRect, b: DOMRect): DOMRect {
+  const top = Math.min(a.top, b.top);
+  const left = Math.min(a.left, b.left);
+  const bottom = Math.max(a.bottom, b.bottom);
+  const right = Math.max(a.right, b.right);
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/** Grand-staff system bounds (both staves) for a graphical note. */
+function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
+  const vfNote = gNote as VexFlowGraphicNote;
+  const noteElement =
+    typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
+  if (!noteElement) {
+    return null;
+  }
+
+  const stave = noteElement.closest('.vf-stave');
+  if (!stave) {
+    return noteElement.getBoundingClientRect();
+  }
+
+  const parent = stave.parentElement;
+  const staves = parent
+    ? [...parent.querySelectorAll('.vf-stave')]
+    : [stave];
+
+  if (staves.length <= 1) {
+    return stave.getBoundingClientRect();
+  }
+
+  return staves.reduce<DOMRect | null>((bounds, staveElement) => {
+    const rect = staveElement.getBoundingClientRect();
+    return bounds ? unionRects(bounds, rect) : rect;
+  }, null);
+}
+
+function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
+  let bounds: DOMRect | null = null;
+
+  for (const gNote of notes) {
+    const systemBounds = getMusicSystemBounds(gNote);
+    if (!systemBounds) {
+      continue;
+    }
+
+    bounds = bounds ? unionRects(bounds, systemBounds) : systemBounds;
+  }
+
+  return bounds;
+}
+
+function scrollContainerToMusicSystem(
   container: HTMLElement,
   notes: GraphicalNote[],
 ): void {
-  const margin = 64;
-  const containerRect = container.getBoundingClientRect();
-  let minTop = Infinity;
-  let maxBottom = -Infinity;
-
-  const includeBounds = (element: Element | null | undefined): void => {
-    if (!element) {
-      return;
-    }
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) {
-      return;
-    }
-
-    minTop = Math.min(minTop, rect.top);
-    maxBottom = Math.max(maxBottom, rect.bottom);
-  };
-
-  for (const gNote of notes) {
-    const vfNote = gNote as VexFlowGraphicNote;
-    includeBounds(
-      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null,
-    );
-
-    if (typeof vfNote.getTieSVGs === 'function') {
-      for (const tieElement of vfNote.getTieSVGs()) {
-        includeBounds(tieElement);
-      }
-    }
-  }
-
-  if (!Number.isFinite(minTop)) {
+  const padding = 12;
+  const systemRect = getNotesSystemBounds(notes);
+  if (!systemRect) {
     return;
   }
 
-  const visibleTop = containerRect.top + margin;
-  const visibleBottom = containerRect.bottom - margin;
+  const containerRect = container.getBoundingClientRect();
+  const systemTop =
+    systemRect.top - containerRect.top + container.scrollTop;
+  const systemBottom =
+    systemRect.bottom - containerRect.top + container.scrollTop;
+  const viewportHeight = container.clientHeight;
 
-  if (minTop < visibleTop) {
-    container.scrollTop += minTop - visibleTop;
-  } else if (maxBottom > visibleBottom) {
-    container.scrollTop += maxBottom - visibleBottom;
+  const visibleTop = container.scrollTop + padding;
+  const visibleBottom = container.scrollTop + viewportHeight - padding;
+  const systemFullyVisible =
+    systemTop >= visibleTop && systemBottom <= visibleBottom;
+
+  if (!systemFullyVisible) {
+    container.scrollTop = Math.max(0, systemTop - padding);
   }
 }
 
@@ -376,7 +405,7 @@ export function syncSheetMusicPracticeVisuals(
   const toHighlightFromIndex = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
   const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
   moveCursorToOffset(osmd, offset, cursorOffsetRef);
-  cursor.show();
+  cursor.hide();
 
   let toHighlight = toHighlightFromIndex;
   if (toHighlight.length === 0 && practiceNotes.length > 0) {
@@ -399,7 +428,7 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerToNotes(container, toHighlight);
+  scrollContainerToMusicSystem(container, toHighlight);
 
   return toHighlight;
 }
