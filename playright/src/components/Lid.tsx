@@ -7,7 +7,7 @@ import { predictFingering } from '../core/fingeringPredictor.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
-import { useEngineStore, type ShiftMode, type SheetScrollMode } from '../store/useEngineStore.ts';
+import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS } from '../store/useEngineStore.ts';
 import type { Hand } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -37,18 +37,27 @@ export function Lid() {
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const autoFingering = useEngineStore((state) => state.autoFingering);
+  const handSpan = useEngineStore((state) => state.handSpan);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setSheetScrollMode = useEngineStore((state) => state.actions.setSheetScrollMode);
   const setAutoFingering = useEngineStore((state) => state.actions.setAutoFingering);
+  const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
 
-  const prepareScriptForLoad = (script: ReturnType<typeof parseMusicXmlToScript>) =>
-    useEngineStore.getState().autoFingering
-      ? predictFingering(script)
+  const prepareScriptForLoad = (script: ReturnType<typeof parseMusicXmlToScript>) => {
+    const state = useEngineStore.getState();
+    return state.autoFingering
+      ? predictFingering(script, { spanScale: state.handSpan })
       : script;
+  };
+
+  const handSpanClass = (preset: HandSpanPreset) =>
+    handSpan === preset
+      ? 'bg-violet-600 text-white'
+      : 'text-zinc-400 hover:text-zinc-200';
 
   const canManageLibrary = isAuthLoaded && isSignedIn && Boolean(userId);
 
@@ -166,6 +175,39 @@ export function Lid() {
             onChange={(event) => setAutoFingering(event.target.checked)}
             className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
           />
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-zinc-400">Hand Size</span>
+          <div
+            className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800 p-0.5"
+            role="group"
+            aria-label="Hand size"
+          >
+            <button
+              type="button"
+              onClick={() => setHandSpan(HAND_SPAN_PRESETS[0])}
+              aria-pressed={handSpan === HAND_SPAN_PRESETS[0]}
+              className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handSpanClass(HAND_SPAN_PRESETS[0])}`}
+            >
+              Small
+            </button>
+            <button
+              type="button"
+              onClick={() => setHandSpan(HAND_SPAN_PRESETS[1])}
+              aria-pressed={handSpan === HAND_SPAN_PRESETS[1]}
+              className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handSpanClass(HAND_SPAN_PRESETS[1])}`}
+            >
+              Medium
+            </button>
+            <button
+              type="button"
+              onClick={() => setHandSpan(HAND_SPAN_PRESETS[2])}
+              aria-pressed={handSpan === HAND_SPAN_PRESETS[2]}
+              className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${handSpanClass(HAND_SPAN_PRESETS[2])}`}
+            >
+              Large
+            </button>
+          </div>
         </div>
         <div className="flex flex-col gap-2">
           <label

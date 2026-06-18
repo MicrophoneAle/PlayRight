@@ -7,6 +7,10 @@ export type SheetScrollMode = 'smooth' | 'instant';
 
 const SHEET_SCROLL_MODE_STORAGE_KEY = 'playright-sheet-scroll-mode';
 const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
+const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
+
+export const HAND_SPAN_PRESETS = [0.85, 1, 1.15] as const;
+export type HandSpanPreset = (typeof HAND_SPAN_PRESETS)[number];
 
 function readStoredSheetScrollMode(): SheetScrollMode {
   if (typeof window === 'undefined') {
@@ -26,6 +30,19 @@ function readStoredAutoFingering(): boolean {
   return stored !== 'false';
 }
 
+function readStoredHandSpan(): HandSpanPreset {
+  if (typeof window === 'undefined') {
+    return 1;
+  }
+
+  const stored = window.localStorage.getItem(HAND_SPAN_STORAGE_KEY);
+  const parsed = stored !== null ? Number(stored) : 1;
+
+  return HAND_SPAN_PRESETS.includes(parsed as HandSpanPreset)
+    ? (parsed as HandSpanPreset)
+    : 1;
+}
+
 interface EngineState {
   script: PlaybackScript | null;
   rawXml: string | null;
@@ -34,6 +51,7 @@ interface EngineState {
   shiftMode: ShiftMode;
   sheetScrollMode: SheetScrollMode;
   autoFingering: boolean;
+  handSpan: HandSpanPreset;
   engineMode: EngineMode;
   activeHand: Hand;
   /** Set by PracticeEngine; false when paused, stopped, or not yet started. */
@@ -51,6 +69,7 @@ interface EngineState {
     setShiftMode: (mode: ShiftMode) => void;
     setSheetScrollMode: (mode: SheetScrollMode) => void;
     setAutoFingering: (enabled: boolean) => void;
+    setHandSpan: (span: HandSpanPreset) => void;
     cycleShiftMode: (direction: 'up' | 'down') => void;
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
@@ -70,6 +89,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   shiftMode: 'semitone',
   sheetScrollMode: readStoredSheetScrollMode(),
   autoFingering: readStoredAutoFingering(),
+  handSpan: readStoredHandSpan(),
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
@@ -119,6 +139,10 @@ export const useEngineStore = create<EngineState>((set) => ({
         enabled ? 'true' : 'false',
       );
       set({ autoFingering: enabled });
+    },
+    setHandSpan: (span) => {
+      window.localStorage.setItem(HAND_SPAN_STORAGE_KEY, String(span));
+      set({ handSpan: span });
     },
     cycleShiftMode: (direction) => {
       set((state) => ({

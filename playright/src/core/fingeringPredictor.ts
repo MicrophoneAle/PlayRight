@@ -176,6 +176,7 @@ export function transitionCost(
   pPrev: number,
   fCur: Finger,
   pCur: number,
+  spanScale = 1,
 ): number {
   const interval = signedInterval(hand, pPrev, pCur);
 
@@ -189,7 +190,7 @@ export function transitionCost(
     );
   }
 
-  const ideal = idealDistance(fPrev, fCur);
+  const ideal = idealDistance(fPrev, fCur) * spanScale;
   const expectedAscending = fCur > fPrev;
   const actuallyAscending = interval > 0;
 
@@ -239,7 +240,11 @@ function argminFinger(
   return best;
 }
 
-export function fingerPhrase(notes: NoteEvent[], hand: Hand): Finger[] {
+export function fingerPhrase(
+  notes: NoteEvent[],
+  hand: Hand,
+  spanScale = 1,
+): Finger[] {
   if (notes.length === 0) {
     return [];
   }
@@ -269,7 +274,14 @@ export function fingerPhrase(notes: NoteEvent[], hand: Hand): Finger[] {
       for (const fPrev of prevAllowed) {
         const total =
           (dp[index - 1][fPrev] ?? Infinity) +
-          transitionCost(hand, fPrev, notes[index - 1].midi, finger, note.midi) +
+          transitionCost(
+            hand,
+            fPrev,
+            notes[index - 1].midi,
+            finger,
+            note.midi,
+            spanScale,
+          ) +
           local;
 
         if (
@@ -308,22 +320,29 @@ function chordPairDeviation(
   fLower: Finger,
   fHigher: Finger,
   midiSpan: number,
+  spanScale = 1,
 ): number {
   const lo = Math.min(fLower, fHigher);
   const hi = Math.max(fLower, fHigher);
-  const ideal = IDEAL[`${lo}-${hi}`];
+  const ideal = IDEAL[`${lo}-${hi}`] * spanScale;
   return Math.abs(midiSpan - ideal);
 }
 
 function scoreChordFingerAssignment(
   chord: NoteEvent[],
   fingers: Finger[],
+  spanScale = 1,
 ): number {
   let cost = 0;
 
   for (let index = 0; index < fingers.length - 1; index += 1) {
     const midiSpan = chord[index + 1].midi - chord[index].midi;
-    cost += chordPairDeviation(fingers[index], fingers[index + 1], midiSpan);
+    cost += chordPairDeviation(
+      fingers[index],
+      fingers[index + 1],
+      midiSpan,
+      spanScale,
+    );
   }
 
   return cost;
@@ -447,6 +466,7 @@ function selectBestFiveChordIndices(chord: NoteEvent[]): number[] {
 function assignChordFingersToPlayableNotes(
   chord: NoteEvent[],
   hand: Hand,
+  spanScale = 1,
 ): Finger[] {
   let bestAssignment: Finger[] | null = null;
   let bestCost = Infinity;
@@ -456,7 +476,7 @@ function assignChordFingersToPlayableNotes(
       continue;
     }
 
-    const cost = scoreChordFingerAssignment(chord, assignment);
+    const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
     if (
       bestAssignment === null ||
       chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
@@ -468,7 +488,7 @@ function assignChordFingersToPlayableNotes(
 
   if (bestAssignment === null) {
     for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
-      const cost = scoreChordFingerAssignment(chord, assignment);
+      const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
       if (
         bestAssignment === null ||
         chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
@@ -489,6 +509,7 @@ function assignChordFingersToPlayableNotes(
 export function assignChordFingers(
   chord: NoteEvent[],
   hand: Hand,
+  spanScale = 1,
 ): (Finger | null)[] {
   if (chord.length === 0) {
     return [];
@@ -501,7 +522,11 @@ export function assignChordFingers(
   if (chord.length > 5) {
     const playableIndices = selectBestFiveChordIndices(chord);
     const playableNotes = playableIndices.map((index) => chord[index]);
-    const playableFingers = assignChordFingersToPlayableNotes(playableNotes, hand);
+    const playableFingers = assignChordFingersToPlayableNotes(
+      playableNotes,
+      hand,
+      spanScale,
+    );
     const result: (Finger | null)[] = chord.map(() => null);
 
     playableIndices.forEach((chordIndex, playableIndex) => {
@@ -511,7 +536,7 @@ export function assignChordFingers(
     return result;
   }
 
-  return assignChordFingersToPlayableNotes(chord, hand);
+  return assignChordFingersToPlayableNotes(chord, hand, spanScale);
 }
 
 function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
@@ -536,6 +561,7 @@ function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
 export function fingerPhraseWithChords(
   phrase: NoteEvent[],
   hand: Hand,
+  spanScale = 1,
 ): (Finger | null)[] {
   if (phrase.length === 0) {
     return [];
@@ -555,7 +581,7 @@ export function fingerPhraseWithChords(
       continue;
     }
 
-    const chordFingers = assignChordFingers(onset, hand);
+    const chordFingers = assignChordFingers(onset, hand, spanScale);
     chordFingersByStep.set(stepIndex, chordFingers);
 
     const representativeIndex = hand === 'R' ? onset.length - 1 : 0;
@@ -570,7 +596,7 @@ export function fingerPhraseWithChords(
   }
 
   const solvedByStep = new Map<number, Finger>();
-  const solved = fingerPhrase(representatives, hand);
+  const solved = fingerPhrase(representatives, hand, spanScale);
 
   representatives.forEach((representative, index) => {
     solvedByStep.set(representative.stepIndex, solved[index]);
@@ -599,22 +625,31 @@ function isFingeringAnchor(note: ScriptNote): boolean {
 function predictFingersForHand(
   script: PlaybackScript,
   hand: Hand,
+  spanScale: number,
 ): (Finger | null)[] {
   const timeline = extractHandTimelines(script)[hand];
   const phrases = segmentIntoPhrases(timeline);
   const fingers: (Finger | null)[] = [];
 
   for (const phrase of phrases) {
-    fingers.push(...fingerPhraseWithChords(phrase, hand));
+    fingers.push(...fingerPhraseWithChords(phrase, hand, spanScale));
   }
 
   return fingers;
 }
 
-export function predictFingering(script: PlaybackScript): PlaybackScript {
+export interface PredictFingeringOptions {
+  spanScale?: number;
+}
+
+export function predictFingering(
+  script: PlaybackScript,
+  options: PredictFingeringOptions = {},
+): PlaybackScript {
+  const spanScale = options.spanScale ?? 1;
   const fingersByHand: Record<Hand, (Finger | null)[]> = {
-    L: predictFingersForHand(script, 'L'),
-    R: predictFingersForHand(script, 'R'),
+    L: predictFingersForHand(script, 'L', spanScale),
+    R: predictFingersForHand(script, 'R', spanScale),
   };
   const cursor: Record<Hand, number> = { L: 0, R: 0 };
 
