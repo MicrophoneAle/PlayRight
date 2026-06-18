@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useAuth } from '@clerk/react';
-import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload } from 'lucide-react';
+import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
@@ -12,12 +12,21 @@ import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
 import { AccountSection } from './AccountSection.tsx';
 
+const HEADER_COLLAPSED_STORAGE_KEY = 'playright-header-collapsed';
+
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return window.localStorage.getItem(HEADER_COLLAPSED_STORAGE_KEY) === 'true';
+  });
   const { isLoaded: isAuthLoaded, isSignedIn, userId } = useAuth();
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
@@ -127,6 +136,129 @@ export function Lid() {
       ? 'bg-violet-600 text-white'
       : 'text-zinc-400 hover:text-zinc-200';
 
+  const toggleCollapsed = () => {
+    setCollapsed((value) => {
+      const next = !value;
+      window.localStorage.setItem(HEADER_COLLAPSED_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
+  const playControls = (
+    <>
+      <button
+        type="button"
+        onClick={() => practiceEngine.start()}
+        disabled={!script || isPracticeActive}
+        className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Play size={15} strokeWidth={2} aria-hidden />
+        Start
+      </button>
+      {isPracticeActive ? (
+        <button
+          type="button"
+          onClick={() => practiceEngine.pause()}
+          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+        >
+          <Pause size={15} strokeWidth={2} aria-hidden />
+          Pause
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => practiceEngine.restart()}
+          disabled={!script || !hasPracticeStarted}
+          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RotateCcw size={15} strokeWidth={2} aria-hidden />
+          Restart
+        </button>
+      )}
+    </>
+  );
+
+  const handToggle = script && engineMode === 'one-hand' ? (
+    <div
+      className="flex gap-1 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
+      role="group"
+      aria-label="Active hand"
+    >
+      <button
+        type="button"
+        onClick={() => handleHandChange('L')}
+        aria-pressed={activeHand === 'L'}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L')}`}
+      >
+        LH
+      </button>
+      <button
+        type="button"
+        onClick={() => handleHandChange('R')}
+        aria-pressed={activeHand === 'R'}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R')}`}
+      >
+        RH
+      </button>
+    </div>
+  ) : null;
+
+  const collapseButton = (
+    <button
+      type="button"
+      onClick={toggleCollapsed}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand header' : 'Collapse header'}
+      title={collapsed ? 'Expand header' : 'Collapse header'}
+      className="inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+    >
+      {collapsed ? (
+        <ChevronDown size={15} strokeWidth={2} aria-hidden />
+      ) : (
+        <ChevronUp size={15} strokeWidth={2} aria-hidden />
+      )}
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-2 backdrop-blur-sm">
+        <input
+          type="file"
+          accept=".xml,.musicxml,.mxl"
+          className="hidden"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+        />
+
+        {collapseButton}
+
+        <div className="flex min-w-0 items-center gap-2">
+          <Music2 size={16} className="shrink-0 text-violet-400" aria-hidden />
+          <span className="truncate text-sm font-semibold text-zinc-100">PlayRight</span>
+        </div>
+
+        <div className="min-w-0 flex-1 truncate text-sm text-zinc-400">
+          {songTitle ?? 'No Piece Loaded'}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {playControls}
+          {handToggle}
+          <AccountSection />
+        </div>
+
+        <ScoreLibraryPanel
+          isOpen={isLibraryOpen}
+          onClose={() => setIsLibraryOpen(false)}
+          onSelect={handleSelectFromLibrary}
+          canDelete={canManageLibrary}
+          userId={userId ?? null}
+        />
+      </header>
+    );
+  }
+
   return (
     <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
       <input
@@ -138,6 +270,7 @@ export function Lid() {
       />
 
       <div className="flex min-w-0 items-center gap-3">
+        {collapseButton}
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
           <Music2 size={18} strokeWidth={2} aria-hidden />
         </div>
@@ -181,60 +314,9 @@ export function Lid() {
           <Upload size={15} strokeWidth={2} aria-hidden />
           Import
         </button>
-        <button
-          type="button"
-          onClick={() => practiceEngine.start()}
-          disabled={!script || isPracticeActive}
-          className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Play size={15} strokeWidth={2} aria-hidden />
-          Start
-        </button>
-        {isPracticeActive ? (
-          <button
-            type="button"
-            onClick={() => practiceEngine.pause()}
-            className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
-          >
-            <Pause size={15} strokeWidth={2} aria-hidden />
-            Pause
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => practiceEngine.restart()}
-            disabled={!script || !hasPracticeStarted}
-            className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RotateCcw size={15} strokeWidth={2} aria-hidden />
-            Restart
-          </button>
-        )}
+        {playControls}
 
-        {script && engineMode === 'one-hand' ? (
-          <div
-            className="flex gap-1 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
-            role="group"
-            aria-label="Active hand"
-          >
-            <button
-              type="button"
-              onClick={() => handleHandChange('L')}
-              aria-pressed={activeHand === 'L'}
-              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L')}`}
-            >
-              LH
-            </button>
-            <button
-              type="button"
-              onClick={() => handleHandChange('R')}
-              aria-pressed={activeHand === 'R'}
-              className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R')}`}
-            >
-              RH
-            </button>
-          </div>
-        ) : null}
+        {handToggle}
 
         <ShortcutsMenu
           isOpen={shortcutsOpen}

@@ -23,6 +23,95 @@ const OSMD_CURSOR_OPTIONS = {
   follow: false,
 } as const;
 
+function screenDeltaToSvgUnits(svg: SVGSVGElement, deltaY: number): number {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) {
+    return deltaY;
+  }
+
+  const scaleY = Math.hypot(ctm.c, ctm.d);
+  return scaleY > 0 ? deltaY / scaleY : deltaY;
+}
+
+function translateSvgElement(
+  element: SVGGraphicsElement,
+  deltaX: number,
+  deltaY: number,
+): void {
+  const existing = element.getAttribute('transform') ?? '';
+  const match = existing.match(
+    /translate\(\s*([-\d.]+)(?:[,\s]+([-\d.]+))?\s*\)/,
+  );
+
+  if (match) {
+    const x = parseFloat(match[1]);
+    const y = parseFloat(match[2] ?? '0');
+    const remainder = existing.replace(match[0], '').trim();
+    const next = `translate(${x + deltaX}, ${y + deltaY})`;
+    element.setAttribute(
+      'transform',
+      remainder ? `${next} ${remainder}` : next,
+    );
+    return;
+  }
+
+  element.setAttribute(
+    'transform',
+    `${existing} translate(${deltaX}, ${deltaY})`.trim(),
+  );
+}
+
+/** Anchor measure numbers a fixed distance above the staff instead of the skyline. */
+function normalizeMeasureNumberPositions(container: HTMLElement): void {
+  const OFFSET_ABOVE_STAFF_PX = 10;
+  const svg = container.querySelector('svg');
+  if (!svg) {
+    return;
+  }
+
+  const labels = container.querySelectorAll<SVGGraphicsElement>('.measure-number');
+  const staves = [...container.querySelectorAll<SVGGraphicsElement>('.vf-stave')];
+
+  if (labels.length === 0 || staves.length === 0) {
+    return;
+  }
+
+  for (const label of labels) {
+    const labelRect = label.getBoundingClientRect();
+    if (labelRect.width === 0 && labelRect.height === 0) {
+      continue;
+    }
+
+    const anchorX = labelRect.left + Math.min(labelRect.width * 0.2, 8);
+    let topStaveTop = Infinity;
+
+    for (const stave of staves) {
+      const staveRect = stave.getBoundingClientRect();
+      if (anchorX < staveRect.left - 4 || anchorX > staveRect.right + 4) {
+        continue;
+      }
+
+      if (staveRect.top < topStaveTop) {
+        topStaveTop = staveRect.top;
+      }
+    }
+
+    if (!Number.isFinite(topStaveTop)) {
+      continue;
+    }
+
+    const targetBottom = topStaveTop - OFFSET_ABOVE_STAFF_PX;
+    const deltaScreenY = targetBottom - labelRect.bottom;
+
+    if (Math.abs(deltaScreenY) < 0.5) {
+      continue;
+    }
+
+    const deltaSvgY = screenDeltaToSvgUnits(svg, deltaScreenY);
+    translateSvgElement(label, 0, deltaSvgY);
+  }
+}
+
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   const rules = osmd.EngravingRules;
   rules.PageTopMargin = 0;
@@ -30,6 +119,7 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.SheetCopyrightMargin = 0;
   rules.SystemComposerDistance = 0;
   rules.SystemLyricistDistance = 0;
+  rules.MeasureNumberLabelOffset = 2;
 }
 
 function trimTopWhitespace(container: HTMLElement): void {
@@ -212,6 +302,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         }
 
         trimTopWhitespace(container);
+        normalizeMeasureNumberPositions(container);
 
         if (rebuildIndex) {
           scheduleVisualIndexBuild();
@@ -272,7 +363,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-0 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden"
+      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-0 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }
