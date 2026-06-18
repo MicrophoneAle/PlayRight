@@ -3,7 +3,6 @@ import {
   getPracticeNotes,
   stepHasPracticeNotes,
 } from './practiceSteps.ts';
-import { reconcileHeldPracticeKeys } from './practiceKeyReconcile.ts';
 import { alignScopeToMidis } from './scopeAlign.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { ScriptNote } from '../types/index.ts';
@@ -184,8 +183,6 @@ export class PracticeEngine {
     if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
     }
-
-    reconcileHeldPracticeKeys();
   }
 
   private checkStepCompletion(): void {

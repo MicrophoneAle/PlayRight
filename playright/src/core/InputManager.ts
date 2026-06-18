@@ -1,7 +1,5 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
-import { setHeldKeyReconciler } from './practiceKeyReconcile.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
 
 export const SCOPE_SIZE = 17;
 
@@ -92,15 +90,12 @@ export function formatKeyCode(code: string): string {
   return symbols[code] ?? code;
 }
 
-let activeInputManager: InputManager | null = null;
-
 export class InputManager {
   private readonly audioEngine: AudioEngine;
   private readonly getScopeStart: () => number;
   private readonly activePhysicalKeys = new Set<string>();
   private cachedScopeStart: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
-  private unsubscribeScope: (() => void) | null = null;
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     const midiPitch = this.resolveMidiPitch(event.code);
@@ -138,46 +133,12 @@ export class InputManager {
   constructor(audioEngine: AudioEngine, getScopeStart: () => number = () => 60) {
     this.audioEngine = audioEngine;
     this.getScopeStart = getScopeStart;
-    activeInputManager = this;
-    setHeldKeyReconciler(() => {
-      this.reconcileActiveKeys();
-    });
     practiceEngine.attachAudioEngine(audioEngine);
-
-    let lastScopeStart = getScopeStart();
-    this.unsubscribeScope = useEngineStore.subscribe((state) => {
-      if (state.scopeStartMidi === lastScopeStart) {
-        return;
-      }
-
-      lastScopeStart = state.scopeStartMidi;
-      this.cachedScopeStart = null;
-
-      if (state.isPracticeActive) {
-        this.reconcileActiveKeys();
-      }
-    });
-
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
   }
 
-  reconcileActiveKeys(): void {
-    for (const code of this.activePhysicalKeys) {
-      const midiPitch = this.resolveMidiPitch(code);
-      if (midiPitch !== undefined) {
-        practiceEngine.registerPracticeHit(midiPitch);
-      }
-    }
-  }
-
   destroy(): void {
-    this.unsubscribeScope?.();
-    this.unsubscribeScope = null;
-    if (activeInputManager === this) {
-      activeInputManager = null;
-      setHeldKeyReconciler(null);
-    }
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
     window.removeEventListener('keyup', this.handleKeyUp, { capture: true });
     this.activePhysicalKeys.clear();

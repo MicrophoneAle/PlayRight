@@ -130,6 +130,11 @@ export function Lid() {
       ? 'bg-violet-600 text-white'
       : 'text-zinc-400 hover:text-zinc-200';
 
+  const headerToggleClass = (visible: boolean) =>
+    visible
+      ? 'inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
+      : 'fixed left-6 top-4 z-50 inline-flex items-center justify-center rounded-lg border border-zinc-700/70 bg-zinc-900/30 p-2 text-zinc-300/90 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/50 hover:text-zinc-100';
+
   const toggleCollapsed = () => {
     setCollapsed((value) => !value);
   };
@@ -200,7 +205,7 @@ export function Lid() {
       aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand header' : 'Collapse header'}
       title={collapsed ? 'Expand header' : 'Collapse header'}
-      className="inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 p-2 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+      className={headerToggleClass(!collapsed)}
     >
       {collapsed ? (
         <ChevronDown size={15} strokeWidth={2} aria-hidden />
@@ -221,16 +226,7 @@ export function Lid() {
           onChange={handleFileUpload}
         />
 
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          aria-expanded={false}
-          aria-label="Show header"
-          title="Show header"
-          className="fixed left-1 top-1 z-50 flex h-6 w-6 items-center justify-center rounded border border-zinc-700/70 bg-zinc-950/75 text-zinc-400 opacity-80 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/90 hover:text-zinc-200 hover:opacity-100"
-        >
-          <ChevronDown size={12} strokeWidth={2.5} aria-hidden />
-        </button>
+        {collapseButton}
 
         <ScoreLibraryPanel
           isOpen={isLibraryOpen}
@@ -334,7 +330,7 @@ export function Lid() {
 
           {settingsOpen ? (
             <div
-              className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl"
+              className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-zinc-700 bg-zinc-950 p-3 shadow-xl ring-1 ring-zinc-800 backdrop-blur-none"
               onMouseDown={(event) => event.stopPropagation()}
             >
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
@@ -344,7 +340,7 @@ export function Lid() {
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-zinc-400">Practice Mode</span>
                   <div
-                    className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800/50 p-0.5"
+                    className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800 p-0.5"
                     role="group"
                     aria-label="Practice Mode"
                   >
