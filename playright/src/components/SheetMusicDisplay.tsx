@@ -358,6 +358,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   }, [musicXml]);
 
   useEffect(() => {
+    scrollStateRef.current.systemKey = null;
     scheduleVisualIndexBuild();
   }, [script, engineMode, activeHand, musicXml]);
 

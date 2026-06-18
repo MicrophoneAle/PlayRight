@@ -521,6 +521,13 @@ function scrollContainerForPractice(
   const containerRect = container.getBoundingClientRect();
   const systemTop =
     systemRect.top - containerRect.top + container.scrollTop;
+  const systemBottom = systemTop + systemRect.height;
+  const viewportHeight = container.clientHeight;
+  const fullSystemFits = systemRect.height <= viewportHeight - 2 * padding;
+  const maxScrollTop = Math.max(
+    0,
+    container.scrollHeight - viewportHeight,
+  );
 
   const previousSystemKey = scrollState.current.systemKey;
   const isNewStaffLine =
@@ -530,20 +537,16 @@ function scrollContainerForPractice(
 
   let targetScrollTop = container.scrollTop;
 
-  if (isNewStaffLine) {
+  if (isNewStaffLine || previousSystemKey === null) {
     targetScrollTop = Math.max(0, systemTop - padding);
   }
 
   const noteBounds = getActiveHandNoteBounds(notes, activeHand, engineMode);
-  if (noteBounds && engineMode === 'one-hand') {
+  if (noteBounds && engineMode === 'one-hand' && !fullSystemFits) {
     const noteTop =
       noteBounds.top - containerRect.top + container.scrollTop;
     const noteBottom =
       noteBounds.bottom - containerRect.top + container.scrollTop;
-    const maxScrollTop = Math.max(
-      0,
-      container.scrollHeight - container.clientHeight,
-    );
 
     if (activeHand === 'R' && noteTop - targetScrollTop < padding) {
       targetScrollTop = Math.min(targetScrollTop, Math.max(0, noteTop - padding));
@@ -551,15 +554,28 @@ function scrollContainerForPractice(
 
     if (
       activeHand === 'L' &&
-      noteBottom - targetScrollTop > container.clientHeight - padding
+      noteBottom - targetScrollTop > viewportHeight - padding
     ) {
       targetScrollTop = Math.max(
         targetScrollTop,
-        noteBottom - container.clientHeight + padding,
+        noteBottom - viewportHeight + padding,
       );
-      targetScrollTop = Math.min(targetScrollTop, maxScrollTop);
     }
   }
+
+  if (fullSystemFits) {
+    targetScrollTop = Math.max(0, systemTop - padding);
+  } else {
+    const maxScrollForSystemTop = Math.max(0, systemTop - padding);
+    const minScrollForSystemBottom = Math.max(
+      0,
+      systemBottom - viewportHeight + padding,
+    );
+    targetScrollTop = Math.min(targetScrollTop, maxScrollForSystemTop);
+    targetScrollTop = Math.max(targetScrollTop, minScrollForSystemBottom);
+  }
+
+  targetScrollTop = Math.min(targetScrollTop, maxScrollTop);
 
   if (Math.abs(targetScrollTop - container.scrollTop) < 1) {
     return;
