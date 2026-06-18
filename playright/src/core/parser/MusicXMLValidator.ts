@@ -6,7 +6,8 @@ const ScriptNoteSchema = z.object({
   pitch: z.string().min(1),
   midi: z.number().int().min(0).max(127),
   hand: z.enum(['L', 'R']),
-  finger: z.number().int().min(0).max(5),
+  finger: z.number().int().min(1).max(5).nullable(),
+  fingerSource: z.enum(['score', 'predicted', 'manual']).optional(),
 });
 
 /** Mirrors {@link StepOrder} — domain field is `order`, not `orderId`. */

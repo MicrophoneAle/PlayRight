@@ -6,12 +6,12 @@ function mapStaffToHand(staff: number): Hand {
   return staff === 2 ? 'L' : 'R';
 }
 
-function mapFingering(fingering: number): Finger {
+function mapScoreFingering(fingering: number): Finger | null {
   if (fingering >= 1 && fingering <= 5) {
     return fingering as Finger;
   }
 
-  return 1;
+  return null;
 }
 
 function groupByOnset(
@@ -63,11 +63,13 @@ export class MusicXMLMapper {
           continue;
         }
 
+        const finger = mapScoreFingering(element.fingering);
         const scriptNote: ScriptNote = {
           pitch: formatPitch(element.step, element.octave, element.alter),
           midi: getMidiNumber(element.step, element.octave, element.alter),
           hand: mapStaffToHand(element.staff),
-          finger: mapFingering(element.fingering),
+          finger,
+          ...(finger !== null ? { fingerSource: 'score' as const } : {}),
         };
 
         if (element.isChord && absoluteNotes.length > 0) {

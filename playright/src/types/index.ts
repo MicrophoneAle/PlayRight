@@ -6,7 +6,8 @@ export interface ScriptNote {
   pitch: string;
   midi: number;
   hand: Hand;
-  finger: Finger;
+  finger: Finger | null;
+  fingerSource?: 'score' | 'predicted' | 'manual';
 }
 
 export interface StepOrder {
