@@ -9,6 +9,7 @@ import type { Hand } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
+import { AuthControls } from './AuthControls.tsx';
 
 export function Lid() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -224,6 +225,8 @@ export function Lid() {
           }}
           onClose={() => setShortcutsOpen(false)}
         />
+
+        <AuthControls />
 
         <div className="relative" ref={settingsRef}>
           <button
