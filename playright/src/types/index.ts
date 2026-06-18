@@ -11,6 +11,8 @@ export interface ScriptNote {
 
 export interface StepOrder {
   order: number;
+  /** MusicXML division time from the start of the part. */
+  onset: number;
   notes: ScriptNote[];
 }
 

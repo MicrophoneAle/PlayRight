@@ -85,7 +85,7 @@ function groupByOnset(
       index += 1;
     }
 
-    const step: StepOrder = { order, notes };
+    const step: StepOrder = { order, onset, notes };
     script.push(step);
     order += 1;
   }

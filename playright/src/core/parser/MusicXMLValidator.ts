@@ -12,6 +12,7 @@ const ScriptNoteSchema = z.object({
 /** Mirrors {@link StepOrder} — domain field is `order`, not `orderId`. */
 const StepOrderSchema = z.object({
   order: z.number().int().min(0),
+  onset: z.number().int().min(0),
   notes: z.array(ScriptNoteSchema),
 });
 

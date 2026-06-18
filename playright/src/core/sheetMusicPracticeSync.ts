@@ -4,7 +4,7 @@ import type {
   OpenSheetMusicDisplay,
 } from 'opensheetmusicdisplay';
 import { getPracticeNotes } from './practiceSteps.ts';
-import type { EngineMode, Hand, PlaybackScript } from '../types/index.ts';
+import type { EngineMode, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 const HIGHLIGHT_COLOR = '#10b981';
 const DEFAULT_NOTE_COLOR = '#000000';
@@ -17,6 +17,17 @@ const HIGHLIGHT_OPTIONS = {
   applyToTies: true,
 } as const;
 
+export interface PracticeVisualIndex {
+  stepCursorOffsets: number[];
+  stepGraphicalNotes: GraphicalNote[][];
+}
+
+interface CursorSnapshot {
+  cursorIndex: number;
+  attackKeys: Set<string>;
+  attackGNotes: GraphicalNote[];
+}
+
 function osmdNoteMidi(note: Note): number {
   return note.Pitch.getHalfTone() + 12;
 }
@@ -27,6 +38,15 @@ function osmdNoteHand(note: Note): Hand {
 
 function noteKey(midi: number, hand: Hand): string {
   return `${midi}:${hand}`;
+}
+
+function isTieContinuation(note: Note): boolean {
+  const tie = note.NoteTie;
+  if (!tie) {
+    return false;
+  }
+
+  return tie.StartNote !== note;
 }
 
 function practiceKeysForStep(
@@ -48,21 +68,19 @@ function practiceKeysForStep(
   return keys;
 }
 
-function cursorKeysAtPosition(osmd: OpenSheetMusicDisplay): Set<string> {
+function keysFromAttackGNotes(gNotes: GraphicalNote[]): Set<string> {
   const keys = new Set<string>();
-  for (const note of osmd.cursor.NotesUnderCursor()) {
-    if (note.isRest()) {
+  for (const gNote of gNotes) {
+    const source = gNote.sourceNote;
+    if (source.isRest() || isTieContinuation(source)) {
       continue;
     }
-    keys.add(noteKey(osmdNoteMidi(note), osmdNoteHand(note)));
+    keys.add(noteKey(osmdNoteMidi(source), osmdNoteHand(source)));
   }
   return keys;
 }
 
-function stepMatchesCursor(
-  expected: Set<string>,
-  atCursor: Set<string>,
-): boolean {
+function stepMatchesKeys(expected: Set<string>, atCursor: Set<string>): boolean {
   if (expected.size === 0) {
     return false;
   }
@@ -76,19 +94,111 @@ function stepMatchesCursor(
   return true;
 }
 
-/** Map each script step index to a cursor position (number of next() calls from reset). */
-export function buildStepCursorOffsets(
+function graphicalNoteFromSource(
+  osmd: OpenSheetMusicDisplay,
+  note: Note,
+): GraphicalNote | null {
+  try {
+    return osmd.EngravingRules.GNote(note);
+  } catch {
+    return null;
+  }
+}
+
+function noteMatchesPractice(
+  note: Note,
+  practiceNotes: ScriptNote[],
+): boolean {
+  if (note.isRest()) {
+    return false;
+  }
+
+  const midi = osmdNoteMidi(note);
+  const hand = osmdNoteHand(note);
+  return practiceNotes.some(
+    (practiceNote) => practiceNote.midi === midi && practiceNote.hand === hand,
+  );
+}
+
+function collectGraphicalNotesWithTies(
+  osmd: OpenSheetMusicDisplay,
+  attackGNotes: GraphicalNote[],
+  practiceNotes: ScriptNote[],
+): GraphicalNote[] {
+  const results: GraphicalNote[] = [];
+  const seen = new Set<Note>();
+
+  for (const attackGNote of attackGNotes) {
+    const source = attackGNote.sourceNote;
+    if (!noteMatchesPractice(source, practiceNotes)) {
+      continue;
+    }
+
+    const tie = source.NoteTie;
+    const tiedSources = tie ? tie.Notes : [source];
+
+    for (const tiedNote of tiedSources) {
+      if (seen.has(tiedNote) || !noteMatchesPractice(tiedNote, practiceNotes)) {
+        continue;
+      }
+
+      const gNote = graphicalNoteFromSource(osmd, tiedNote);
+      if (!gNote) {
+        continue;
+      }
+
+      seen.add(tiedNote);
+      results.push(gNote);
+    }
+  }
+
+  return results;
+}
+
+function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
+  const cursor = osmd.cursor;
+  const snapshots: CursorSnapshot[] = [];
+
+  cursor.reset();
+
+  for (let cursorIndex = 0; cursorIndex < 200_000; cursorIndex += 1) {
+    const gNotes = cursor.GNotesUnderCursor();
+    const attackGNotes = gNotes.filter(
+      (gNote) =>
+        !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
+    );
+
+    snapshots.push({
+      cursorIndex,
+      attackKeys: keysFromAttackGNotes(gNotes),
+      attackGNotes,
+    });
+
+    const iterator = cursor.Iterator;
+    if (iterator?.EndReached) {
+      break;
+    }
+
+    cursor.next();
+  }
+
+  cursor.reset();
+  return snapshots;
+}
+
+/** Build a practice-step index in a single cursor pass (linear time). */
+export function buildPracticeVisualIndex(
   osmd: OpenSheetMusicDisplay,
   script: PlaybackScript,
   engineMode: EngineMode,
   activeHand: Hand,
-): number[] {
-  const cursor = osmd.cursor;
-  const offsets = new Array<number>(script.length).fill(0);
+): PracticeVisualIndex {
+  const snapshots = walkCursorSnapshots(osmd);
+  const stepCursorOffsets = new Array<number>(script.length).fill(0);
+  const stepGraphicalNotes: GraphicalNote[][] = script.map(() => []);
 
-  cursor.reset();
-  let position = 0;
-  let safety = 200_000;
+  let snapshotIndex = 0;
+  let lastCursorOffset = 0;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
     const expected = practiceKeysForStep(
@@ -97,36 +207,45 @@ export function buildStepCursorOffsets(
       engineMode,
       activeHand,
     );
+    const practiceNotes = getPracticeNotes(
+      script[stepIndex],
+      engineMode,
+      activeHand,
+    );
 
     if (expected.size === 0) {
-      offsets[stepIndex] = position;
+      stepCursorOffsets[stepIndex] = lastCursorOffset;
       continue;
     }
 
     let matched = false;
 
-    while (safety > 0) {
-      safety -= 1;
+    while (snapshotIndex < snapshots.length) {
+      const snapshot = snapshots[snapshotIndex];
+      snapshotIndex += 1;
 
-      if (stepMatchesCursor(expected, cursorKeysAtPosition(osmd))) {
-        offsets[stepIndex] = position;
-        matched = true;
-        cursor.next();
-        position += 1;
-        break;
+      if (!stepMatchesKeys(expected, snapshot.attackKeys)) {
+        continue;
       }
 
-      cursor.next();
-      position += 1;
+      stepCursorOffsets[stepIndex] = snapshot.cursorIndex;
+      lastCursorOffset = snapshot.cursorIndex;
+      stepGraphicalNotes[stepIndex] = collectGraphicalNotesWithTies(
+        osmd,
+        snapshot.attackGNotes,
+        practiceNotes,
+      );
+      matched = true;
+      break;
     }
 
     if (!matched) {
-      offsets[stepIndex] = offsets[stepIndex - 1] ?? 0;
+      stepCursorOffsets[stepIndex] = lastCursorOffset;
     }
   }
 
-  cursor.reset();
-  return offsets;
+  osmd.cursor.reset();
+  return { stepCursorOffsets, stepGraphicalNotes };
 }
 
 function moveCursorToOffset(
@@ -139,32 +258,6 @@ function moveCursorToOffset(
     cursor.next();
   }
   cursor.update();
-}
-
-function filterGraphicalNotes(
-  gNotes: GraphicalNote[],
-  expectedMidiNotes: number[],
-  engineMode: EngineMode,
-  activeHand: Hand,
-): GraphicalNote[] {
-  const expected = new Set(expectedMidiNotes);
-
-  return gNotes.filter((gNote) => {
-    const source = gNote.sourceNote;
-    if (source.isRest()) {
-      return false;
-    }
-
-    if (!expected.has(osmdNoteMidi(source))) {
-      return false;
-    }
-
-    if (engineMode === 'one-hand' && osmdNoteHand(source) !== activeHand) {
-      return false;
-    }
-
-    return true;
-  });
 }
 
 function resetGraphicalNotes(notes: GraphicalNote[]): void {
@@ -182,23 +275,17 @@ function highlightGraphicalNotes(notes: GraphicalNote[]): void {
 export function syncSheetMusicPracticeVisuals(
   osmd: OpenSheetMusicDisplay,
   options: {
-    script: PlaybackScript;
     stepIndex: number;
-    stepCursorOffsets: number[];
+    visualIndex: PracticeVisualIndex | null;
     expectedMidiNotes: number[];
-    engineMode: EngineMode;
-    activeHand: Hand;
     container: HTMLElement;
     highlightedNotes: GraphicalNote[];
   },
 ): GraphicalNote[] {
   const {
-    script,
     stepIndex,
-    stepCursorOffsets,
+    visualIndex,
     expectedMidiNotes,
-    engineMode,
-    activeHand,
     container,
     highlightedNotes,
   } = options;
@@ -206,25 +293,20 @@ export function syncSheetMusicPracticeVisuals(
   resetGraphicalNotes(highlightedNotes);
 
   const cursor = osmd.cursor;
-  if (!cursor) {
+  if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
+    cursor?.hide();
     return [];
   }
 
-  if (!script[stepIndex] || expectedMidiNotes.length === 0) {
+  const toHighlight = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
+  if (toHighlight.length === 0) {
     cursor.hide();
     return [];
   }
 
-  const offset = stepCursorOffsets[stepIndex] ?? 0;
+  const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
   moveCursorToOffset(osmd, offset);
   cursor.show();
-
-  const toHighlight = filterGraphicalNotes(
-    cursor.GNotesUnderCursor(),
-    expectedMidiNotes,
-    engineMode,
-    activeHand,
-  );
   highlightGraphicalNotes(toHighlight);
 
   const cursorElement = cursor.cursorElement;
