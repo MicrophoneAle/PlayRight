@@ -5,6 +5,7 @@ export interface SavedScore {
   title: string;
   raw_xml: string;
   created_at: string;
+  user_id: string;
 }
 
 export interface LibraryEntry {
@@ -13,21 +14,33 @@ export interface LibraryEntry {
   created_at: string;
 }
 
-export async function saveScoreToLibrary(title: string, rawXml: string): Promise<void> {
+export async function saveScoreToLibrary(
+  title: string,
+  rawXml: string,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   const supabase = getSupabase();
   if (!supabase) {
-    console.error('[scoreLibrary] Failed to save score: Supabase not configured.');
-    return;
+    return { ok: false, reason: 'Score library is not configured.' };
   }
 
-  const { error } = await supabase.from('scores').insert({ title, raw_xml: rawXml });
+  const { error } = await supabase.from('scores').insert({
+    title,
+    raw_xml: rawXml,
+    user_id: userId,
+  });
 
   if (error) {
     console.error('[scoreLibrary] Failed to save score:', error.message);
+    return { ok: false, reason: error.message };
   }
+
+  return { ok: true };
 }
 
-export async function fetchScoreLibrary(): Promise<LibraryEntry[] | null> {
+export async function fetchScoreLibrary(
+  userId: string,
+): Promise<LibraryEntry[] | null> {
   const supabase = getSupabase();
   if (!supabase) {
     console.error('[scoreLibrary] Failed to fetch library: Supabase not configured.');
@@ -37,6 +50,7 @@ export async function fetchScoreLibrary(): Promise<LibraryEntry[] | null> {
   const { data, error } = await supabase
     .from('scores')
     .select('id, title, created_at')
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -47,7 +61,10 @@ export async function fetchScoreLibrary(): Promise<LibraryEntry[] | null> {
   return data ?? [];
 }
 
-export async function fetchScoreById(id: string): Promise<SavedScore | null> {
+export async function fetchScoreById(
+  id: string,
+  userId: string,
+): Promise<SavedScore | null> {
   const supabase = getSupabase();
   if (!supabase) {
     console.error('[scoreLibrary] Failed to fetch score: Supabase not configured.');
@@ -56,8 +73,9 @@ export async function fetchScoreById(id: string): Promise<SavedScore | null> {
 
   const { data, error } = await supabase
     .from('scores')
-    .select('id, title, raw_xml, created_at')
+    .select('id, title, raw_xml, created_at, user_id')
     .eq('id', id)
+    .eq('user_id', userId)
     .single();
 
   if (error) {
@@ -70,10 +88,10 @@ export async function fetchScoreById(id: string): Promise<SavedScore | null> {
 
 export async function deleteScoreFromLibrary(
   id: string,
+  userId: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const supabase = getSupabase();
   if (!supabase) {
-    console.error('[scoreLibrary] Failed to delete score: Supabase not configured.');
     return { ok: false, reason: 'Score library is not configured.' };
   }
 
@@ -81,6 +99,7 @@ export async function deleteScoreFromLibrary(
     .from('scores')
     .delete()
     .eq('id', id)
+    .eq('user_id', userId)
     .select('id');
 
   if (error) {
@@ -90,7 +109,7 @@ export async function deleteScoreFromLibrary(
 
   if (!data?.length) {
     const reason =
-      'Delete was blocked (no rows removed). Run supabase/scores_rls.sql in the Supabase SQL editor to add the delete policy.';
+      'Delete was blocked (no rows removed). Enable Clerk in Supabase and run supabase/scores_rls.sql.';
     console.error('[scoreLibrary]', reason);
     return { ok: false, reason };
   }

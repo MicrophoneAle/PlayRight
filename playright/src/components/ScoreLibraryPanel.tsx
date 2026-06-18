@@ -13,6 +13,7 @@ interface ScoreLibraryPanelProps {
   onClose: () => void;
   onSelect: (id: string) => void;
   canDelete: boolean;
+  userId: string | null;
 }
 
 function formatCreatedAt(createdAt: string): string {
@@ -33,6 +34,7 @@ export function ScoreLibraryPanel({
   onClose,
   onSelect,
   canDelete,
+  userId,
 }: ScoreLibraryPanelProps) {
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,7 +56,13 @@ export function ScoreLibraryPanel({
       return;
     }
 
-    const data = await fetchScoreLibrary();
+    if (!userId) {
+      setEntries([]);
+      setLoading(false);
+      return;
+    }
+
+    const data = await fetchScoreLibrary(userId);
     if (data === null) {
       setFetchFailed(true);
       setEntries([]);
@@ -63,7 +71,7 @@ export function ScoreLibraryPanel({
     }
 
     setLoading(false);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -73,7 +81,7 @@ export function ScoreLibraryPanel({
     }
 
     void loadEntries();
-  }, [isOpen, loadEntries]);
+  }, [isOpen, loadEntries, userId]);
 
   useEffect(() => {
     if (!deleteTarget) {
@@ -110,13 +118,13 @@ export function ScoreLibraryPanel({
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTarget || !canDelete) {
+    if (!deleteTarget || !canDelete || !userId) {
       return;
     }
 
     setDeletingId(deleteTarget.id);
     setDeleteError(null);
-    const result = await deleteScoreFromLibrary(deleteTarget.id);
+    const result = await deleteScoreFromLibrary(deleteTarget.id, userId);
     setDeletingId(null);
 
     if (!result.ok) {
@@ -247,6 +255,10 @@ export function ScoreLibraryPanel({
             <p className="px-2 py-6 text-center text-sm text-zinc-500">
               Score library is not configured. Add VITE_SUPABASE_URL and
               VITE_SUPABASE_ANON_KEY to your deployment environment.
+            </p>
+          ) : !userId ? (
+            <p className="px-2 py-6 text-center text-sm text-zinc-500">
+              Sign in to view your saved scores.
             </p>
           ) : fetchFailed ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">

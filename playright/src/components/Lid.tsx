@@ -18,7 +18,7 @@ export function Lid() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+  const { isLoaded: isAuthLoaded, isSignedIn, userId } = useAuth();
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
@@ -30,7 +30,7 @@ export function Lid() {
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
 
-  const canManageLibrary = isAuthLoaded && isSignedIn;
+  const canManageLibrary = isAuthLoaded && isSignedIn && Boolean(userId);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -74,9 +74,14 @@ export function Lid() {
         const script = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
         loadScript(script, text, title);
-        saveScoreToLibrary(title, text).catch((err) =>
-          console.error('[scoreLibrary] Unexpected save error:', err),
-        );
+
+        if (userId) {
+          const saved = await saveScoreToLibrary(title, text, userId);
+          if (!saved.ok) {
+            console.error('[scoreLibrary] Failed to save score:', saved.reason);
+          }
+        }
+
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', script);
       } catch (error) {
         console.error('🚨 PARSE FAILED:', error);
@@ -88,7 +93,11 @@ export function Lid() {
   };
 
   const handleSelectFromLibrary = async (id: string) => {
-    const saved = await fetchScoreById(id);
+    if (!userId) {
+      return;
+    }
+
+    const saved = await fetchScoreById(id, userId);
     if (!saved) {
       return;
     }
@@ -327,6 +336,7 @@ export function Lid() {
         onClose={() => setIsLibraryOpen(false)}
         onSelect={handleSelectFromLibrary}
         canDelete={canManageLibrary}
+        userId={userId ?? null}
       />
     </header>
   );

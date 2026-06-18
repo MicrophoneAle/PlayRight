@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { Dashboard } from './components/Dashboard.tsx';
+import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
 import { useEngineStore } from './store/useEngineStore.ts';
 
 function App() {
@@ -35,7 +36,12 @@ function App() {
     };
   }, []);
 
-  return <Dashboard />;
+  return (
+    <>
+      <SupabaseClerkBridge />
+      <Dashboard />
+    </>
+  );
 }
 
 export default App;
