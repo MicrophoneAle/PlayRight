@@ -20,6 +20,14 @@ export class PracticeEngine {
     useEngineStore.subscribe((state, prevState) => {
       if (state.script !== prevState.script) {
         this.syncAfterScriptChange();
+        return;
+      }
+
+      if (state.engineMode !== prevState.engineMode && state.script) {
+        this.hitNoteIndices.clear();
+        this.loadCurrentStep({
+          alignScope: state.engineMode === 'one-hand',
+        });
       }
     });
   }
