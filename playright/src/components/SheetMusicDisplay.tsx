@@ -182,6 +182,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const visualIndexGenerationRef = useRef(0);
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
+  const scrollStateRef = useRef<{ systemTop: number | null }>({ systemTop: null });
   const script = useEngineStore((state) => state.script);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -213,6 +214,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       container,
       highlightedNotes: highlightedNotesRef.current,
       cursorOffsetRef,
+      scrollStateRef,
     });
   };
 
@@ -261,6 +263,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
+      scrollStateRef.current.systemTop = null;
       return;
     }
 
@@ -271,6 +274,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexRef.current = null;
     highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
+    scrollStateRef.current.systemTop = null;
     visualIndexGenerationRef.current += 1;
 
     const osmd = new OpenSheetMusicDisplay(container, {
@@ -342,6 +346,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
+      scrollStateRef.current.systemTop = null;
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";
@@ -363,7 +368,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      className="min-h-0 flex-1 w-full scroll-smooth overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }

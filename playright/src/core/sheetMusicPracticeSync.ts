@@ -347,6 +347,7 @@ function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
 function scrollContainerToMusicSystem(
   container: HTMLElement,
   notes: GraphicalNote[],
+  scrollState: { current: { systemTop: number | null } },
 ): void {
   const padding = 12;
   const systemRect = getNotesSystemBounds(notes);
@@ -366,9 +367,23 @@ function scrollContainerToMusicSystem(
   const systemFullyVisible =
     systemTop >= visibleTop && systemBottom <= visibleBottom;
 
-  if (!systemFullyVisible) {
-    container.scrollTop = Math.max(0, systemTop - padding);
+  if (systemFullyVisible) {
+    scrollState.current.systemTop = systemTop;
+    return;
   }
+
+  const targetScrollTop = Math.max(0, systemTop - padding);
+  const previousSystemTop = scrollState.current.systemTop;
+  const isNewLine =
+    previousSystemTop === null ||
+    Math.abs(systemTop - previousSystemTop) > 20;
+
+  container.scrollTo({
+    top: targetScrollTop,
+    behavior: isNewLine ? 'smooth' : 'auto',
+  });
+
+  scrollState.current.systemTop = systemTop;
 }
 
 export function syncSheetMusicPracticeVisuals(
@@ -381,6 +396,7 @@ export function syncSheetMusicPracticeVisuals(
     container: HTMLElement;
     highlightedNotes: GraphicalNote[];
     cursorOffsetRef: { current: number };
+    scrollStateRef: { current: { systemTop: number | null } };
   },
 ): GraphicalNote[] {
   const {
@@ -391,6 +407,7 @@ export function syncSheetMusicPracticeVisuals(
     container,
     highlightedNotes,
     cursorOffsetRef,
+    scrollStateRef,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -428,7 +445,7 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerToMusicSystem(container, toHighlight);
+  scrollContainerToMusicSystem(container, toHighlight, scrollStateRef);
 
   return toHighlight;
 }
