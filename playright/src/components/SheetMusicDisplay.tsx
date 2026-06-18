@@ -164,10 +164,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
   }, [currentStepIndex, isPracticeActive, musicXml]);
 
+  if (!musicXml) {
+    return null;
+  }
+
   return (
     <div
       ref={containerRef}
-      className="min-h-[280px] w-full overflow-auto rounded-lg bg-white p-4 [&_svg]:max-w-full"
+      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white p-4 [&_svg]:max-w-full"
     />
   );
 }
