@@ -211,7 +211,7 @@ export function PianoKeyboard() {
 
   return (
     <div
-      className="relative flex h-40 w-full select-none overflow-hidden rounded-b-md border-t border-zinc-800 shadow-2xl"
+      className="relative flex h-32 w-full select-none overflow-hidden rounded-b-md border-t border-zinc-800 shadow-2xl"
       aria-label="88-key piano keyboard"
     >
       {whiteKeys.map((key) => {
