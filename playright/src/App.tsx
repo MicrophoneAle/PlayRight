@@ -1,12 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
+import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
 import { Dashboard } from './components/Dashboard.tsx';
 import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
 import { useEngineStore } from './store/useEngineStore.ts';
 
 function App() {
   const initializedRef = useRef(false);
+  usePracticeKeyboardShortcuts();
 
   useEffect(() => {
     if (initializedRef.current) {

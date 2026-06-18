@@ -18,7 +18,10 @@ export function Lid() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = useEngineStore((state) => state.headerCollapsed);
+  const toggleHeaderCollapsed = useEngineStore(
+    (state) => state.actions.toggleHeaderCollapsed,
+  );
   const { isLoaded: isAuthLoaded, isSignedIn, userId } = useAuth();
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
@@ -136,7 +139,7 @@ export function Lid() {
       : 'fixed left-8 top-4 z-50 inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700/70 bg-zinc-900/30 text-zinc-300/90 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/50 hover:text-zinc-100 sm:left-10 sm:top-[1.125rem]';
 
   const toggleCollapsed = () => {
-    setCollapsed((value) => !value);
+    toggleHeaderCollapsed();
   };
 
   const playControls = (

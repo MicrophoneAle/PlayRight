@@ -53,6 +53,23 @@ export class PracticeEngine {
     actions.setExpectedNotes([]);
   }
 
+  /** End the current playthrough and return to the beginning. */
+  stop(): void {
+    const { script, actions } = useEngineStore.getState();
+    if (!script) {
+      return;
+    }
+
+    this.cancelCompletionCheck();
+    this.hitNoteIndices.clear();
+    this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
+    actions.setStepIndex(0);
+    actions.setPracticeActive(false);
+    actions.setHasPracticeStarted(false);
+    actions.setExpectedNotes([]);
+  }
+
   switchHand(resumePractice: boolean): void {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();

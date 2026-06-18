@@ -28,6 +28,7 @@ interface EngineState {
   isPracticeActive: boolean;
   /** True after Start is pressed for the current piece (enables Restart). */
   hasPracticeStarted: boolean;
+  headerCollapsed: boolean;
   currentStepIndex: number;
   totalSteps: number;
   expectedMidiNotes: number[];
@@ -42,6 +43,7 @@ interface EngineState {
     setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
     setHasPracticeStarted: (started: boolean) => void;
+    toggleHeaderCollapsed: () => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
   };
@@ -58,6 +60,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   activeHand: 'R',
   isPracticeActive: false,
   hasPracticeStarted: false,
+  headerCollapsed: false,
   currentStepIndex: 0,
   totalSteps: 0,
   expectedMidiNotes: [],
@@ -121,6 +124,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setHasPracticeStarted: (started) => {
       set({ hasPracticeStarted: started });
+    },
+    toggleHeaderCollapsed: () => {
+      set((state) => ({ headerCollapsed: !state.headerCollapsed }));
     },
     setStepIndex: (index) => {
       set({ currentStepIndex: index });
