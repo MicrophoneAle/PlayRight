@@ -20,3 +20,20 @@ export interface StepOrder {
 export type PlaybackScript = StepOrder[];
 
 export type EngineMode = 'default' | 'one-hand' | 'two-hand';
+
+/** Stable key for a note in manual fingering overrides: stepIndex:hand:midi */
+export type ManualFingeringKey = `${number}:${Hand}:${number}`;
+
+export type ManualFingeringMap = Partial<Record<ManualFingeringKey, Finger>>;
+
+export function fingeringKey(
+  stepIndex: number,
+  hand: Hand,
+  midi: number,
+): ManualFingeringKey {
+  return `${stepIndex}:${hand}:${midi}`;
+}
+
+export function isFinger(value: number): value is Finger {
+  return Number.isInteger(value) && value >= 1 && value <= 5;
+}

@@ -1,4 +1,11 @@
-import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type {
+  Finger,
+  Hand,
+  ManualFingeringMap,
+  PlaybackScript,
+  ScriptNote,
+} from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 
 export interface NoteEvent {
   stepIndex: number;
@@ -692,4 +699,58 @@ export function predictFingering(
       ),
     };
   });
+}
+
+export function applyManualFingerings(
+  script: PlaybackScript,
+  overrides: ManualFingeringMap,
+): PlaybackScript {
+  if (Object.keys(overrides).length === 0) {
+    return script;
+  }
+
+  return script.map((step, stepIndex) => ({
+    ...step,
+    notes: step.notes.map((note) => {
+      const finger = overrides[fingeringKey(stepIndex, note.hand, note.midi)];
+      if (finger === undefined) {
+        return note;
+      }
+
+      return {
+        ...note,
+        finger,
+        fingerSource: 'manual' as const,
+      };
+    }),
+  }));
+}
+
+export function extractManualFingerings(
+  script: PlaybackScript,
+): ManualFingeringMap {
+  const overrides: ManualFingeringMap = {};
+
+  script.forEach((step, stepIndex) => {
+    for (const note of step.notes) {
+      if (note.fingerSource === 'manual' && note.finger !== null) {
+        overrides[fingeringKey(stepIndex, note.hand, note.midi)] = note.finger;
+      }
+    }
+  });
+
+  return overrides;
+}
+
+export function prepareScriptWithFingering(
+  script: PlaybackScript,
+  manualFingerings: ManualFingeringMap,
+  autoFingering: boolean,
+  spanScale: number,
+): PlaybackScript {
+  const withManual = applyManualFingerings(script, manualFingerings);
+
+  return autoFingering
+    ? predictFingering(withManual, { spanScale })
+    : withManual;
 }

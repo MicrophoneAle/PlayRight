@@ -1,6 +1,16 @@
 import { create } from 'zustand';
+import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
+import { parseMusicXmlToScript } from '../core/parser/index.ts';
+import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
-import type { EngineMode, Hand, PlaybackScript } from '../types/index.ts';
+import type {
+  EngineMode,
+  Finger,
+  Hand,
+  ManualFingeringMap,
+  PlaybackScript,
+} from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 export type SheetScrollMode = 'smooth' | 'instant';
@@ -43,10 +53,57 @@ function readStoredHandSpan(): HandSpanPreset {
     : 1;
 }
 
+function reprocessScriptFromRaw(
+  rawXml: string | null,
+  manualFingerings: ManualFingeringMap,
+  autoFingering: boolean,
+  handSpan: HandSpanPreset,
+): PlaybackScript | null {
+  if (!rawXml) {
+    return null;
+  }
+
+  const parsed = parseMusicXmlToScript(rawXml);
+  return prepareScriptWithFingering(
+    parsed,
+    manualFingerings,
+    autoFingering,
+    handSpan,
+  );
+}
+
+function persistManualFingerings(
+  scoreId: string | null,
+  manualFingerings: ManualFingeringMap,
+  userId: string | null | undefined,
+): void {
+  if (!scoreId || !userId) {
+    return;
+  }
+
+  void updateScoreManualFingerings(scoreId, userId, manualFingerings).then(
+    (result) => {
+      if (!result.ok) {
+        console.error(
+          '[scoreLibrary] Failed to persist manual fingerings:',
+          result.reason,
+        );
+      }
+    },
+  );
+}
+
+export interface LoadScriptLibraryMeta {
+  scoreId?: string | null;
+  manualFingerings?: ManualFingeringMap;
+}
+
 interface EngineState {
   script: PlaybackScript | null;
   rawXml: string | null;
   songTitle: string | null;
+  scoreId: string | null;
+  manualFingerings: ManualFingeringMap;
   scopeStartMidi: number;
   shiftMode: ShiftMode;
   sheetScrollMode: SheetScrollMode;
@@ -63,8 +120,26 @@ interface EngineState {
   totalSteps: number;
   expectedMidiNotes: number[];
   actions: {
-    loadScript: (script: PlaybackScript, rawXml: string, title?: string) => void;
+    loadScript: (
+      script: PlaybackScript,
+      rawXml: string,
+      title?: string,
+      library?: LoadScriptLibraryMeta,
+    ) => void;
     clearScript: () => void;
+    setManualFinger: (
+      stepIndex: number,
+      hand: Hand,
+      midi: number,
+      finger: Finger,
+      userId?: string | null,
+    ) => void;
+    clearManualFinger: (
+      stepIndex: number,
+      hand: Hand,
+      midi: number,
+      userId?: string | null,
+    ) => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
     setSheetScrollMode: (mode: SheetScrollMode) => void;
@@ -85,6 +160,8 @@ export const useEngineStore = create<EngineState>((set) => ({
   script: null,
   rawXml: null,
   songTitle: null,
+  scoreId: null,
+  manualFingerings: {},
   scopeStartMidi: 60,
   shiftMode: 'semitone',
   sheetScrollMode: readStoredSheetScrollMode(),
@@ -99,11 +176,13 @@ export const useEngineStore = create<EngineState>((set) => ({
   totalSteps: 0,
   expectedMidiNotes: [],
   actions: {
-    loadScript: (script, rawXml, title) => {
+    loadScript: (script, rawXml, title, library) => {
       set({
         script,
         rawXml,
         songTitle: title ?? null,
+        scoreId: library?.scoreId ?? null,
+        manualFingerings: library?.manualFingerings ?? {},
         currentStepIndex: 0,
         totalSteps: script.length,
         isPracticeActive: false,
@@ -116,8 +195,62 @@ export const useEngineStore = create<EngineState>((set) => ({
         script: null,
         rawXml: null,
         songTitle: null,
+        scoreId: null,
+        manualFingerings: {},
         hasPracticeStarted: false,
         expectedMidiNotes: [],
+      });
+    },
+    setManualFinger: (stepIndex, hand, midi, finger, userId) => {
+      set((state) => {
+        const manualFingerings = {
+          ...state.manualFingerings,
+          [fingeringKey(stepIndex, hand, midi)]: finger,
+        };
+        const script = reprocessScriptFromRaw(
+          state.rawXml,
+          manualFingerings,
+          state.autoFingering,
+          state.handSpan,
+        );
+
+        persistManualFingerings(state.scoreId, manualFingerings, userId);
+
+        if (!script) {
+          return { manualFingerings };
+        }
+
+        return {
+          manualFingerings,
+          script,
+          totalSteps: script.length,
+        };
+      });
+    },
+    clearManualFinger: (stepIndex, hand, midi, userId) => {
+      set((state) => {
+        const key = fingeringKey(stepIndex, hand, midi);
+        const manualFingerings = { ...state.manualFingerings };
+        delete manualFingerings[key];
+
+        const script = reprocessScriptFromRaw(
+          state.rawXml,
+          manualFingerings,
+          state.autoFingering,
+          state.handSpan,
+        );
+
+        persistManualFingerings(state.scoreId, manualFingerings, userId);
+
+        if (!script) {
+          return { manualFingerings };
+        }
+
+        return {
+          manualFingerings,
+          script,
+          totalSteps: script.length,
+        };
       });
     },
     setScopeStart: (midi) => {

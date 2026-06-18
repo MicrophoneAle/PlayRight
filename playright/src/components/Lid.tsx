@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
-import { predictFingering } from '../core/fingeringPredictor.ts';
+import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS } from '../store/useEngineStore.ts';
-import type { Hand } from '../types/index.ts';
+import type { Hand, ManualFingeringMap } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
@@ -47,11 +47,17 @@ export function Lid() {
   const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
 
-  const prepareScriptForLoad = (script: ReturnType<typeof parseMusicXmlToScript>) => {
+  const prepareScriptForLoad = (
+    script: ReturnType<typeof parseMusicXmlToScript>,
+    manualFingerings: ManualFingeringMap = {},
+  ) => {
     const state = useEngineStore.getState();
-    return state.autoFingering
-      ? predictFingering(script, { spanScale: state.handSpan })
-      : script;
+    return prepareScriptWithFingering(
+      script,
+      manualFingerings,
+      state.autoFingering,
+      state.handSpan,
+    );
   };
 
   const handSpanClass = (preset: HandSpanPreset) =>
@@ -276,14 +282,21 @@ export function Lid() {
         const script = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
         const loadedScript = prepareScriptForLoad(script);
-        loadScript(loadedScript, text, title);
+        let scoreId: string | null = null;
 
         if (userId) {
           const saved = await saveScoreToLibrary(title, text, userId);
           if (!saved.ok) {
             console.error('[scoreLibrary] Failed to save score:', saved.reason);
+          } else {
+            scoreId = saved.id;
           }
         }
+
+        loadScript(loadedScript, text, title, {
+          scoreId,
+          manualFingerings: {},
+        });
 
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', loadedScript);
       } catch (error) {
@@ -307,7 +320,11 @@ export function Lid() {
 
     try {
       const script = parseMusicXmlToScript(saved.raw_xml);
-      loadScript(prepareScriptForLoad(script), saved.raw_xml, saved.title);
+      const loadedScript = prepareScriptForLoad(script, saved.manual_fingerings);
+      loadScript(loadedScript, saved.raw_xml, saved.title, {
+        scoreId: saved.id,
+        manualFingerings: saved.manual_fingerings,
+      });
     } catch (error) {
       console.error('🚨 PARSE FAILED:', error);
       alert('Failed to load piece: ' + (error as Error).message);
