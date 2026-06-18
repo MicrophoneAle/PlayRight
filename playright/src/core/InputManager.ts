@@ -107,6 +107,17 @@ export class InputManager {
   private cachedScopeStart: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
 
+  private isScopeShiftKey(event: KeyboardEvent): boolean {
+    return (
+      event.key === 'ArrowRight' ||
+      event.code === 'Digit2' ||
+      event.key === 'ArrowLeft' ||
+      event.code === 'Digit1' ||
+      event.key === 'ArrowUp' ||
+      event.code === 'Digit3'
+    );
+  }
+
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     if (useEngineStore.getState().engineMode === 'two-hand') {
       if (event.repeat) {
@@ -127,6 +138,11 @@ export class InputManager {
       }
 
       if (this.isOneHandNoteKeyCode(event.code)) {
+        event.preventDefault();
+        return;
+      }
+
+      if (this.isScopeShiftKey(event)) {
         event.preventDefault();
         return;
       }

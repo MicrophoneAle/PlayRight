@@ -173,10 +173,11 @@ export function Lid() {
           <select
             id="shift-mode-select"
             value={shiftMode}
+            disabled={engineMode === 'two-hand'}
             onChange={(event) =>
               setShiftMode(event.target.value as ShiftMode)
             }
-            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <option value="semitone">{SHIFT_MODE_LABELS.semitone}</option>
             <option value="octave">{SHIFT_MODE_LABELS.octave}</option>
@@ -249,7 +250,7 @@ export function Lid() {
 
   const handleHandChange = (hand: Hand) => {
     const state = useEngineStore.getState();
-    if (hand === state.activeHand) {
+    if (state.engineMode === 'two-hand' || hand === state.activeHand) {
       return;
     }
 
@@ -258,10 +259,12 @@ export function Lid() {
     practiceEngine.switchHand(wasPracticing);
   };
 
-  const handToggleClass = (selected: boolean) =>
-    selected
-      ? 'bg-violet-600 text-white'
-      : 'text-zinc-400 hover:text-zinc-200';
+  const handToggleClass = (selected: boolean, disabled: boolean) =>
+    disabled
+      ? 'cursor-not-allowed text-zinc-600'
+      : selected
+        ? 'bg-violet-600 text-white'
+        : 'text-zinc-400 hover:text-zinc-200';
 
   const headerToggleClass = (visible: boolean) =>
     visible
@@ -306,25 +309,32 @@ export function Lid() {
     </>
   );
 
-  const handToggle = script && engineMode === 'one-hand' ? (
+  const handToggle = script && (engineMode === 'one-hand' || engineMode === 'two-hand') ? (
     <div
-      className="flex gap-1 rounded-lg border border-zinc-700 bg-zinc-900 p-0.5"
+      className={`flex gap-1 rounded-lg border p-0.5 ${
+        engineMode === 'two-hand'
+          ? 'cursor-not-allowed border-zinc-800 bg-zinc-950 opacity-50'
+          : 'border-zinc-700 bg-zinc-900'
+      }`}
       role="group"
       aria-label="Active hand"
+      aria-disabled={engineMode === 'two-hand'}
     >
       <button
         type="button"
         onClick={() => handleHandChange('L')}
+        disabled={engineMode === 'two-hand'}
         aria-pressed={activeHand === 'L'}
-        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L')}`}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L', engineMode === 'two-hand')}`}
       >
         LH
       </button>
       <button
         type="button"
         onClick={() => handleHandChange('R')}
+        disabled={engineMode === 'two-hand'}
         aria-pressed={activeHand === 'R'}
-        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R')}`}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R', engineMode === 'two-hand')}`}
       >
         RH
       </button>
