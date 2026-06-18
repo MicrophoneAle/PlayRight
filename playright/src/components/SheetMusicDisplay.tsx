@@ -1,5 +1,13 @@
 import { useEffect, useRef } from "react";
-import { CursorType, OpenSheetMusicDisplay } from "opensheetmusicdisplay";
+import {
+  CursorType,
+  type GraphicalNote,
+  OpenSheetMusicDisplay,
+} from "opensheetmusicdisplay";
+import {
+  buildStepCursorOffsets,
+  syncSheetMusicPracticeVisuals,
+} from "../core/sheetMusicPracticeSync.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -7,9 +15,9 @@ interface SheetMusicDisplayProps {
 }
 
 const OSMD_CURSOR_OPTIONS = {
-  type: CursorType.Standard,
+  type: CursorType.CurrentArea,
   color: "#7c3aed",
-  alpha: 0.28,
+  alpha: 0.2,
   follow: false,
 } as const;
 
@@ -44,45 +52,61 @@ function prepareMusicXmlForDisplay(xml: string): string {
   );
 }
 
-function syncOsmdCursor(
-  osmd: OpenSheetMusicDisplay,
-  currentStepIndex: number,
-  isPracticeActive: boolean,
-): void {
-  const cursor = osmd.cursor;
-  if (!cursor) {
-    return;
-  }
-
-  try {
-    if (!isPracticeActive) {
-      cursor.hide();
-      return;
-    }
-
-    cursor.show();
-    cursor.reset();
-    for (let i = 0; i < currentStepIndex; i += 1) {
-      cursor.next();
-    }
-  } catch (err) {
-    console.warn("[SheetMusicDisplay] OSMD cursor sync failed:", err);
-  }
-}
-
 export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const osmdReadyRef = useRef(false);
   const cursorsEnabledRef = useRef(false);
+  const stepCursorOffsetsRef = useRef<number[]>([]);
+  const highlightedNotesRef = useRef<GraphicalNote[]>([]);
+  const script = useEngineStore((state) => state.script);
+  const engineMode = useEngineStore((state) => state.engineMode);
+  const activeHand = useEngineStore((state) => state.activeHand);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
+  const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
+
+  const syncPracticeVisuals = () => {
+    const osmd = osmdRef.current;
+    const container = containerRef.current;
+    if (!osmd || !container || !osmdReadyRef.current || !script) {
+      return;
+    }
+
+    highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
+      script,
+      stepIndex: currentStepIndex,
+      stepCursorOffsets: stepCursorOffsetsRef.current,
+      expectedMidiNotes,
+      engineMode,
+      activeHand,
+      container,
+      highlightedNotes: highlightedNotesRef.current,
+    });
+  };
+
+  const rebuildStepCursorOffsets = () => {
+    const osmd = osmdRef.current;
+    if (!osmd || !osmdReadyRef.current || !script) {
+      stepCursorOffsetsRef.current = [];
+      return;
+    }
+
+    stepCursorOffsetsRef.current = buildStepCursorOffsets(
+      osmd,
+      script,
+      engineMode,
+      activeHand,
+    );
+  };
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !musicXml) {
       osmdReadyRef.current = false;
       cursorsEnabledRef.current = false;
+      stepCursorOffsetsRef.current = [];
+      highlightedNotesRef.current = [];
       return;
     }
 
@@ -90,6 +114,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     let resizeObserver: ResizeObserver | null = null;
     osmdReadyRef.current = false;
     cursorsEnabledRef.current = false;
+    stepCursorOffsetsRef.current = [];
+    highlightedNotesRef.current = [];
 
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: true,
@@ -118,8 +144,26 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           osmd.render();
         }
 
-        const { currentStepIndex, isPracticeActive } = useEngineStore.getState();
-        syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
+        const state = useEngineStore.getState();
+        if (state.script) {
+          stepCursorOffsetsRef.current = buildStepCursorOffsets(
+            osmd,
+            state.script,
+            state.engineMode,
+            state.activeHand,
+          );
+        }
+
+        highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
+          script: state.script ?? [],
+          stepIndex: state.currentStepIndex,
+          stepCursorOffsets: stepCursorOffsetsRef.current,
+          expectedMidiNotes: state.expectedMidiNotes,
+          engineMode: state.engineMode,
+          activeHand: state.activeHand,
+          container,
+          highlightedNotes: highlightedNotesRef.current,
+        });
       } catch (err) {
         console.error("[SheetMusicDisplay] OSMD render failed:", err);
       }
@@ -149,6 +193,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       cancelled = true;
       osmdReadyRef.current = false;
       cursorsEnabledRef.current = false;
+      stepCursorOffsetsRef.current = [];
+      highlightedNotesRef.current = [];
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";
@@ -156,13 +202,20 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   }, [musicXml]);
 
   useEffect(() => {
-    const osmd = osmdRef.current;
-    if (!osmd || !osmdReadyRef.current) {
-      return;
-    }
+    rebuildStepCursorOffsets();
+    syncPracticeVisuals();
+  }, [script, engineMode, activeHand, musicXml]);
 
-    syncOsmdCursor(osmd, currentStepIndex, isPracticeActive);
-  }, [currentStepIndex, isPracticeActive, musicXml]);
+  useEffect(() => {
+    syncPracticeVisuals();
+  }, [
+    currentStepIndex,
+    isPracticeActive,
+    expectedMidiNotes,
+    script,
+    engineMode,
+    activeHand,
+  ]);
 
   if (!musicXml) {
     return null;
