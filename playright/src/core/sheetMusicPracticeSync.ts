@@ -23,6 +23,11 @@ const NOTE_HIGHLIGHT_OPTIONS = {
   applyToLyrics: false,
 } as const;
 
+export interface PracticeScrollState {
+  systemKey: string | null;
+  lineScrollTop: number | null;
+}
+
 export interface PracticeVisualIndex {
   stepCursorOffsets: number[];
   stepGraphicalNotes: GraphicalNote[][];
@@ -365,23 +370,66 @@ function getStavesForMusicSystem(gNote: GraphicalNote): Element[] {
   }
 
   const musicSystem = getMusicSystemFromNote(gNote);
-  const expectedStaveCount = musicSystem?.StaffLines?.length ?? 0;
+  const expectedCount = musicSystem?.StaffLines?.length ?? 0;
 
   let node: Element | null = stave.parentElement;
-  let bestMatch: Element[] = [stave];
+  let tightestMatch: Element[] | null = null;
 
   while (node && !node.matches('svg')) {
     const found = [...node.querySelectorAll('.vf-stave')];
-    if (expectedStaveCount > 0 && found.length === expectedStaveCount) {
+    if (!found.includes(stave)) {
+      node = node.parentElement;
+      continue;
+    }
+
+    if (expectedCount > 0 && found.length === expectedCount) {
       return found;
     }
-    if (found.length > bestMatch.length) {
-      bestMatch = found;
+
+    if (found.length >= 2) {
+      if (!tightestMatch || found.length < tightestMatch.length) {
+        tightestMatch = found;
+      }
     }
+
+    if (tightestMatch && found.length > tightestMatch.length + 2) {
+      break;
+    }
+
     node = node.parentElement;
   }
 
-  return bestMatch;
+  if (tightestMatch && tightestMatch.length >= 2) {
+    return tightestMatch;
+  }
+
+  return getGrandStaffStavesNear(stave);
+}
+
+function getGrandStaffStavesNear(stave: Element): Element[] {
+  const svg = stave.closest('svg');
+  if (!svg) {
+    return [stave];
+  }
+
+  const staveRect = stave.getBoundingClientRect();
+  const anchorX = (staveRect.left + staveRect.right) / 2;
+
+  const paired = [...svg.querySelectorAll('.vf-stave')].filter((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      return false;
+    }
+
+    const candidateX = (rect.left + rect.right) / 2;
+    if (Math.abs(candidateX - anchorX) > 120) {
+      return false;
+    }
+
+    return Math.abs(rect.top - staveRect.top) < 220;
+  });
+
+  return paired.length > 0 ? paired : [stave];
 }
 
 function getNotesSystemKey(notes: GraphicalNote[]): string | null {
@@ -416,18 +464,11 @@ function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
 }
 
 function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
-  let bounds: DOMRect | null = null;
-
-  for (const gNote of notes) {
-    const systemBounds = getMusicSystemBounds(gNote);
-    if (!systemBounds) {
-      continue;
-    }
-
-    bounds = bounds ? unionRects(bounds, systemBounds) : systemBounds;
+  if (notes.length === 0) {
+    return null;
   }
 
-  return bounds;
+  return getMusicSystemBounds(notes[0]);
 }
 
 function getHighlightedNotesBounds(notes: GraphicalNote[]): DOMRect | null {
@@ -525,7 +566,7 @@ function animateScrollTop(
 function scrollContainerForPractice(
   container: HTMLElement,
   notes: GraphicalNote[],
-  scrollState: { current: { systemKey: string | null } },
+  scrollState: { current: PracticeScrollState },
   scrollMode: SheetScrollMode,
 ): void {
   const padding = 12;
@@ -558,64 +599,63 @@ function scrollContainerForPractice(
     previousSystemKey !== null && systemKey !== previousSystemKey;
   const needsAnchor = previousSystemKey === null;
 
-  scrollState.current.systemKey = systemKey;
-
   if (isNewStaffLine || needsAnchor) {
     const target = alignFullSystem();
+    scrollState.current = { systemKey, lineScrollTop: target };
     if (Math.abs(target - scrollTop) >= 1) {
       animateScrollTop(container, target, scrollMode);
     }
     return;
   }
 
-  const systemInView = isVerticallyInView(
-    systemTop,
-    systemBottom,
-    scrollTop,
-    viewportHeight,
-    padding,
-  );
+  scrollState.current.systemKey = systemKey;
+
+  if (fullSystemFits) {
+    const anchor = scrollState.current.lineScrollTop;
+    if (anchor !== null && Math.abs(scrollTop - anchor) >= 1) {
+      animateScrollTop(container, anchor, scrollMode);
+    }
+    return;
+  }
 
   const noteBounds = getHighlightedNotesBounds(notes);
-  const noteInView =
-    !noteBounds ||
+  if (!noteBounds) {
+    return;
+  }
+
+  const noteTop = noteBounds.top - containerRect.top + scrollTop;
+  const noteBottom = noteBounds.bottom - containerRect.top + scrollTop;
+
+  if (
     isVerticallyInView(
-      noteBounds.top - containerRect.top + scrollTop,
-      noteBounds.bottom - containerRect.top + scrollTop,
+      noteTop,
+      noteBottom,
       scrollTop,
       viewportHeight,
       padding,
-    );
-
-  if (systemInView && noteInView) {
+    )
+  ) {
     return;
   }
 
   let target = scrollTop;
+  const visibleNoteTop = noteTop - scrollTop;
+  const visibleNoteBottom = noteBottom - scrollTop;
 
-  if (fullSystemFits) {
-    target = alignFullSystem();
-  } else if (noteBounds && !noteInView) {
-    const noteTop = noteBounds.top - containerRect.top + scrollTop;
-    const noteBottom = noteBounds.bottom - containerRect.top + scrollTop;
-    const visibleNoteTop = noteTop - scrollTop;
-    const visibleNoteBottom = noteBottom - scrollTop;
-
-    if (visibleNoteTop < padding) {
-      target = Math.max(0, noteTop - padding);
-    } else if (visibleNoteBottom > viewportHeight - padding) {
-      target = Math.min(maxScrollTop, noteBottom - viewportHeight + padding);
-    }
-
-    const maxScrollForSystemTop = Math.max(0, systemTop - padding);
-    const minScrollForSystemBottom = Math.max(
-      0,
-      systemBottom - viewportHeight + padding,
-    );
-    target = Math.min(target, maxScrollForSystemTop);
-    target = Math.max(target, minScrollForSystemBottom);
-    target = Math.min(target, maxScrollTop);
+  if (visibleNoteTop < padding) {
+    target = Math.max(0, noteTop - padding);
+  } else if (visibleNoteBottom > viewportHeight - padding) {
+    target = Math.min(maxScrollTop, noteBottom - viewportHeight + padding);
   }
+
+  const maxScrollForSystemTop = Math.max(0, systemTop - padding);
+  const minScrollForSystemBottom = Math.max(
+    0,
+    systemBottom - viewportHeight + padding,
+  );
+  target = Math.min(target, maxScrollForSystemTop);
+  target = Math.max(target, minScrollForSystemBottom);
+  target = Math.min(target, maxScrollTop);
 
   if (Math.abs(target - scrollTop) < 1) {
     return;
@@ -634,7 +674,7 @@ export function syncSheetMusicPracticeVisuals(
     container: HTMLElement;
     highlightedNotes: GraphicalNote[];
     cursorOffsetRef: { current: number };
-    scrollStateRef: { current: { systemKey: string | null } };
+    scrollStateRef: { current: PracticeScrollState };
     scrollMode: SheetScrollMode;
     activeHand: Hand;
     engineMode: EngineMode;

@@ -5,6 +5,7 @@ import {
 } from "opensheetmusicdisplay";
 import {
   buildPracticeVisualIndex,
+  type PracticeScrollState,
   type PracticeVisualIndex,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
@@ -182,7 +183,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const visualIndexGenerationRef = useRef(0);
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
-  const scrollStateRef = useRef<{ systemKey: string | null }>({ systemKey: null });
+  const scrollStateRef = useRef<PracticeScrollState>({
+    systemKey: null,
+    lineScrollTop: null,
+  });
   const script = useEngineStore((state) => state.script);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -267,7 +271,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
-      scrollStateRef.current.systemKey = null;
+      scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       return;
     }
 
@@ -278,7 +282,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexRef.current = null;
     highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
-    scrollStateRef.current.systemKey = null;
+    scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     visualIndexGenerationRef.current += 1;
 
     const osmd = new OpenSheetMusicDisplay(container, {
@@ -350,7 +354,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
-      scrollStateRef.current.systemKey = null;
+      scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";
@@ -362,7 +366,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   }, [script, engineMode, musicXml]);
 
   useEffect(() => {
-    scrollStateRef.current.systemKey = null;
+    scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     scheduleVisualIndexBuild();
   }, [activeHand]);
 
