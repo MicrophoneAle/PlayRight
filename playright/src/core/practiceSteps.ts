@@ -1,5 +1,11 @@
-import type { Hand, PlaybackScript, ScriptNote, StepOrder } from '../types/index.ts';
-import type { EngineMode } from '../types/index.ts';
+import type {
+  EngineMode,
+  Finger,
+  Hand,
+  PlaybackScript,
+  ScriptNote,
+  StepOrder,
+} from '../types/index.ts';
 
 export function getPracticeNotes(
   step: StepOrder,
@@ -47,4 +53,14 @@ export function countCompletedPracticeSteps(
   return script
     .slice(0, currentStepIndex)
     .filter((step) => stepHasPracticeNotes(step, engineMode, activeHand)).length;
+}
+
+export function getExpectedNoteForFinger(
+  step: StepOrder,
+  hand: Hand,
+  finger: Finger,
+): ScriptNote | null {
+  return (
+    step.notes.find((note) => note.hand === hand && note.finger === finger) ?? null
+  );
 }
