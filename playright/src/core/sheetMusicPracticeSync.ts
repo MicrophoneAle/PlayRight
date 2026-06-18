@@ -345,50 +345,6 @@ function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
   return bounds;
 }
 
-function getHighlightedNotesBounds(notes: GraphicalNote[]): DOMRect | null {
-  let bounds: DOMRect | null = null;
-
-  const includeBounds = (element: Element | null | undefined): void => {
-    if (!element) {
-      return;
-    }
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) {
-      return;
-    }
-
-    bounds = bounds ? unionRects(bounds, rect) : rect;
-  };
-
-  for (const gNote of notes) {
-    const vfNote = gNote as VexFlowGraphicNote;
-    includeBounds(
-      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null,
-    );
-
-    if (typeof vfNote.getTieSVGs === 'function') {
-      for (const tieElement of vfNote.getTieSVGs()) {
-        includeBounds(tieElement);
-      }
-    }
-  }
-
-  return bounds;
-}
-
-function isRectWithinContainerViewport(
-  container: HTMLElement,
-  rect: DOMRect,
-  padding: number,
-): boolean {
-  const containerRect = container.getBoundingClientRect();
-  const visibleTop = containerRect.top + padding;
-  const visibleBottom = containerRect.bottom - padding;
-
-  return rect.top >= visibleTop && rect.bottom <= visibleBottom;
-}
-
 const activeScrollAnimations = new WeakMap<HTMLElement, number>();
 
 function animateScrollTop(
@@ -461,15 +417,6 @@ function scrollContainerToMusicSystem(
   scrollState.current.systemTop = systemTop;
 
   if (!isNewLine) {
-    return;
-  }
-
-  const noteBounds = getHighlightedNotesBounds(notes);
-  const visibilityRect = noteBounds
-    ? unionRects(systemRect, noteBounds)
-    : systemRect;
-
-  if (isRectWithinContainerViewport(container, visibilityRect, padding)) {
     return;
   }
 
