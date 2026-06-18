@@ -5,7 +5,10 @@ import {
   getDynamicKeyMap,
   SCOPE_SIZE,
 } from '../core/InputManager.ts';
+import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
+import { TWO_HAND_KEY_MAP } from '../core/twoHandMapping.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
+import type { PlaybackScript } from '../types/index.ts';
 
 const START_MIDI = 21;
 const END_MIDI = 108;
@@ -53,6 +56,32 @@ function isMidiActive(
   return Object.entries(keyMap).some(
     ([code, mappedMidi]) => mappedMidi === midi && activePhysicalKeys.has(code),
   );
+}
+
+function buildTwoHandExpectedLabels(
+  script: PlaybackScript | null,
+  stepIndex: number,
+): Map<number, string> {
+  const labels = new Map<number, string>();
+
+  if (!script || stepIndex < 0 || stepIndex >= script.length) {
+    return labels;
+  }
+
+  const step = script[stepIndex];
+
+  for (const [physicalKey, mapping] of Object.entries(TWO_HAND_KEY_MAP)) {
+    const expected = getExpectedNoteForFinger(
+      step,
+      mapping.hand,
+      mapping.finger,
+    );
+    if (expected !== null) {
+      labels.set(expected.midi, physicalKey);
+    }
+  }
+
+  return labels;
 }
 
 function getWhiteKeyClasses(
@@ -105,7 +134,11 @@ export function PianoKeyboard() {
   const scopeStartMidi = useEngineStore((state) => state.scopeStartMidi);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
+  const engineMode = useEngineStore((state) => state.engineMode);
+  const script = useEngineStore((state) => state.script);
+  const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const setScopeStart = useEngineStore((state) => state.actions.setScopeStart);
+  const isTwoHand = engineMode === 'two-hand';
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -119,6 +152,14 @@ export function PianoKeyboard() {
     () => new Set(expectedMidiNotes),
     [expectedMidiNotes],
   );
+
+  const twoHandMidiLabels = useMemo(() => {
+    if (!isTwoHand) {
+      return null;
+    }
+
+    return buildTwoHandExpectedLabels(script, currentStepIndex);
+  }, [isTwoHand, script, currentStepIndex]);
 
   const midiToPhysical = useMemo(() => {
     const currentMap = getDynamicKeyMap(scopeStartMidi);
@@ -149,6 +190,11 @@ export function PianoKeyboard() {
   }, []);
 
   useEffect(() => {
+    if (isTwoHand) {
+      setActivePhysicalKeys(new Set());
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight' || event.code === 'Digit2') {
         event.preventDefault();
@@ -207,7 +253,7 @@ export function PianoKeyboard() {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
       window.removeEventListener('keyup', handleKeyUp, { capture: true });
     };
-  }, [setScopeStart, keyMap]);
+  }, [isTwoHand, setScopeStart, keyMap]);
 
   return (
     <div
@@ -215,18 +261,23 @@ export function PianoKeyboard() {
       aria-label="88-key piano keyboard"
     >
       {whiteKeys.map((key) => {
-        const inScope = isInScope(key.midi, scopeStartMidi);
-        const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
-        const isExpected =
-          isPracticeActive && expectedMidiSet.has(key.midi);
-        const mappedLetter = midiToPhysical[key.midi];
+        const inScope = isTwoHand ? false : isInScope(key.midi, scopeStartMidi);
+        const isActive = isTwoHand
+          ? false
+          : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+        const isExpected = isTwoHand
+          ? (twoHandMidiLabels?.has(key.midi) ?? false)
+          : isPracticeActive && expectedMidiSet.has(key.midi);
+        const mappedLetter = isTwoHand
+          ? twoHandMidiLabels?.get(key.midi)
+          : midiToPhysical[key.midi];
 
         return (
           <div
             key={key.midi}
             className={getWhiteKeyClasses(inScope, isExpected, isActive)}
           >
-            {mappedLetter && inScope ? (
+            {mappedLetter && (isTwoHand || inScope) ? (
               <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
                 {mappedLetter}
               </span>
@@ -235,11 +286,16 @@ export function PianoKeyboard() {
         );
       })}
       {blackKeys.map((key) => {
-        const inScope = isInScope(key.midi, scopeStartMidi);
-        const isActive = isMidiActive(key.midi, keyMap, activePhysicalKeys);
-        const isExpected =
-          isPracticeActive && expectedMidiSet.has(key.midi);
-        const mappedLetter = midiToPhysical[key.midi];
+        const inScope = isTwoHand ? false : isInScope(key.midi, scopeStartMidi);
+        const isActive = isTwoHand
+          ? false
+          : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+        const isExpected = isTwoHand
+          ? (twoHandMidiLabels?.has(key.midi) ?? false)
+          : isPracticeActive && expectedMidiSet.has(key.midi);
+        const mappedLetter = isTwoHand
+          ? twoHandMidiLabels?.get(key.midi)
+          : midiToPhysical[key.midi];
 
         return (
           <div
@@ -252,7 +308,7 @@ export function PianoKeyboard() {
               height: '65%',
             }}
           >
-            {mappedLetter && inScope ? (
+            {mappedLetter && (isTwoHand || inScope) ? (
               <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-200">
                 {mappedLetter}
               </span>
