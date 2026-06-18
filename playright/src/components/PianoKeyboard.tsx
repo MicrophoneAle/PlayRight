@@ -55,6 +55,52 @@ function isMidiActive(
   );
 }
 
+function getWhiteKeyClasses(
+  inScope: boolean,
+  isExpected: boolean,
+  isActive: boolean,
+): string {
+  const base =
+    'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0';
+
+  if (isActive && isExpected) {
+    return `${base} translate-y-[3px] bg-emerald-300 shadow-[inset_0_3px_6px_rgba(5,150,105,0.45)] ring-2 ring-inset ring-emerald-500`;
+  }
+  if (isActive) {
+    return `${base} translate-y-[3px] bg-zinc-300 shadow-inner`;
+  }
+  if (isExpected) {
+    return `${base} bg-emerald-100 ring-2 ring-inset ring-emerald-400`;
+  }
+  if (inScope) {
+    return `${base} bg-violet-100`;
+  }
+  return `${base} bg-white`;
+}
+
+function getBlackKeyClasses(
+  inScope: boolean,
+  isExpected: boolean,
+  isActive: boolean,
+): string {
+  const base =
+    'absolute z-10 rounded-b-sm shadow-md transition-[transform,box-shadow,background-color] duration-75';
+
+  if (isActive && isExpected) {
+    return `${base} translate-y-[2px] bg-emerald-950 shadow-[inset_0_4px_8px_rgba(6,78,59,0.8)] ring-2 ring-inset ring-emerald-400`;
+  }
+  if (isActive) {
+    return `${base} translate-y-[2px] bg-zinc-600 shadow-inner`;
+  }
+  if (isExpected) {
+    return `${base} bg-emerald-800 ring-2 ring-inset ring-emerald-400`;
+  }
+  if (inScope) {
+    return `${base} bg-violet-900`;
+  }
+  return `${base} bg-zinc-900`;
+}
+
 export function PianoKeyboard() {
   const scopeStartMidi = useEngineStore((state) => state.scopeStartMidi);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
@@ -178,15 +224,7 @@ export function PianoKeyboard() {
         return (
           <div
             key={key.midi}
-            className={`relative z-0 flex-1 border-r border-zinc-300 first:rounded-bl-md last:rounded-br-md last:border-r-0 ${
-              isActive
-                ? 'bg-zinc-300'
-                : isExpected
-                  ? 'bg-emerald-100 ring-2 ring-inset ring-emerald-400'
-                  : inScope
-                    ? 'bg-violet-100'
-                    : 'bg-white'
-            }`}
+            className={getWhiteKeyClasses(inScope, isExpected, isActive)}
           >
             {mappedLetter && inScope ? (
               <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
@@ -206,15 +244,7 @@ export function PianoKeyboard() {
         return (
           <div
             key={key.midi}
-            className={`absolute z-10 rounded-b-sm shadow-md ${
-              isActive
-                ? 'bg-zinc-600'
-                : isExpected
-                  ? 'bg-emerald-800 ring-2 ring-inset ring-emerald-400'
-                  : inScope
-                    ? 'bg-violet-900'
-                    : 'bg-zinc-900'
-            }`}
+            className={getBlackKeyClasses(inScope, isExpected, isActive)}
             style={{
               left: `calc(${(key.offsetIndex / 52) * 100}%)`,
               transform: 'translateX(-50%)',
