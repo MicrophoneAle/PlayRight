@@ -539,12 +539,29 @@ function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
   return bounds;
 }
 
+/** Hands whose notes contribute to line scroll extent for the current engine mode. */
+function getHandsForLineExtent(
+  engineMode: EngineMode,
+  activeHand: Hand,
+): readonly Hand[] | null {
+  if (engineMode === 'two-hand') {
+    return ['L', 'R'];
+  }
+
+  if (engineMode === 'one-hand') {
+    return [activeHand];
+  }
+
+  return null;
+}
+
 function collectLineHandGraphicalNotes(
   visualIndex: PracticeVisualIndex,
   systemKey: string,
   activeHand: Hand,
   engineMode: EngineMode,
 ): GraphicalNote[] {
+  const handsInPlay = getHandsForLineExtent(engineMode, activeHand);
   const results: GraphicalNote[] = [];
 
   for (const gNotes of visualIndex.stepGraphicalNotes) {
@@ -557,12 +574,13 @@ function collectLineHandGraphicalNotes(
     }
 
     for (const gNote of gNotes) {
-      if (
-        engineMode === 'one-hand' &&
-        osmdNoteHand(gNote.sourceNote) !== activeHand
-      ) {
-        continue;
+      if (handsInPlay !== null) {
+        const hand = osmdNoteHand(gNote.sourceNote);
+        if (!handsInPlay.includes(hand)) {
+          continue;
+        }
       }
+
       results.push(gNote);
     }
   }
