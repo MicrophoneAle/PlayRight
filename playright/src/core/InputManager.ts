@@ -1,5 +1,10 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
+import { useEngineStore } from '../store/useEngineStore.ts';
+import {
+  getFingerMapping,
+  type FingerMapping,
+} from './twoHandMapping.ts';
 
 export const SCOPE_SIZE = 17;
 
@@ -90,14 +95,43 @@ export function formatKeyCode(code: string): string {
   return symbols[code] ?? code;
 }
 
+export interface InputManagerOptions {
+  onFingerPress?: (mapping: FingerMapping) => void;
+}
+
 export class InputManager {
   private readonly audioEngine: AudioEngine;
   private readonly getScopeStart: () => number;
+  private readonly onFingerPress?: (mapping: FingerMapping) => void;
   private readonly activePhysicalKeys = new Set<string>();
   private cachedScopeStart: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
+    if (useEngineStore.getState().engineMode === 'two-hand') {
+      if (event.repeat) {
+        return;
+      }
+
+      const mapping = getFingerMapping(event.key);
+      if (mapping !== null) {
+        if (this.activePhysicalKeys.has(event.code)) {
+          return;
+        }
+
+        this.activePhysicalKeys.add(event.code);
+        void this.audioEngine.warm();
+        this.onFingerPress?.(mapping);
+        event.preventDefault();
+        return;
+      }
+
+      if (this.isOneHandNoteKeyCode(event.code)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     const midiPitch = this.resolveMidiPitch(event.code);
     if (midiPitch === undefined) {
       return;
@@ -115,6 +149,23 @@ export class InputManager {
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
+    if (useEngineStore.getState().engineMode === 'two-hand') {
+      const mapping = getFingerMapping(event.key);
+      if (mapping !== null) {
+        if (this.activePhysicalKeys.has(event.code)) {
+          this.activePhysicalKeys.delete(event.code);
+        }
+
+        event.preventDefault();
+        return;
+      }
+
+      if (this.isOneHandNoteKeyCode(event.code)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     const midiPitch = this.resolveMidiPitch(event.code);
     if (midiPitch === undefined) {
       return;
@@ -130,9 +181,14 @@ export class InputManager {
     this.audioEngine.noteOff(midiPitch);
   };
 
-  constructor(audioEngine: AudioEngine, getScopeStart: () => number = () => 60) {
+  constructor(
+    audioEngine: AudioEngine,
+    getScopeStart: () => number = () => 60,
+    options: InputManagerOptions = {},
+  ) {
     this.audioEngine = audioEngine;
     this.getScopeStart = getScopeStart;
+    this.onFingerPress = options.onFingerPress;
     practiceEngine.attachAudioEngine(audioEngine);
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
@@ -142,6 +198,10 @@ export class InputManager {
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
     window.removeEventListener('keyup', this.handleKeyUp, { capture: true });
     this.activePhysicalKeys.clear();
+  }
+
+  private isOneHandNoteKeyCode(keyCode: string): boolean {
+    return this.resolveMidiPitch(keyCode) !== undefined;
   }
 
   private resolveMidiPitch(keyCode: string): number | undefined {
