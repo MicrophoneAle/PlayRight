@@ -295,7 +295,52 @@ function highlightGraphicalNotes(notes: GraphicalNote[]): void {
 
 interface VexFlowGraphicNote extends GraphicalNote {
   getVFNoteSVG?: () => HTMLElement;
+  getStemSVG?: () => HTMLElement;
+  getFlagSVG?: () => HTMLElement;
   getTieSVGs?: () => HTMLElement[];
+  getLedgerLineSVGs?: () => HTMLElement[];
+  getBeamSVGs?: () => HTMLElement[];
+}
+
+function includeGraphicalNoteEngravingBounds(
+  gNote: GraphicalNote,
+  includeBounds: (element: Element | null | undefined) => void,
+): void {
+  const vfNote = gNote as VexFlowGraphicNote;
+
+  includeBounds(
+    typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null,
+  );
+
+  if (typeof vfNote.getStemSVG === 'function') {
+    includeBounds(vfNote.getStemSVG());
+  }
+
+  if (typeof vfNote.getFlagSVG === 'function') {
+    includeBounds(vfNote.getFlagSVG());
+  }
+
+  const includeElements = (elements: HTMLElement[] | undefined): void => {
+    if (!elements) {
+      return;
+    }
+
+    for (const element of elements) {
+      includeBounds(element);
+    }
+  };
+
+  if (typeof vfNote.getTieSVGs === 'function') {
+    includeElements(vfNote.getTieSVGs());
+  }
+
+  if (typeof vfNote.getLedgerLineSVGs === 'function') {
+    includeElements(vfNote.getLedgerLineSVGs());
+  }
+
+  if (typeof vfNote.getBeamSVGs === 'function') {
+    includeElements(vfNote.getBeamSVGs());
+  }
 }
 
 function unionRects(a: DOMRect, b: DOMRect): DOMRect {
@@ -488,16 +533,7 @@ function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
   };
 
   for (const gNote of notes) {
-    const vfNote = gNote as VexFlowGraphicNote;
-    includeBounds(
-      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null,
-    );
-
-    if (typeof vfNote.getTieSVGs === 'function') {
-      for (const tieElement of vfNote.getTieSVGs()) {
-        includeBounds(tieElement);
-      }
-    }
+    includeGraphicalNoteEngravingBounds(gNote, includeBounds);
   }
 
   return bounds;
@@ -561,15 +597,17 @@ function computeLineAnchorScrollTop(
   const extentBottom =
     handExtentBounds.bottom - containerRect.top + scrollTop;
 
-  let target =
-    activeHand === 'R'
-      ? Math.min(maxScrollForSystemTop, extentTop - padding)
-      : Math.max(
-          minScrollForSystemBottom,
-          extentBottom - viewportHeight + padding,
-        );
+  let target = maxScrollForSystemTop;
 
-  target = Math.min(target, maxScrollForSystemTop);
+  if (activeHand === 'R') {
+    target = Math.min(maxScrollForSystemTop, extentTop - padding);
+  } else {
+    const minScrollForLowest = extentBottom - viewportHeight + padding;
+    if (minScrollForLowest > target) {
+      target = minScrollForLowest;
+    }
+  }
+
   target = Math.max(target, minScrollForSystemBottom);
 
   return Math.min(maxScrollTop, Math.max(0, target));
@@ -739,7 +777,10 @@ function scrollContainerForPractice(
 
   if (activeHand === 'R' && visibleTop < padding) {
     target = Math.max(0, extentTop - padding);
-  } else if (activeHand === 'L' && visibleBottom > viewportHeight - padding) {
+  } else if (
+    activeHand === 'L' &&
+    visibleBottom > viewportHeight - padding
+  ) {
     target = Math.min(maxScrollTop, extentBottom - viewportHeight + padding);
   }
 
