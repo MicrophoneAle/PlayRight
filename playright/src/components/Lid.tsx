@@ -132,9 +132,13 @@ export function Lid() {
             </button>
             <button
               type="button"
-              disabled
-              title="Coming soon"
-              className="flex-1 cursor-not-allowed rounded px-2 py-1.5 text-xs font-medium text-zinc-600"
+              onClick={() => setEngineMode('two-hand')}
+              aria-pressed={engineMode === 'two-hand'}
+              className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                engineMode === 'two-hand'
+                  ? 'bg-violet-600 text-white'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
             >
               Two Hands
             </button>

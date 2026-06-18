@@ -25,6 +25,7 @@ interface EngineState {
   sheetScrollMode: SheetScrollMode;
   engineMode: EngineMode;
   activeHand: Hand;
+  /** Set by PracticeEngine; false when paused, stopped, or not yet started. */
   isPracticeActive: boolean;
   /** True after Start is pressed for the current piece (enables Restart). */
   hasPracticeStarted: boolean;
@@ -105,10 +106,6 @@ export const useEngineStore = create<EngineState>((set) => ({
       }));
     },
     setEngineMode: (mode) => {
-      if (mode === 'two-hand') {
-        return;
-      }
-
       set({ engineMode: mode });
     },
     setActiveHand: (hand) => {
@@ -136,3 +133,7 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
   },
 }));
+
+/** True when practice is actively running (started, not paused or stopped). */
+export const selectIsPracticeActive = (state: EngineState): boolean =>
+  state.isPracticeActive && state.hasPracticeStarted;
