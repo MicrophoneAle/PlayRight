@@ -1,9 +1,38 @@
-import type { Finger, Hand } from '../types/index.ts';
+import type { Finger, Hand, PlaybackScript } from '../types/index.ts';
 
 export interface NoteEvent {
   stepIndex: number;
   midi: number;
   authoredFinger: Finger | null;
+}
+
+export function extractHandTimelines(
+  script: PlaybackScript,
+): Record<Hand, NoteEvent[]> {
+  const timelines: Record<Hand, NoteEvent[]> = { L: [], R: [] };
+
+  script.forEach((step, stepIndex) => {
+    for (const note of step.notes) {
+      const authoredFinger =
+        note.fingerSource === 'score' || note.fingerSource === 'manual'
+          ? note.finger
+          : null;
+
+      timelines[note.hand].push({
+        stepIndex,
+        midi: note.midi,
+        authoredFinger,
+      });
+    }
+  });
+
+  const compareEvents = (left: NoteEvent, right: NoteEvent): number =>
+    left.stepIndex - right.stepIndex || left.midi - right.midi;
+
+  timelines.L.sort(compareEvents);
+  timelines.R.sort(compareEvents);
+
+  return timelines;
 }
 
 /** Ideal right-hand pitch distance in semitones (lower finger → higher finger). */
