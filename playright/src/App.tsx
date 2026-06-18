@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
+import { practiceEngine } from './core/PracticeEngine.ts';
 import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
 import { Dashboard } from './components/Dashboard.tsx';
 import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
@@ -21,6 +22,9 @@ function App() {
     const inputManager = new InputManager(
       audioEngine,
       () => useEngineStore.getState().scopeStartMidi,
+      {
+        onFingerPress: (mapping) => practiceEngine.handleFingerPress(mapping),
+      },
     );
 
     const warmAudio = () => {

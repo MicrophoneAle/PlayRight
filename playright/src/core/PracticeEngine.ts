@@ -1,11 +1,13 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import {
+  getExpectedNoteForFinger,
   getPracticeNotes,
   stepHasPracticeNotes,
 } from './practiceSteps.ts';
 import { alignScopeToMidis } from './scopeAlign.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
+import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
 import type { ScriptNote } from '../types/index.ts';
+import type { FingerMapping } from './twoHandMapping.ts';
 
 export class PracticeEngine {
   private audioEngine: AudioEngine | null = null;
@@ -109,6 +111,38 @@ export class PracticeEngine {
     this.registerPracticeHit(midi);
   }
 
+  handleFingerPress(mapping: FingerMapping): void {
+    const { script, currentStepIndex } = useEngineStore.getState();
+    if (!script || currentStepIndex < 0 || currentStepIndex >= script.length) {
+      return;
+    }
+
+    const currentStep = script[currentStepIndex];
+    const expected = getExpectedNoteForFinger(
+      currentStep,
+      mapping.hand,
+      mapping.finger,
+    );
+    if (expected === null) {
+      return;
+    }
+
+    this.playNotePreview(expected.midi);
+
+    if (!selectIsPracticeActive(useEngineStore.getState())) {
+      return;
+    }
+
+    const hitIndex = this.practiceNotesForStep.findIndex(
+      (note) => note.hand === mapping.hand && note.finger === mapping.finger,
+    );
+    if (hitIndex < 0) {
+      return;
+    }
+
+    this.registerPracticeHitAtIndex(hitIndex);
+  }
+
   /** Re-register held keys after a step or scope change. */
   registerPracticeHit(midi: number): void {
     if (!useEngineStore.getState().isPracticeActive) {
@@ -131,11 +165,36 @@ export class PracticeEngine {
         continue;
       }
 
-      this.hitNoteIndices.add(index);
+      this.registerPracticeHitAtIndex(index);
       break;
     }
+  }
 
+  private registerPracticeHitAtIndex(index: number): void {
+    if (!useEngineStore.getState().isPracticeActive) {
+      return;
+    }
+
+    if (index < 0 || index >= this.practiceNotesForStep.length) {
+      return;
+    }
+
+    if (this.hitNoteIndices.has(index)) {
+      return;
+    }
+
+    this.hitNoteIndices.add(index);
     this.scheduleCompletionCheck();
+  }
+
+  private playNotePreview(midi: number): void {
+    const engine = this.audioEngine;
+    if (!engine) {
+      return;
+    }
+
+    engine.noteOn(midi);
+    engine.noteOff(midi);
   }
 
   private scheduleCompletionCheck(): void {
