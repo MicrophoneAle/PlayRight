@@ -222,7 +222,7 @@ export function Lid() {
 
   if (collapsed) {
     return (
-      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-2 backdrop-blur-sm">
+      <>
         <input
           type="file"
           accept=".xml,.musicxml,.mxl"
@@ -231,22 +231,17 @@ export function Lid() {
           onChange={handleFileUpload}
         />
 
-        {collapseButton}
-
-        <div className="flex min-w-0 items-center gap-2">
-          <Music2 size={16} className="shrink-0 text-violet-400" aria-hidden />
-          <span className="truncate text-sm font-semibold text-zinc-100">PlayRight</span>
-        </div>
-
-        <div className="min-w-0 flex-1 truncate text-sm text-zinc-400">
-          {songTitle ?? 'No Piece Loaded'}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {playControls}
-          {handToggle}
-          <AccountSection />
-        </div>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-expanded={false}
+          aria-label="Show header"
+          title="Show header"
+          className="fixed left-1/2 top-0 z-50 flex -translate-x-1/2 items-center gap-1.5 rounded-b-lg border border-t-0 border-zinc-700 bg-zinc-950/95 px-4 py-1.5 text-xs font-medium text-zinc-300 shadow-lg backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900 hover:text-zinc-100"
+        >
+          <ChevronDown size={14} strokeWidth={2} aria-hidden />
+          Menu
+        </button>
 
         <ScoreLibraryPanel
           isOpen={isLibraryOpen}
@@ -255,7 +250,7 @@ export function Lid() {
           canDelete={canManageLibrary}
           userId={userId ?? null}
         />
-      </header>
+      </>
     );
   }
 
