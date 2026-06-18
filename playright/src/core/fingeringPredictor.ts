@@ -1,4 +1,4 @@
-import type { Finger, Hand, PlaybackScript } from '../types/index.ts';
+import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 export interface NoteEvent {
   stepIndex: number;
@@ -587,5 +587,74 @@ export function fingerPhraseWithChords(
     }
 
     return solvedByStep.get(note.stepIndex) ?? null;
+  });
+}
+
+const HANDS: Hand[] = ['L', 'R'];
+
+function isFingeringAnchor(note: ScriptNote): boolean {
+  return note.fingerSource === 'score' || note.fingerSource === 'manual';
+}
+
+function predictFingersForHand(
+  script: PlaybackScript,
+  hand: Hand,
+): (Finger | null)[] {
+  const timeline = extractHandTimelines(script)[hand];
+  const phrases = segmentIntoPhrases(timeline);
+  const fingers: (Finger | null)[] = [];
+
+  for (const phrase of phrases) {
+    fingers.push(...fingerPhraseWithChords(phrase, hand));
+  }
+
+  return fingers;
+}
+
+export function predictFingering(script: PlaybackScript): PlaybackScript {
+  const fingersByHand: Record<Hand, (Finger | null)[]> = {
+    L: predictFingersForHand(script, 'L'),
+    R: predictFingersForHand(script, 'R'),
+  };
+  const cursor: Record<Hand, number> = { L: 0, R: 0 };
+
+  return script.map((step) => {
+    const noteUpdates = new Map<number, ScriptNote>();
+
+    for (const hand of HANDS) {
+      const indexedNotes = step.notes
+        .map((note, index) => ({ note, index }))
+        .filter(({ note }) => note.hand === hand)
+        .sort((left, right) => left.note.midi - right.note.midi);
+
+      for (const { note, index } of indexedNotes) {
+        const predicted = fingersByHand[hand][cursor[hand]];
+        cursor[hand] += 1;
+
+        if (isFingeringAnchor(note)) {
+          noteUpdates.set(index, { ...note });
+        } else if (predicted === null) {
+          noteUpdates.set(index, {
+            pitch: note.pitch,
+            midi: note.midi,
+            hand: note.hand,
+            finger: null,
+          });
+        } else {
+          noteUpdates.set(index, {
+            ...note,
+            finger: predicted,
+            fingerSource: 'predicted',
+          });
+        }
+      }
+    }
+
+    return {
+      ...step,
+      notes: step.notes.map(
+        (note, index) => noteUpdates.get(index) ?? { ...note },
+      ),
+    };
   });
 }

@@ -6,6 +6,7 @@ export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 export type SheetScrollMode = 'smooth' | 'instant';
 
 const SHEET_SCROLL_MODE_STORAGE_KEY = 'playright-sheet-scroll-mode';
+const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
 
 function readStoredSheetScrollMode(): SheetScrollMode {
   if (typeof window === 'undefined') {
@@ -16,6 +17,15 @@ function readStoredSheetScrollMode(): SheetScrollMode {
   return stored === 'instant' ? 'instant' : 'smooth';
 }
 
+function readStoredAutoFingering(): boolean {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+
+  const stored = window.localStorage.getItem(AUTO_FINGERING_STORAGE_KEY);
+  return stored !== 'false';
+}
+
 interface EngineState {
   script: PlaybackScript | null;
   rawXml: string | null;
@@ -23,6 +33,7 @@ interface EngineState {
   scopeStartMidi: number;
   shiftMode: ShiftMode;
   sheetScrollMode: SheetScrollMode;
+  autoFingering: boolean;
   engineMode: EngineMode;
   activeHand: Hand;
   /** Set by PracticeEngine; false when paused, stopped, or not yet started. */
@@ -39,6 +50,7 @@ interface EngineState {
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     setShiftMode: (mode: ShiftMode) => void;
     setSheetScrollMode: (mode: SheetScrollMode) => void;
+    setAutoFingering: (enabled: boolean) => void;
     cycleShiftMode: (direction: 'up' | 'down') => void;
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
@@ -57,6 +69,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   scopeStartMidi: 60,
   shiftMode: 'semitone',
   sheetScrollMode: readStoredSheetScrollMode(),
+  autoFingering: readStoredAutoFingering(),
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
@@ -99,6 +112,13 @@ export const useEngineStore = create<EngineState>((set) => ({
     setSheetScrollMode: (mode) => {
       window.localStorage.setItem(SHEET_SCROLL_MODE_STORAGE_KEY, mode);
       set({ sheetScrollMode: mode });
+    },
+    setAutoFingering: (enabled) => {
+      window.localStorage.setItem(
+        AUTO_FINGERING_STORAGE_KEY,
+        enabled ? 'true' : 'false',
+      );
+      set({ autoFingering: enabled });
     },
     cycleShiftMode: (direction) => {
       set((state) => ({

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
+import { predictFingering } from '../core/fingeringPredictor.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
@@ -35,12 +36,19 @@ export function Lid() {
   const hasPracticeStarted = useEngineStore((state) => state.hasPracticeStarted);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
+  const autoFingering = useEngineStore((state) => state.autoFingering);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setSheetScrollMode = useEngineStore((state) => state.actions.setSheetScrollMode);
+  const setAutoFingering = useEngineStore((state) => state.actions.setAutoFingering);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
+
+  const prepareScriptForLoad = (script: ReturnType<typeof parseMusicXmlToScript>) =>
+    useEngineStore.getState().autoFingering
+      ? predictFingering(script)
+      : script;
 
   const canManageLibrary = isAuthLoaded && isSignedIn && Boolean(userId);
 
@@ -144,6 +152,21 @@ export function Lid() {
             </button>
           </div>
         </div>
+        <div className="flex items-center justify-between gap-3">
+          <label
+            htmlFor="auto-fingering-toggle"
+            className="text-xs text-zinc-400"
+          >
+            Auto-fingering
+          </label>
+          <input
+            id="auto-fingering-toggle"
+            type="checkbox"
+            checked={autoFingering}
+            onChange={(event) => setAutoFingering(event.target.checked)}
+            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+          />
+        </div>
         <div className="flex flex-col gap-2">
           <label
             htmlFor="sheet-scroll-mode-select"
@@ -210,7 +233,8 @@ export function Lid() {
         const text = await readMusicXmlFromFile(file);
         const script = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
-        loadScript(script, text, title);
+        const loadedScript = prepareScriptForLoad(script);
+        loadScript(loadedScript, text, title);
 
         if (userId) {
           const saved = await saveScoreToLibrary(title, text, userId);
@@ -219,7 +243,7 @@ export function Lid() {
           }
         }
 
-        console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', script);
+        console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', loadedScript);
       } catch (error) {
         console.error('🚨 PARSE FAILED:', error);
         alert('Failed to load piece: ' + (error as Error).message);
@@ -241,7 +265,7 @@ export function Lid() {
 
     try {
       const script = parseMusicXmlToScript(saved.raw_xml);
-      loadScript(script, saved.raw_xml, saved.title);
+      loadScript(prepareScriptForLoad(script), saved.raw_xml, saved.title);
     } catch (error) {
       console.error('🚨 PARSE FAILED:', error);
       alert('Failed to load piece: ' + (error as Error).message);
