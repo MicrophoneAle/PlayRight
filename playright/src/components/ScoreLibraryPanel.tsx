@@ -12,6 +12,7 @@ interface ScoreLibraryPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
+  canDelete: boolean;
 }
 
 function formatCreatedAt(createdAt: string): string {
@@ -27,7 +28,12 @@ function formatCreatedAt(createdAt: string): string {
   });
 }
 
-export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPanelProps) {
+export function ScoreLibraryPanel({
+  isOpen,
+  onClose,
+  onSelect,
+  canDelete,
+}: ScoreLibraryPanelProps) {
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchFailed, setFetchFailed] = useState(false);
@@ -75,6 +81,10 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
   };
 
   const handleDelete = async (entry: LibraryEntry) => {
+    if (!canDelete) {
+      return;
+    }
+
     const confirmed = window.confirm(
       `Delete "${entry.title}" from your library? This cannot be undone.`,
     );
@@ -152,15 +162,17 @@ export function ScoreLibraryPanel({ isOpen, onClose, onSelect }: ScoreLibraryPan
                         {formatCreatedAt(entry.created_at)}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(entry)}
-                      disabled={deletingId === entry.id}
-                      aria-label={`Delete ${entry.title}`}
-                      className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Trash2 size={15} strokeWidth={2} aria-hidden />
-                    </button>
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(entry)}
+                        disabled={deletingId === entry.id}
+                        aria-label={`Delete ${entry.title}`}
+                        className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 size={15} strokeWidth={2} aria-hidden />
+                      </button>
+                    ) : null}
                   </div>
                 </li>
               ))}

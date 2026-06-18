@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useAuth } from '@clerk/react';
 import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
@@ -17,6 +18,7 @@ export function Lid() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const songTitle = useEngineStore((state) => state.songTitle);
   const script = useEngineStore((state) => state.script);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
@@ -27,6 +29,8 @@ export function Lid() {
   const loadScript = useEngineStore((state) => state.actions.loadScript);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
+
+  const canManageLibrary = isAuthLoaded && isSignedIn;
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -50,13 +54,17 @@ export function Lid() {
   }, [settingsOpen]);
 
   const handleImportClick = () => {
+    if (!canManageLibrary) {
+      return;
+    }
+
     fileInputRef.current?.click();
   };
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
-    if (!file) {
+    if (!file || !canManageLibrary) {
       return;
     }
 
@@ -111,7 +119,7 @@ export function Lid() {
       : 'text-zinc-400 hover:text-zinc-200';
 
   return (
-    <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4">
+    <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
       <input
         type="file"
         accept=".xml,.musicxml,.mxl"
@@ -120,40 +128,32 @@ export function Lid() {
         onChange={handleFileUpload}
       />
 
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
-              <Music2 size={18} strokeWidth={2} aria-hidden />
-            </div>
-            <div className="min-w-0 text-left">
-              <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
-                PlayRight
-              </h1>
-              <p className="hidden truncate text-xs text-zinc-500 sm:block">
-                Keyboard-Controlled Piano Practice
-              </p>
-            </div>
-          </div>
-
-          <div className="hidden h-8 w-px shrink-0 bg-zinc-800 sm:block" aria-hidden />
-
-          <AccountSection />
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
+          <Music2 size={18} strokeWidth={2} aria-hidden />
         </div>
-
-        <div className="flex min-w-0 flex-1 items-center justify-end px-2 sm:justify-center sm:px-4">
-          <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5">
-            <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
-              Piece
-            </span>
-            <span className="truncate text-sm text-zinc-400">
-              {songTitle ?? 'No Piece Loaded'}
-            </span>
-          </div>
+        <div className="min-w-0 text-left">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
+            PlayRight
+          </h1>
+          <p className="truncate text-xs text-zinc-500">
+            Keyboard-Controlled Piano Practice
+          </p>
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 overflow-x-auto pb-0.5">
+      <div className="flex min-w-0 flex-1 items-center justify-center px-4">
+        <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-2.5">
+          <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
+            Piece
+          </span>
+          <span className="truncate text-sm text-zinc-400">
+            {songTitle ?? 'No Piece Loaded'}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
           onClick={() => setIsLibraryOpen(true)}
@@ -165,7 +165,9 @@ export function Lid() {
         <button
           type="button"
           onClick={handleImportClick}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          disabled={!canManageLibrary}
+          title={canManageLibrary ? 'Import a MusicXML or MXL file' : 'Sign in to import songs'}
+          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Upload size={15} strokeWidth={2} aria-hidden />
           Import
@@ -234,7 +236,9 @@ export function Lid() {
           onClose={() => setShortcutsOpen(false)}
         />
 
-        <div className="relative ml-auto" ref={settingsRef}>
+        <AccountSection />
+
+        <div className="relative" ref={settingsRef}>
           <button
             type="button"
             onClick={() => {
@@ -322,6 +326,7 @@ export function Lid() {
         isOpen={isLibraryOpen}
         onClose={() => setIsLibraryOpen(false)}
         onSelect={handleSelectFromLibrary}
+        canDelete={canManageLibrary}
       />
     </header>
   );
