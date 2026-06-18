@@ -403,6 +403,54 @@ function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
   return bounds;
 }
 
+function getHighlightedNotesBounds(notes: GraphicalNote[]): DOMRect | null {
+  let bounds: DOMRect | null = null;
+
+  const includeBounds = (element: Element | null | undefined): void => {
+    if (!element) {
+      return;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      return;
+    }
+
+    bounds = bounds ? unionRects(bounds, rect) : rect;
+  };
+
+  for (const gNote of notes) {
+    const vfNote = gNote as VexFlowGraphicNote;
+    includeBounds(
+      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null,
+    );
+
+    if (typeof vfNote.getTieSVGs === 'function') {
+      for (const tieElement of vfNote.getTieSVGs()) {
+        includeBounds(tieElement);
+      }
+    }
+  }
+
+  return bounds;
+}
+
+function getActiveHandNoteBounds(
+  notes: GraphicalNote[],
+  activeHand: Hand,
+  engineMode: EngineMode,
+): DOMRect | null {
+  if (engineMode !== 'one-hand') {
+    return getHighlightedNotesBounds(notes);
+  }
+
+  const handNotes = notes.filter(
+    (gNote) => osmdNoteHand(gNote.sourceNote) === activeHand,
+  );
+
+  return getHighlightedNotesBounds(handNotes.length > 0 ? handNotes : notes);
+}
+
 const activeScrollAnimations = new WeakMap<HTMLElement, number>();
 
 function animateScrollTop(
@@ -451,11 +499,13 @@ function animateScrollTop(
   activeScrollAnimations.set(container, frame);
 }
 
-function scrollContainerToMusicSystem(
+function scrollContainerForPractice(
   container: HTMLElement,
   notes: GraphicalNote[],
   scrollState: { current: { systemKey: string | null } },
   scrollMode: SheetScrollMode,
+  activeHand: Hand,
+  engineMode: EngineMode,
 ): void {
   const padding = 12;
   const systemKey = getNotesSystemKey(notes);
@@ -478,11 +528,43 @@ function scrollContainerToMusicSystem(
 
   scrollState.current.systemKey = systemKey;
 
-  if (!isNewStaffLine) {
+  let targetScrollTop = container.scrollTop;
+
+  if (isNewStaffLine) {
+    targetScrollTop = Math.max(0, systemTop - padding);
+  }
+
+  const noteBounds = getActiveHandNoteBounds(notes, activeHand, engineMode);
+  if (noteBounds && engineMode === 'one-hand') {
+    const noteTop =
+      noteBounds.top - containerRect.top + container.scrollTop;
+    const noteBottom =
+      noteBounds.bottom - containerRect.top + container.scrollTop;
+    const maxScrollTop = Math.max(
+      0,
+      container.scrollHeight - container.clientHeight,
+    );
+
+    if (activeHand === 'R' && noteTop - targetScrollTop < padding) {
+      targetScrollTop = Math.min(targetScrollTop, Math.max(0, noteTop - padding));
+    }
+
+    if (
+      activeHand === 'L' &&
+      noteBottom - targetScrollTop > container.clientHeight - padding
+    ) {
+      targetScrollTop = Math.max(
+        targetScrollTop,
+        noteBottom - container.clientHeight + padding,
+      );
+      targetScrollTop = Math.min(targetScrollTop, maxScrollTop);
+    }
+  }
+
+  if (Math.abs(targetScrollTop - container.scrollTop) < 1) {
     return;
   }
 
-  const targetScrollTop = Math.max(0, systemTop - padding);
   animateScrollTop(container, targetScrollTop, scrollMode);
 }
 
@@ -498,6 +580,8 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef: { current: number };
     scrollStateRef: { current: { systemKey: string | null } };
     scrollMode: SheetScrollMode;
+    activeHand: Hand;
+    engineMode: EngineMode;
   },
 ): GraphicalNote[] {
   const {
@@ -510,6 +594,8 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
+    activeHand,
+    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -547,7 +633,14 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerToMusicSystem(container, toHighlight, scrollStateRef, scrollMode);
+  scrollContainerForPractice(
+    container,
+    toHighlight,
+    scrollStateRef,
+    scrollMode,
+    activeHand,
+    engineMode,
+  );
 
   return toHighlight;
 }

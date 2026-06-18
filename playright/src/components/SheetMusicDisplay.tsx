@@ -217,6 +217,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       cursorOffsetRef,
       scrollStateRef,
       scrollMode: state.sheetScrollMode,
+      activeHand: state.activeHand,
+      engineMode: state.engineMode,
     });
   };
 
