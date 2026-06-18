@@ -7,15 +7,18 @@ import { getPracticeNotes } from './practiceSteps.ts';
 import type { EngineMode, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 const HIGHLIGHT_COLOR = '#10b981';
-const DEFAULT_NOTE_COLOR = '#000000';
 
-const HIGHLIGHT_OPTIONS = {
-  applyToNoteheads: true,
-  applyToStem: true,
-  applyToFlag: true,
-  applyToBeams: true,
-  applyToTies: true,
-} as const;
+export interface HighlightSnapshot {
+  element: Element;
+  fill: string;
+  stroke: string;
+}
+
+interface VexFlowGraphicNote extends GraphicalNote {
+  getNoteheadSVGs?: () => HTMLElement[];
+  getStemSVG?: () => HTMLElement;
+  getTieSVGs?: () => HTMLElement[];
+}
 
 export interface PracticeVisualIndex {
   stepCursorOffsets: number[];
@@ -251,25 +254,84 @@ export function buildPracticeVisualIndex(
 function moveCursorToOffset(
   osmd: OpenSheetMusicDisplay,
   offset: number,
+  lastOffsetRef: { current: number },
 ): void {
   const cursor = osmd.cursor;
-  cursor.reset();
-  for (let i = 0; i < offset; i += 1) {
-    cursor.next();
+
+  if (lastOffsetRef.current < 0 || offset < lastOffsetRef.current) {
+    cursor.reset();
+    for (let i = 0; i < offset; i += 1) {
+      cursor.next();
+    }
+  } else {
+    for (let i = lastOffsetRef.current; i < offset; i += 1) {
+      cursor.next();
+    }
   }
+
+  lastOffsetRef.current = offset;
   cursor.update();
 }
 
-function resetGraphicalNotes(notes: GraphicalNote[]): void {
-  for (const gNote of notes) {
-    gNote.setColor(DEFAULT_NOTE_COLOR, HIGHLIGHT_OPTIONS);
+function collectHighlightElements(gNote: GraphicalNote): HTMLElement[] {
+  const vfNote = gNote as VexFlowGraphicNote;
+  const elements: HTMLElement[] = [];
+
+  if (typeof vfNote.getNoteheadSVGs === 'function') {
+    elements.push(...vfNote.getNoteheadSVGs());
+  }
+
+  if (typeof vfNote.getStemSVG === 'function') {
+    const stem = vfNote.getStemSVG();
+    if (stem) {
+      elements.push(stem);
+    }
+  }
+
+  if (typeof vfNote.getTieSVGs === 'function') {
+    elements.push(...vfNote.getTieSVGs());
+  }
+
+  return elements;
+}
+
+function readSvgColor(element: HTMLElement, property: 'fill' | 'stroke'): string {
+  return element.style[property] || element.getAttribute(property) || '';
+}
+
+function restoreHighlightedElements(snapshots: HighlightSnapshot[]): void {
+  for (const snapshot of snapshots) {
+    const element = snapshot.element as HTMLElement;
+    if (snapshot.fill) {
+      element.style.fill = snapshot.fill;
+    } else {
+      element.style.removeProperty('fill');
+    }
+
+    if (snapshot.stroke) {
+      element.style.stroke = snapshot.stroke;
+    } else {
+      element.style.removeProperty('stroke');
+    }
   }
 }
 
-function highlightGraphicalNotes(notes: GraphicalNote[]): void {
+function highlightGraphicalNotes(notes: GraphicalNote[]): HighlightSnapshot[] {
+  const snapshots: HighlightSnapshot[] = [];
+
   for (const gNote of notes) {
-    gNote.setColor(HIGHLIGHT_COLOR, HIGHLIGHT_OPTIONS);
+    for (const element of collectHighlightElements(gNote)) {
+      snapshots.push({
+        element,
+        fill: readSvgColor(element, 'fill'),
+        stroke: readSvgColor(element, 'stroke'),
+      });
+      element.style.fill = HIGHLIGHT_COLOR;
+      element.style.stroke = HIGHLIGHT_COLOR;
+    }
   }
+
+  return snapshots;
 }
 
 export function syncSheetMusicPracticeVisuals(
@@ -279,35 +341,39 @@ export function syncSheetMusicPracticeVisuals(
     visualIndex: PracticeVisualIndex | null;
     expectedMidiNotes: number[];
     container: HTMLElement;
-    highlightedNotes: GraphicalNote[];
+    highlightedElements: HighlightSnapshot[];
+    cursorOffsetRef: { current: number };
   },
-): GraphicalNote[] {
+): HighlightSnapshot[] {
   const {
     stepIndex,
     visualIndex,
     expectedMidiNotes,
     container,
-    highlightedNotes,
+    highlightedElements,
+    cursorOffsetRef,
   } = options;
 
-  resetGraphicalNotes(highlightedNotes);
+  restoreHighlightedElements(highlightedElements);
 
   const cursor = osmd.cursor;
   if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
+    cursorOffsetRef.current = -1;
     cursor?.hide();
     return [];
   }
 
   const toHighlight = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
   if (toHighlight.length === 0) {
+    cursorOffsetRef.current = -1;
     cursor.hide();
     return [];
   }
 
   const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
-  moveCursorToOffset(osmd, offset);
+  moveCursorToOffset(osmd, offset, cursorOffsetRef);
   cursor.show();
-  highlightGraphicalNotes(toHighlight);
+  const nextHighlights = highlightGraphicalNotes(toHighlight);
 
   const cursorElement = cursor.cursorElement;
   if (cursorElement) {
@@ -321,5 +387,5 @@ export function syncSheetMusicPracticeVisuals(
     }
   }
 
-  return toHighlight;
+  return nextHighlights;
 }
