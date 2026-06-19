@@ -343,6 +343,55 @@ function includeGraphicalNoteEngravingBounds(
   }
 }
 
+function graphicalNoteOwnsElement(
+  gNote: GraphicalNote,
+  element: Element,
+): boolean {
+  let owns = false;
+
+  includeGraphicalNoteEngravingBounds(gNote, (part) => {
+    if (part && (part === element || part.contains(element))) {
+      owns = true;
+    }
+  });
+
+  return owns;
+}
+
+function resolveStepFromElementsAtPoint(
+  visualIndex: PracticeVisualIndex,
+  clientX: number,
+  clientY: number,
+  container: HTMLElement | null | undefined,
+): number | null {
+  const elements = document.elementsFromPoint(clientX, clientY);
+
+  for (const element of elements) {
+    if (container && !container.contains(element)) {
+      continue;
+    }
+
+    for (
+      let stepIndex = 0;
+      stepIndex < visualIndex.stepGraphicalNotes.length;
+      stepIndex += 1
+    ) {
+      const gNotes = visualIndex.stepGraphicalNotes[stepIndex];
+      if (gNotes.length === 0) {
+        continue;
+      }
+
+      for (const gNote of gNotes) {
+        if (graphicalNoteOwnsElement(gNote, element)) {
+          return stepIndex;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 function unionRects(a: DOMRect, b: DOMRect): DOMRect {
   const top = Math.min(a.top, b.top);
   const left = Math.min(a.left, b.left);
@@ -595,9 +644,20 @@ export function resolveStepIndexFromPointer(
   visualIndex: PracticeVisualIndex | null,
   clientX: number,
   clientY: number,
+  container?: HTMLElement | null,
 ): number | null {
   if (!visualIndex) {
     return null;
+  }
+
+  const elementMatch = resolveStepFromElementsAtPoint(
+    visualIndex,
+    clientX,
+    clientY,
+    container,
+  );
+  if (elementMatch !== null) {
+    return elementMatch;
   }
 
   let matchedStep: number | null = null;

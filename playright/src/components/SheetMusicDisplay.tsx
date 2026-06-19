@@ -265,7 +265,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
   };
 
-  const handleSheetPointerSeek = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
       return;
     }
@@ -274,6 +274,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current,
       event.clientX,
       event.clientY,
+      containerRef.current,
     );
 
     if (stepIndex === null) {
@@ -408,7 +409,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      onClick={handleSheetPointerSeek}
+      onPointerUp={handleSheetPointerSeek}
       className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
