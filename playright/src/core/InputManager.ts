@@ -6,7 +6,7 @@ import {
   type FingerMapping,
 } from './twoHandMapping.ts';
 
-export const SCOPE_SIZE = 19;
+export const SCOPE_SIZE = 18;
 export const PIANO_START_MIDI = 21;
 export const PIANO_END_MIDI = 108;
 
@@ -26,6 +26,16 @@ function findFirstBlackInScope(scopeStart: number): number | null {
 function findLastBlackInScope(scopeStart: number): number | null {
   for (let midi = scopeStart + SCOPE_SIZE - 1; midi >= scopeStart; midi -= 1) {
     if (isBlackKey(midi)) {
+      return midi;
+    }
+  }
+
+  return null;
+}
+
+function findLowWhiteExtension(scopeStart: number): number | null {
+  for (let midi = scopeStart - 1; midi >= PIANO_START_MIDI; midi -= 1) {
+    if (!isBlackKey(midi)) {
       return midi;
     }
   }
@@ -123,6 +133,14 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     map.Tab = lowExtensionMidi;
   }
 
+  const lowWhiteExtensionMidi = findLowWhiteExtension(scopeStart);
+  if (
+    lowWhiteExtensionMidi !== null &&
+    !Object.values(map).includes(lowWhiteExtensionMidi)
+  ) {
+    map.Quote = lowWhiteExtensionMidi;
+  }
+
   const highExtensionMidi = scopeStart + SCOPE_SIZE;
   if (
     highExtensionMidi <= PIANO_END_MIDI &&
@@ -137,7 +155,9 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     const midi = map[key];
     const inScope = midi >= scopeStart && midi <= scopeEnd;
     const isExtension =
-      midi === lowExtensionMidi || midi === highExtensionMidi;
+      midi === lowExtensionMidi ||
+      midi === highExtensionMidi ||
+      midi === lowWhiteExtensionMidi;
 
     if (inScope || isExtension) {
       finalMap[key] = midi;
@@ -183,6 +203,10 @@ export function resolveNoteMidiFromKeyboard(
 
   if (event.key === 'Tab') {
     return keyMap.Tab;
+  }
+
+  if (event.key === "'" || event.key === '"') {
+    return keyMap.Quote;
   }
 
   return undefined;

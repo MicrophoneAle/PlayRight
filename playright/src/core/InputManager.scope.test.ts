@@ -16,8 +16,8 @@ describe('getDynamicKeyMap scope endpoints', () => {
     const map = getDynamicKeyMap(scopeStart);
     const lastMidi = scopeStart + SCOPE_SIZE - 1;
 
-    expect(lastMidi).toBe(58);
-    expect(map.BracketLeft).toBe(58);
+    expect(lastMidi).toBe(57);
+    expect(map.BracketLeft).toBe(56);
     expect(map.KeyQ).toBe(42);
   });
 
@@ -35,10 +35,17 @@ describe('getDynamicKeyMap scope endpoints', () => {
     expect(map.Tab).toBe(39);
   });
 
-  it('adds ] for the high black extension when in range', () => {
-    const scopeStart = 87;
+  it("adds ' for the low white extension when in range", () => {
+    const scopeStart = 40;
     const map = getDynamicKeyMap(scopeStart);
 
-    expect(map.BracketRight).toBe(106);
+    expect(map.Quote).toBe(38);
+  });
+
+  it('adds ] for the high black extension when in range', () => {
+    const scopeStart = 40;
+    const map = getDynamicKeyMap(scopeStart);
+
+    expect(map.BracketRight).toBe(58);
   });
 });
