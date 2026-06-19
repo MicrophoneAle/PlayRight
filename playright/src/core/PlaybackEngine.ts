@@ -4,6 +4,7 @@ import { getDisplayNotesForStep } from './practiceSteps.ts';
 import {
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
+  playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
@@ -264,7 +265,11 @@ export class PlaybackEngine {
             note.tiedToNext ?? false,
           );
           const playedDuration = quarterNotesToToneDuration(playedQuarters);
-          const releaseQuarters = onsetQuarters + playedQuarters;
+          const releaseQuarters = playbackReleaseOnsetQuarterNotes(
+            onsetQuarters,
+            writtenQuarters,
+            note.tiedToNext ?? false,
+          );
           const pressId = this.playingPressTracker.allocatePressId();
 
           draw.schedule(() => {
@@ -278,13 +283,7 @@ export class PlaybackEngine {
           }, quartersToTransportPosition(releaseQuarters));
           this.scheduledEventIds.push(releaseEventId);
 
-          engine.scheduleAttackRelease(
-            note.midi,
-            playedDuration,
-            time,
-            0.8,
-            true,
-          );
+          engine.scheduleAttackRelease(note.midi, playedDuration, time);
         }
       }, transportTime);
 

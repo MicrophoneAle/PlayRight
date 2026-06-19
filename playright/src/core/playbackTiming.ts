@@ -35,6 +35,30 @@ export function playbackDurationQuarterNotes(
   return Math.max(writtenQuarterNotes - PLAYBACK_ARTICULATION_GAP_QUARTERS, minPlayDuration);
 }
 
+/** Release onset for a note, leaving a fixed gap before the next attack at the written duration. */
+export function playbackReleaseOnsetQuarterNotes(
+  attackOnsetQuarters: number,
+  writtenQuarterNotes: number,
+  tiedToNext = false,
+): number {
+  return (
+    attackOnsetQuarters +
+    playbackDurationQuarterNotes(writtenQuarterNotes, tiedToNext)
+  );
+}
+
+/** Silence before the next attack when it lands one written duration later. */
+export function playbackSilenceBeforeNextAttackQuarters(
+  writtenQuarterNotes: number,
+  tiedToNext = false,
+): number {
+  if (tiedToNext || writtenQuarterNotes <= 0) {
+    return 0;
+  }
+
+  return writtenQuarterNotes - playbackDurationQuarterNotes(writtenQuarterNotes, tiedToNext);
+}
+
 /** Tone.js duration string for a span of quarter-note beats (scales with Transport BPM). */
 export function quarterNotesToToneDuration(quarterNotes: number): string {
   if (quarterNotes <= 0) {

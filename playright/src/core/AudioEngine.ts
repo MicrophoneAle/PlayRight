@@ -1,7 +1,6 @@
 import * as Tone from 'tone';
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from './pianoSamples.ts';
 
-const RELEASE_SECONDS = 0.8;
 const MASTER_VOLUME_DB = -14;
 const PREVIEW_VOLUME_DB = -12;
 
@@ -66,7 +65,7 @@ export class AudioEngine {
       urls: PIANO_SAMPLE_URLS,
       baseUrl: PIANO_SAMPLE_BASE_URL,
       attack: 0,
-      release: RELEASE_SECONDS,
+      release: 0.25,
       volume: MASTER_VOLUME_DB,
       onerror: (error) => {
         console.error('[AudioEngine] sample load error:', error);
@@ -109,17 +108,15 @@ export class AudioEngine {
     duration: ToneTime,
     time: number,
     velocity = 0.8,
-    tiedToNext = false,
   ): void {
-    this.schedulePlayedNote(midi, duration, time, velocity, tiedToNext);
+    this.schedulePlayedNote(midi, duration, time, velocity);
   }
 
   schedulePlayedNote(
     midi: number,
-    writtenDuration: ToneTime,
+    playDuration: ToneTime,
     time: number,
     velocity = 0.8,
-    tiedToNext = false,
   ): void {
     this.resumeContextIfNeeded();
 
@@ -128,12 +125,11 @@ export class AudioEngine {
       return;
     }
 
-    const writtenSeconds = Tone.Time(writtenDuration).toSeconds();
-    const gapSeconds = tiedToNext
-      ? 0
-      : Math.min(0.07, writtenSeconds * 0.18);
-    const playSeconds = Math.max(writtenSeconds - gapSeconds, writtenSeconds * 0.25);
+    const playSeconds = Tone.Time(playDuration).toSeconds();
 
+    // Release any lingering voice so repeated pitches re-articulate with the
+    // same gap as transitions to a different pitch.
+    this.sampler!.triggerRelease(note, time);
     this.sampler!.triggerAttack(note, time, velocity);
     this.sampler!.triggerRelease(note, time + playSeconds);
   }

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
+  playbackReleaseOnsetQuarterNotes,
+  playbackSilenceBeforeNextAttackQuarters,
   pieceEndQuarterNotes,
+  PLAYBACK_ARTICULATION_GAP_QUARTERS,
   quarterNotesToSeconds,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
@@ -41,6 +44,20 @@ describe('playbackTiming', () => {
   it('keeps tied playback durations at the written length', () => {
     expect(playbackDurationQuarterNotes(1, true)).toBe(1);
     expect(playbackDurationQuarterNotes(2, true)).toBe(2);
+  });
+
+  it('leaves the same silence before the next attack for repeated and changing pitches', () => {
+    for (const written of [1, 0.5, 2]) {
+      const release = playbackReleaseOnsetQuarterNotes(0, written);
+      const nextAttack = written;
+      const silenceGap = nextAttack - release;
+
+      expect(silenceGap).toBeCloseTo(
+        playbackSilenceBeforeNextAttackQuarters(written),
+        5,
+      );
+      expect(silenceGap).toBeCloseTo(PLAYBACK_ARTICULATION_GAP_QUARTERS, 5);
+    }
   });
 
   it('finds the latest note release across a script', () => {
