@@ -7,6 +7,8 @@ const PREVIEW_VOLUME_DB = -12;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 
+type ToneTime = Tone.Unit.Time;
+
 const audioContext = new Tone.Context({
   latencyHint: 'interactive',
   lookAhead: 0.02,
@@ -100,6 +102,20 @@ export class AudioEngine {
     }
 
     this.previewSynth.triggerRelease(note, undefined);
+  }
+
+  scheduleAttackRelease(
+    midi: number,
+    duration: ToneTime,
+    time: number,
+    velocity = 0.8,
+  ): void {
+    this.resumeContextIfNeeded();
+
+    const note = midiToNote(midi);
+    if (this.isReady) {
+      this.sampler!.triggerAttackRelease(note, duration, time, velocity);
+    }
   }
 
   releaseAll(): void {

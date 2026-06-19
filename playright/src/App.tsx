@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { practiceEngine } from './core/PracticeEngine.ts';
+import { playbackEngine } from './core/PlaybackEngine.ts';
 import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
 import { Dashboard } from './components/Dashboard.tsx';
 import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
@@ -27,6 +28,7 @@ function App() {
         onFingerPress: (mapping) => practiceEngine.handleFingerPress(mapping),
       },
     );
+    playbackEngine.attachAudioEngine(audioEngine);
 
     const warmAudio = () => {
       void audioEngine.init();
@@ -39,6 +41,7 @@ function App() {
       window.removeEventListener('pointerdown', warmAudio, { capture: true });
       window.removeEventListener('keydown', warmAudio, { capture: true });
       inputManager.destroy();
+      playbackEngine.dispose();
       audioEngine.destroy();
     };
   }, []);
