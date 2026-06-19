@@ -63,11 +63,7 @@ function readStoredHandSpan(): HandSpanPreset {
 }
 
 function readStoredPlayMode(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return window.localStorage.getItem(PLAY_MODE_STORAGE_KEY) === 'true';
+  return false;
 }
 
 function clampTempoFactor(value: number): number {

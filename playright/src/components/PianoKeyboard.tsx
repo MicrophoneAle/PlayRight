@@ -245,7 +245,7 @@ export function PianoKeyboard() {
   }, [manualFingerings, selectedNote]);
 
   const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) => {
-    if (!isKeyInDisplayRange(midi)) {
+    if (playMode || !isKeyInDisplayRange(midi)) {
       return undefined;
     }
 
@@ -452,15 +452,15 @@ export function PianoKeyboard() {
           const isPhysicallyActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
-          const isPressed =
-            playMode && isPlaybackActive
-              ? playingMidiSet.has(key.midi)
-              : isPhysicallyActive;
+          const isSounding =
+            playMode && isPlaybackActive && playingMidiSet.has(key.midi);
+          const isPressed = isSounding || isPhysicallyActive;
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
-            : showStepKeyHighlight &&
-              expectedMidiSet.has(key.midi) &&
-              (playMode || isKeyInDisplayRange(key.midi));
+            : isSounding ||
+              (showStepKeyHighlight &&
+                expectedMidiSet.has(key.midi) &&
+                isKeyInDisplayRange(key.midi));
           const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, false);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
@@ -498,15 +498,15 @@ export function PianoKeyboard() {
           const isPhysicallyActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
-          const isPressed =
-            playMode && isPlaybackActive
-              ? playingMidiSet.has(key.midi)
-              : isPhysicallyActive;
+          const isSounding =
+            playMode && isPlaybackActive && playingMidiSet.has(key.midi);
+          const isPressed = isSounding || isPhysicallyActive;
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
-            : showStepKeyHighlight &&
-              expectedMidiSet.has(key.midi) &&
-              (playMode || isKeyInDisplayRange(key.midi));
+            : isSounding ||
+              (showStepKeyHighlight &&
+                expectedMidiSet.has(key.midi) &&
+                isKeyInDisplayRange(key.midi));
           const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);

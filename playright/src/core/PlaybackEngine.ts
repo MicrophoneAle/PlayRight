@@ -106,10 +106,23 @@ export class PlaybackEngine {
   }
 
   async restart(): Promise<void> {
-    this.stop();
-    const { actions } = useEngineStore.getState();
-    actions.setStepIndex(0);
-    await this.play();
+    const { script, scoreTiming, actions } = useEngineStore.getState();
+    if (!script || !scoreTiming) {
+      return;
+    }
+
+    this.clearScheduledEvents();
+    transport.stop();
+    this.isPlaying = false;
+    this.isPaused = true;
+
+    this.applyTransportBpm(scoreTiming.tempoBpm);
+    transport.position = 0;
+    this.applyStepVisual(0);
+    this.audioEngine?.releaseAll();
+
+    actions.setPlaybackActive(true);
+    actions.setPlaybackPaused(true);
   }
 
   stop(): void {
