@@ -33,10 +33,44 @@ function findLastBlackInScope(scopeStart: number): number | null {
   return null;
 }
 
-function findHighWhiteExtension(scopeStart: number): number | null {
-  for (let midi = scopeStart + SCOPE_SIZE; midi <= PIANO_END_MIDI; midi += 1) {
-    if (!isBlackKey(midi)) {
-      return midi;
+function findRightmostScopeWhiteMidi(
+  map: Record<string, number>,
+  scopeStart: number,
+): number | null {
+  const whitePhysicals = [
+    'KeyA',
+    'KeyS',
+    'KeyD',
+    'KeyF',
+    'KeyG',
+    'KeyH',
+    'KeyJ',
+    'KeyK',
+    'KeyL',
+    'Semicolon',
+  ];
+  const scopeEnd = scopeStart + SCOPE_SIZE - 1;
+  let rightmost: number | null = null;
+
+  for (const code of whitePhysicals) {
+    const midi = map[code];
+    if (
+      midi !== undefined &&
+      midi >= scopeStart &&
+      midi <= scopeEnd &&
+      (rightmost === null || midi > rightmost)
+    ) {
+      rightmost = midi;
+    }
+  }
+
+  return rightmost;
+}
+
+function findNextWhiteAbove(midi: number): number | null {
+  for (let next = midi + 1; next <= PIANO_END_MIDI; next += 1) {
+    if (!isBlackKey(next)) {
+      return next;
     }
   }
 
@@ -133,7 +167,16 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     map.Tab = lowExtensionMidi;
   }
 
-  const highWhiteExtensionMidi = findHighWhiteExtension(scopeStart);
+  const highWhiteExtensionMidi = (() => {
+    const anchorMidi =
+      map.Semicolon ??
+      findRightmostScopeWhiteMidi(map, scopeStart);
+    if (anchorMidi === null) {
+      return null;
+    }
+
+    return findNextWhiteAbove(anchorMidi);
+  })();
   if (
     highWhiteExtensionMidi !== null &&
     !Object.values(map).includes(highWhiteExtensionMidi)

@@ -35,11 +35,20 @@ describe('getDynamicKeyMap scope endpoints', () => {
     expect(map.Tab).toBe(39);
   });
 
-  it("adds ' for the high white extension when in range", () => {
+  it("adds ' directly after ; when in range", () => {
     const scopeStart = 40;
     const map = getDynamicKeyMap(scopeStart);
 
-    expect(map.Quote).toBe(59);
+    expect(map.Semicolon).toBe(55);
+    expect(map.Quote).toBe(57);
+  });
+
+  it("adds ' directly after ; for the default scope position", () => {
+    const scopeStart = 60;
+    const map = getDynamicKeyMap(scopeStart);
+
+    expect(map.Semicolon).toBe(76);
+    expect(map.Quote).toBe(77);
   });
 
   it('adds ] for the high black extension when in range', () => {
