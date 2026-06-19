@@ -5,7 +5,7 @@ import { practiceEngine } from './PracticeEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 
-type KeyListener = (event: MockKeyboardEvent) => void;
+type StubListener = (event: MockKeyboardEvent) => void;
 
 class MockKeyboardEvent {
   readonly type: 'keydown' | 'keyup';
@@ -34,31 +34,20 @@ class MockKeyboardEvent {
 }
 
 function createWindowStub() {
-  const listeners = new Map<string, Set<KeyListener>>();
+  const listeners = new Map<string, Set<StubListener>>();
 
   return {
     addEventListener(
       type: string,
-      listener: EventListenerOrEventListenerObject,
+      listener: StubListener,
       _options?: boolean | AddEventListenerOptions,
     ): void {
-      const handler =
-        typeof listener === 'function'
-          ? (listener as KeyListener)
-          : (listener.handleEvent.bind(listener) as KeyListener);
-      const bucket = listeners.get(type) ?? new Set<KeyListener>();
-      bucket.add(handler);
+      const bucket = listeners.get(type) ?? new Set<StubListener>();
+      bucket.add(listener);
       listeners.set(type, bucket);
     },
-    removeEventListener(
-      type: string,
-      listener: EventListenerOrEventListenerObject,
-    ): void {
-      const handler =
-        typeof listener === 'function'
-          ? (listener as KeyListener)
-          : (listener.handleEvent.bind(listener) as KeyListener);
-      listeners.get(type)?.delete(handler);
+    removeEventListener(type: string, listener: StubListener): void {
+      listeners.get(type)?.delete(listener);
     },
     dispatchEvent(event: MockKeyboardEvent): boolean {
       const bucket = listeners.get(event.type);
@@ -161,7 +150,7 @@ describe('InputManager two-hand routing', () => {
   it('does not swallow non-finger keys such as Enter', () => {
     mount();
     const external = vi.fn<(event: MockKeyboardEvent) => void>();
-    windowStub.addEventListener('keydown', external as unknown as EventListener);
+    windowStub.addEventListener('keydown', external);
 
     const event = keyEvent('keydown', 'Enter', 'Enter');
     windowStub.dispatchEvent(event);
