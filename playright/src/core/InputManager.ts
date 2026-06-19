@@ -59,7 +59,6 @@ const BLACKS_BETWEEN_WHITES: ReadonlyArray<{
   left: string;
   right: string;
 }> = [
-  { code: 'KeyQ', left: 'CapsLock', right: 'KeyA' },
   { code: 'KeyW', left: 'KeyA', right: 'KeyS' },
   { code: 'KeyE', left: 'KeyS', right: 'KeyD' },
   { code: 'KeyR', left: 'KeyD', right: 'KeyF' },
@@ -105,16 +104,86 @@ function getBlackBetween(leftWhite: number, rightWhite: number): number | null {
   return null;
 }
 
-function getBlacksInScope(scopeStart: number, scopeEnd: number): number[] {
-  const blacks: number[] = [];
-
-  for (let midi = scopeStart; midi <= scopeEnd; midi += 1) {
-    if (isBlackKey(midi)) {
-      blacks.push(midi);
+function findBlackLeftOf(midi: number): number | null {
+  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
+    if (isBlackKey(prev)) {
+      return prev;
     }
   }
 
-  return blacks;
+  return null;
+}
+
+function findWhiteLeftOf(midi: number): number | null {
+  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
+    if (!isBlackKey(prev)) {
+      return prev;
+    }
+  }
+
+  return null;
+}
+
+function assignLowExtensions(map: Record<string, number>, scopeStart: number): void {
+  if (map.KeyA === undefined) {
+    return;
+  }
+
+  const capsSeed =
+    scopeStart - 1 >= PIANO_START_MIDI &&
+    scopeStart - 1 < map.KeyA &&
+    !isBlackKey(scopeStart - 1)
+      ? scopeStart - 1
+      : undefined;
+
+  let qMidi: number | null = null;
+
+  if (capsSeed !== undefined) {
+    qMidi = getBlackBetween(capsSeed, map.KeyA);
+  }
+
+  if (qMidi === null) {
+    qMidi = findBlackLeftOf(map.KeyA);
+  }
+
+  if (qMidi !== null && qMidi < map.KeyA) {
+    map.KeyQ = qMidi;
+  }
+
+  if (map.KeyQ !== undefined) {
+    if (
+      capsSeed !== undefined &&
+      capsSeed < map.KeyA &&
+      capsSeed !== map.KeyQ
+    ) {
+      map.CapsLock = capsSeed;
+    } else {
+      const capsMidi = findWhiteLeftOf(map.KeyQ);
+      if (capsMidi !== null) {
+        map.CapsLock = capsMidi;
+      }
+    }
+  } else if (capsSeed !== undefined) {
+    map.CapsLock = capsSeed;
+  }
+
+  if (map.CapsLock !== undefined) {
+    const tabMidi = findBlackLeftOf(map.CapsLock);
+    if (tabMidi !== null && tabMidi !== map.KeyQ) {
+      map.Tab = tabMidi;
+    }
+  }
+
+  const tabSlot = scopeStart - LOW_EXTENSION_OFFSET;
+  if (
+    map.Tab === undefined &&
+    tabSlot >= PIANO_START_MIDI &&
+    isBlackKey(tabSlot) &&
+    tabSlot < (map.CapsLock ?? map.KeyA) &&
+    tabSlot !== map.KeyQ
+  ) {
+    map.Tab = tabSlot;
+  }
 }
 
 export function getCoreAnchorMidis(
@@ -246,36 +315,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     return map;
   }
 
-  const displayMin = Math.max(PIANO_START_MIDI, scopeStart - LOW_EXTENSION_OFFSET);
-
-  if (displayMin < scopeStart && isBlackKey(displayMin)) {
-    map.Tab = displayMin;
-
-    if (
-      displayMin + 1 < scopeStart &&
-      !isBlackKey(displayMin + 1)
-    ) {
-      map.CapsLock = displayMin + 1;
-    }
-  } else if (
-    displayMin + 1 < scopeStart &&
-    isBlackKey(displayMin + 1)
-  ) {
-    map.Tab = displayMin + 1;
-
-    if (displayMin < scopeStart && !isBlackKey(displayMin)) {
-      map.CapsLock = displayMin;
-    }
-  } else if (displayMin < scopeStart && !isBlackKey(displayMin)) {
-    map.CapsLock = displayMin;
-
-    for (let midi = displayMin - 1; midi >= PIANO_START_MIDI; midi -= 1) {
-      if (isBlackKey(midi)) {
-        map.Tab = midi;
-        break;
-      }
-    }
-  }
+  assignLowExtensions(map, scopeStart);
 
   const quoteCandidate = scopeEnd + HIGH_EXTENSION_OFFSET;
   let quoteMidi = quoteCandidate;
@@ -305,13 +345,6 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     const blackMidi = getBlackBetween(leftMidi, rightMidi);
     if (blackMidi !== null) {
       map[code] = blackMidi;
-    }
-  }
-
-  if (map.BracketLeft === undefined && map.Semicolon !== undefined) {
-    const blacksInScope = getBlacksInScope(scopeStart, scopeEnd);
-    if (blacksInScope.length > 0) {
-      map.BracketLeft = blacksInScope[blacksInScope.length - 1];
     }
   }
 

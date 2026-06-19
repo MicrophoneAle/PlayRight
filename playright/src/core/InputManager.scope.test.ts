@@ -65,14 +65,28 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('places W between A and S', () => {
+  it('places Q on the black note directly left of A', () => {
     const map = getDynamicKeyMap(60);
 
-    expect(map.KeyA).toBeDefined();
-    expect(map.KeyS).toBeDefined();
-    expect(map.KeyW).toBe(
-      getBlackBetween(map.KeyA!, map.KeyS!),
-    );
+    expect(map.KeyA).toBe(60);
+    expect(map.KeyQ).toBe(58);
+    expect(map.CapsLock).toBe(59);
+    expect(map.KeyW).toBe(getBlackBetween(map.KeyA!, map.KeyS!));
+  });
+
+  it('anchors CapsLock directly left of Q', () => {
+    const map = getDynamicKeyMap(69);
+
+    expect(map.KeyQ).toBe(68);
+    expect(map.CapsLock).toBe(67);
+    expect(map.KeyA).toBe(69);
+  });
+
+  it('leaves high keys unmapped when there are more whites than physical keys', () => {
+    const map = getDynamicKeyMap(60);
+
+    expect(map.Quote).toBe(77);
+    expect(map.KeyQ).toBe(58);
   });
 
   it('places each core black between its neighboring whites when possible', () => {
@@ -105,11 +119,11 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('anchors low extensions to the scope window', () => {
+  it('anchors low extensions from Q and A', () => {
     const map = getDynamicKeyMap(60);
 
+    expect(map.KeyQ).toBe(58);
     expect(map.CapsLock).toBe(59);
-    expect(map.Tab).toBe(58);
     expect(map.Quote).toBe(77);
     expect(map.BracketRight).toBe(78);
   });
@@ -132,9 +146,13 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     const atDefault = getScopeKeyMap(60);
     const shifted = getScopeKeyMap(66);
 
-    expect(atDefault.Tab).toBe(58);
+    expect(atDefault.KeyQ).toBe(58);
     expect(atDefault.BracketRight).toBe(78);
-    expect(shifted.Tab).toBeUndefined();
+
+    for (const midi of Object.values(shifted)) {
+      expect(isMidiInDisplayScope(midi, 66)).toBe(true);
+    }
+
     expect(isMidiInDisplayScope(79, 60)).toBe(false);
     expect(isMidiInDisplayScope(78, 60)).toBe(true);
   });
