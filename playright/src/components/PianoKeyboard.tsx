@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/react';
 import {
   getEffectiveKeyMap,
   getLabelForKeyMapMidi,
+  isMidiInCoreScope,
   resolveNoteMidiFromKeyboard,
 } from '../core/InputManager.ts';
 import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
@@ -194,15 +195,22 @@ export function PianoKeyboard() {
     [scopeStartMidi, scopeTranspose],
   );
 
-  const playableMidiSet = useMemo(
-    () => new Set(Object.values(keyMap)),
-    [keyMap],
-  );
-
   const expectedMidiSet = useMemo(
     () => new Set(expectedMidiNotes),
     [expectedMidiNotes],
   );
+
+  const isKeyInDisplayRange = (midi: number) => {
+    if (isTwoHand) {
+      return false;
+    }
+
+    if (isMidiInCoreScope(midi, scopeStartMidi)) {
+      return true;
+    }
+
+    return isPracticeActive && expectedMidiSet.has(midi);
+  };
 
   const twoHandMidiLabels = useMemo(() => {
     if (!isTwoHand) {
@@ -229,10 +237,15 @@ export function PianoKeyboard() {
     return Object.prototype.hasOwnProperty.call(manualFingerings, key);
   }, [manualFingerings, selectedNote]);
 
-  const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) =>
-    isTwoHand
+  const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) => {
+    if (!isKeyInDisplayRange(midi)) {
+      return undefined;
+    }
+
+    return isTwoHand
       ? twoHandMidiLabels?.get(midi)
       : getLabelForKeyMapMidi(midi, onBlackPianoKey, keyMap);
+  };
 
   const { whiteKeys, blackKeys } = useMemo(() => {
     const whiteKeys: KeyLayout[] = [];
@@ -428,7 +441,7 @@ export function PianoKeyboard() {
         aria-label="88-key piano keyboard"
       >
         {whiteKeys.map((key) => {
-          const inScope = isTwoHand ? false : playableMidiSet.has(key.midi);
+          const inScope = isKeyInDisplayRange(key.midi);
           const isActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
@@ -467,7 +480,7 @@ export function PianoKeyboard() {
           );
         })}
         {blackKeys.map((key) => {
-          const inScope = isTwoHand ? false : playableMidiSet.has(key.midi);
+          const inScope = isKeyInDisplayRange(key.midi);
           const isActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);

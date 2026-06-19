@@ -124,6 +124,10 @@ function shiftAlongRow(midi: number, steps: number, wantBlack: boolean): number 
   return current;
 }
 
+export function isMidiInCoreScope(midi: number, scopeStart: number): boolean {
+  return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
+}
+
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const scopeEnd = scopeStart + SCOPE_SIZE - 1;
   const map: Record<string, number> = {};

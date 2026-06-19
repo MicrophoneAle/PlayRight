@@ -3,9 +3,6 @@ import { applyFingeringSettings, prepareScriptWithFingering } from '../core/fing
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
-import {
-  normalizeScopePosition,
-} from '../core/InputManager.ts';
 import { shiftScopeStart } from '../core/scopeShift.ts';
 import type {
   EngineMode,
@@ -268,24 +265,14 @@ export const useEngineStore = create<EngineState>((set) => ({
       }));
     },
     nudgeScope: (direction) => {
-      set((state) => {
-        if (state.shiftMode === 'semitone') {
-          const delta = direction === 'up' ? 1 : -1;
-          return normalizeScopePosition(
-            state.scopeStartMidi,
-            state.scopeTranspose + delta,
-          );
-        }
-
-        return {
-          scopeStartMidi: shiftScopeStart(
-            state.scopeStartMidi,
-            direction,
-            state.shiftMode,
-          ),
-          scopeTranspose: 0,
-        };
-      });
+      set((state) => ({
+        scopeStartMidi: shiftScopeStart(
+          state.scopeStartMidi,
+          direction,
+          state.shiftMode,
+        ),
+        scopeTranspose: 0,
+      }));
     },
     setShiftMode: (mode) => {
       set({ shiftMode: mode });

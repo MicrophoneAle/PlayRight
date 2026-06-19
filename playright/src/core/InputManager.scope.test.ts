@@ -4,7 +4,6 @@ import {
   getEffectiveKeyMap,
   isBlackRowCode,
   isWhiteRowCode,
-  normalizeScopePosition,
   SCOPE_SIZE,
 } from './InputManager.ts';
 
@@ -109,6 +108,47 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
   });
 });
 
+describe('semitone scope shift', () => {
+  it('moves the core scope window by one chromatic semitone', () => {
+    const before = getDynamicKeyMap(60);
+    const after = getDynamicKeyMap(61);
+
+    const beforeCoreMidis = [
+      ...CORE_WHITE_CODES,
+      ...CORE_BLACK_CODES,
+    ].map((code) => before[code]).filter((midi): midi is number => midi !== undefined);
+    const afterCoreMidis = [
+      ...CORE_WHITE_CODES,
+      ...CORE_BLACK_CODES,
+    ].map((code) => after[code]).filter((midi): midi is number => midi !== undefined);
+
+    expect(Math.min(...afterCoreMidis)).toBe(Math.min(...beforeCoreMidis) + 1);
+    expect(Math.max(...afterCoreMidis)).toBe(Math.max(...beforeCoreMidis) + 1);
+  });
+
+  it('preserves white/black row colors after chromatic scope shift', () => {
+    const map = getDynamicKeyMap(61);
+
+    for (const code of [...CORE_WHITE_CODES, 'CapsLock', 'Quote'] as const) {
+      const midi = map[code];
+      if (midi === undefined) {
+        continue;
+      }
+
+      expect([1, 3, 6, 8, 10].includes(midi % 12)).toBe(false);
+    }
+
+    for (const code of [...CORE_BLACK_CODES, 'Tab', 'BracketRight'] as const) {
+      const midi = map[code];
+      if (midi === undefined) {
+        continue;
+      }
+
+      expect([1, 3, 6, 8, 10].includes(midi % 12)).toBe(true);
+    }
+  });
+});
+
 describe('getEffectiveKeyMap transpose', () => {
   it('preserves white/black row colors when transposing', () => {
     const before = getDynamicKeyMap(60);
@@ -128,15 +168,11 @@ describe('getEffectiveKeyMap transpose', () => {
 
   it('shifts each mapped note by one semitone along its row', () => {
     const before = getDynamicKeyMap(60);
-    const shifted = normalizeScopePosition(60, 1);
-    const after = getEffectiveKeyMap(
-      shifted.scopeStartMidi,
-      shifted.scopeTranspose,
-    );
+    const after = getEffectiveKeyMap(60, 1);
 
-    for (const [code] of Object.entries(before)) {
+    for (const [code, midi] of Object.entries(before)) {
       expect(after[code]).toBeDefined();
-      expect(after[code]).not.toBe(before[code]);
+      expect(after[code]).not.toBe(midi);
     }
   });
 });
