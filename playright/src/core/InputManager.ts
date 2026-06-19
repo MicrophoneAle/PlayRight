@@ -139,6 +139,13 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
     return;
   }
 
+  const qMidi = findBlackLeftOf(map.KeyA);
+  if (qMidi === null) {
+    return;
+  }
+
+  map.KeyQ = qMidi;
+
   const capsSeed =
     scopeStart - 1 >= PIANO_START_MIDI &&
     scopeStart - 1 < map.KeyA &&
@@ -146,53 +153,20 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
       ? scopeStart - 1
       : undefined;
 
-  let qMidi: number | null = null;
+  const capsMidi =
+    capsSeed !== undefined &&
+    getBlackBetween(capsSeed, map.KeyA) === qMidi
+      ? capsSeed
+      : findWhiteLeftOf(qMidi);
 
-  if (capsSeed !== undefined) {
-    qMidi = getBlackBetween(capsSeed, map.KeyA);
+  if (capsMidi !== null) {
+    map.CapsLock = capsMidi;
   }
 
-  if (qMidi !== null && qMidi < map.KeyA) {
-    map.KeyQ = qMidi;
-
-    if (
-      capsSeed !== undefined &&
-      capsSeed < map.KeyA &&
-      capsSeed !== map.KeyQ
-    ) {
-      map.CapsLock = capsSeed;
-    } else {
-      const capsMidi = findWhiteLeftOf(map.KeyQ);
-      if (capsMidi !== null) {
-        map.CapsLock = capsMidi;
-      }
-    }
-
-    if (map.CapsLock !== undefined) {
-      const tabMidi = findBlackLeftOf(map.CapsLock);
-      if (tabMidi !== null && tabMidi !== map.KeyQ) {
-        map.Tab = tabMidi;
-      }
-    }
-  } else {
-    const tabMidi = findBlackLeftOf(map.KeyA);
-    if (tabMidi !== null && tabMidi < map.KeyA) {
+  if (map.CapsLock !== undefined) {
+    const tabMidi = findBlackLeftOf(map.CapsLock);
+    if (tabMidi !== null && tabMidi !== map.KeyQ) {
       map.Tab = tabMidi;
-
-      if (
-        capsSeed !== undefined &&
-        capsSeed > tabMidi &&
-        capsSeed < map.KeyA
-      ) {
-        map.CapsLock = capsSeed;
-      } else {
-        const capsMidi = findWhiteLeftOf(tabMidi);
-        if (capsMidi !== null) {
-          map.CapsLock = capsMidi;
-        }
-      }
-    } else if (capsSeed !== undefined) {
-      map.CapsLock = capsSeed;
     }
   }
 
