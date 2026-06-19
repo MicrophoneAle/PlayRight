@@ -8,7 +8,7 @@ import { practiceEngine } from '../core/PracticeEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS } from '../store/useEngineStore.ts';
-import type { Hand, ManualFingeringMap } from '../types/index.ts';
+import type { Hand, ManualFingeringMap, PlaybackScript } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
@@ -48,7 +48,7 @@ export function Lid() {
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
 
   const prepareScriptForLoad = (
-    script: ReturnType<typeof parseMusicXmlToScript>,
+    script: PlaybackScript,
     manualFingerings: ManualFingeringMap = {},
   ) => {
     const state = useEngineStore.getState();
@@ -279,7 +279,7 @@ export function Lid() {
     void (async () => {
       try {
         const text = await readMusicXmlFromFile(file);
-        const script = parseMusicXmlToScript(text);
+        const { script, scoreTiming } = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
         const loadedScript = prepareScriptForLoad(script);
         let scoreId: string | null = null;
@@ -296,7 +296,7 @@ export function Lid() {
         loadScript(loadedScript, text, title, {
           scoreId,
           manualFingerings: {},
-        });
+        }, scoreTiming);
 
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', loadedScript);
       } catch (error) {
@@ -319,12 +319,12 @@ export function Lid() {
     }
 
     try {
-      const script = parseMusicXmlToScript(saved.raw_xml);
+      const { script, scoreTiming } = parseMusicXmlToScript(saved.raw_xml);
       const loadedScript = prepareScriptForLoad(script, saved.manual_fingerings);
       loadScript(loadedScript, saved.raw_xml, saved.title, {
         scoreId: saved.id,
         manualFingerings: saved.manual_fingerings,
-      });
+      }, scoreTiming);
     } catch (error) {
       console.error('🚨 PARSE FAILED:', error);
       alert('Failed to load piece: ' + (error as Error).message);

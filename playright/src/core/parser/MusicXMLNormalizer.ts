@@ -389,3 +389,210 @@ export class MusicXMLNormalizer {
     return [];
   }
 }
+
+const DEFAULT_TEMPO_BPM = 100;
+const DEFAULT_DIVISIONS_PER_QUARTER = 1;
+
+function extractDivisions(attributesChildren: unknown[]): number | null {
+  for (const child of attributesChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (tag === 'divisions') {
+      return toNumber(readOrderedText(child.divisions), 0);
+    }
+  }
+
+  return null;
+}
+
+function readTempoFromSoundWrapper(child: RawRecord): number | null {
+  const attrs = isRecord(child[':@']) ? child[':@'] : {};
+  const tempo = attrs['@_tempo'];
+
+  if (typeof tempo === 'number' && tempo > 0) {
+    return tempo;
+  }
+
+  if (typeof tempo === 'string' && tempo.trim().length > 0) {
+    const parsed = Number(tempo);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function extractTempoFromDirectionChildren(directionChildren: unknown[]): number | null {
+  for (const child of directionChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+
+    if (tag === 'sound') {
+      const tempo = readTempoFromSoundWrapper(child);
+      if (tempo !== null) {
+        return tempo;
+      }
+      continue;
+    }
+
+    if (tag !== 'direction-type' || !Array.isArray(child['direction-type'])) {
+      continue;
+    }
+
+    for (const directionTypeChild of child['direction-type']) {
+      if (!isRecord(directionTypeChild) || !Array.isArray(directionTypeChild.metronome)) {
+        continue;
+      }
+
+      for (const metronomeChild of directionTypeChild.metronome) {
+        if (!isRecord(metronomeChild)) {
+          continue;
+        }
+
+        const metronomeTag = Object.keys(metronomeChild).find((key) => key !== ':@');
+        if (metronomeTag === 'per-minute') {
+          const tempo = toNumber(readOrderedText(metronomeChild['per-minute']), 0);
+          if (tempo > 0) {
+            return tempo;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractTempoFromMeasureChildren(measureChildren: unknown[]): number | null {
+  for (const child of measureChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+
+    if (tag === 'sound') {
+      const tempo = readTempoFromSoundWrapper(child);
+      if (tempo !== null) {
+        return tempo;
+      }
+      continue;
+    }
+
+    if (tag === 'direction' && Array.isArray(child.direction)) {
+      const tempo = extractTempoFromDirectionChildren(child.direction);
+      if (tempo !== null) {
+        return tempo;
+      }
+    }
+  }
+
+  return null;
+}
+
+function resolveDivisionsPerQuarter(observed: number[]): number {
+  if (observed.length === 0) {
+    return DEFAULT_DIVISIONS_PER_QUARTER;
+  }
+
+  const counts = new Map<number, number>();
+  let dominant = observed[0];
+  let dominantCount = 0;
+
+  for (const divisions of observed) {
+    const count = (counts.get(divisions) ?? 0) + 1;
+    counts.set(divisions, count);
+
+    if (count > dominantCount) {
+      dominantCount = count;
+      dominant = divisions;
+    }
+  }
+
+  return dominant;
+}
+
+function collectScoreTiming(rawXmlObj: unknown[]): {
+  divisionsPerQuarter: number;
+  tempoBpm: number;
+} {
+  const divisionsValues: number[] = [];
+  let tempoBpm: number | null = null;
+
+  const scorePartwiseEntry = rawXmlObj.find(
+    (entry) => isRecord(entry) && entry['score-partwise'] != null,
+  );
+
+  if (!isRecord(scorePartwiseEntry) || !Array.isArray(scorePartwiseEntry['score-partwise'])) {
+    return {
+      divisionsPerQuarter: DEFAULT_DIVISIONS_PER_QUARTER,
+      tempoBpm: DEFAULT_TEMPO_BPM,
+    };
+  }
+
+  const partEntry = scorePartwiseEntry['score-partwise'].find(
+    (entry) => isRecord(entry) && entry.part != null,
+  );
+
+  if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
+    return {
+      divisionsPerQuarter: DEFAULT_DIVISIONS_PER_QUARTER,
+      tempoBpm: DEFAULT_TEMPO_BPM,
+    };
+  }
+
+  for (const measureWrapper of partEntry.part) {
+    if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
+      continue;
+    }
+
+    if (tempoBpm === null) {
+      const measureTempo = extractTempoFromMeasureChildren(measureWrapper.measure);
+      if (measureTempo !== null) {
+        tempoBpm = measureTempo;
+      }
+    }
+
+    for (const child of measureWrapper.measure) {
+      if (!isRecord(child)) {
+        continue;
+      }
+
+      const tag = Object.keys(child).find((key) => key !== ':@');
+      if (tag !== 'attributes' || !Array.isArray(child.attributes)) {
+        continue;
+      }
+
+      const divisions = extractDivisions(child.attributes);
+      if (divisions !== null && divisions > 0) {
+        divisionsValues.push(divisions);
+      }
+    }
+  }
+
+  return {
+    divisionsPerQuarter: resolveDivisionsPerQuarter(divisionsValues),
+    tempoBpm: tempoBpm ?? DEFAULT_TEMPO_BPM,
+  };
+}
+
+export function extractScoreTiming(rawXmlObj: unknown): {
+  divisionsPerQuarter: number;
+  tempoBpm: number;
+} {
+  if (Array.isArray(rawXmlObj)) {
+    return collectScoreTiming(rawXmlObj);
+  }
+
+  return {
+    divisionsPerQuarter: DEFAULT_DIVISIONS_PER_QUARTER,
+    tempoBpm: DEFAULT_TEMPO_BPM,
+  };
+}

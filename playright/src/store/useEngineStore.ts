@@ -10,6 +10,7 @@ import type {
   Hand,
   ManualFingeringMap,
   PlaybackScript,
+  ScoreTiming,
 } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
 
@@ -59,18 +60,20 @@ function reprocessScriptFromRaw(
   manualFingerings: ManualFingeringMap,
   autoFingering: boolean,
   handSpan: HandSpanPreset,
-): PlaybackScript | null {
+): { script: PlaybackScript; scoreTiming: ScoreTiming } | null {
   if (!rawXml) {
     return null;
   }
 
-  const parsed = parseMusicXmlToScript(rawXml);
-  return prepareScriptWithFingering(
+  const { script: parsed, scoreTiming } = parseMusicXmlToScript(rawXml);
+  const script = prepareScriptWithFingering(
     parsed,
     manualFingerings,
     autoFingering,
     handSpan,
   );
+
+  return { script, scoreTiming };
 }
 
 function persistManualFingerings(
@@ -104,6 +107,7 @@ interface EngineState {
   rawXml: string | null;
   songTitle: string | null;
   scoreId: string | null;
+  scoreTiming: ScoreTiming | null;
   manualFingerings: ManualFingeringMap;
   scopeStartMidi: number;
   scopeTranspose: number;
@@ -127,6 +131,7 @@ interface EngineState {
       rawXml: string,
       title?: string,
       library?: LoadScriptLibraryMeta,
+      scoreTiming?: ScoreTiming,
     ) => void;
     clearScript: () => void;
     setManualFinger: (
@@ -164,6 +169,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   rawXml: null,
   songTitle: null,
   scoreId: null,
+  scoreTiming: null,
   manualFingerings: {},
   scopeStartMidi: 60,
   scopeTranspose: 0,
@@ -180,12 +186,13 @@ export const useEngineStore = create<EngineState>((set) => ({
   totalSteps: 0,
   expectedMidiNotes: [],
   actions: {
-    loadScript: (script, rawXml, title, library) => {
+    loadScript: (script, rawXml, title, library, scoreTiming) => {
       set({
         script,
         rawXml,
         songTitle: title ?? null,
         scoreId: library?.scoreId ?? null,
+        scoreTiming: scoreTiming ?? null,
         manualFingerings: library?.manualFingerings ?? {},
         currentStepIndex: 0,
         totalSteps: script.length,
@@ -200,6 +207,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         rawXml: null,
         songTitle: null,
         scoreId: null,
+        scoreTiming: null,
         manualFingerings: {},
         hasPracticeStarted: false,
         expectedMidiNotes: [],
@@ -211,7 +219,7 @@ export const useEngineStore = create<EngineState>((set) => ({
           ...state.manualFingerings,
           [fingeringKey(stepIndex, hand, midi)]: finger,
         };
-        const script = reprocessScriptFromRaw(
+        const reprocessed = reprocessScriptFromRaw(
           state.rawXml,
           manualFingerings,
           state.autoFingering,
@@ -220,14 +228,15 @@ export const useEngineStore = create<EngineState>((set) => ({
 
         persistManualFingerings(state.scoreId, manualFingerings, userId);
 
-        if (!script) {
+        if (!reprocessed) {
           return { manualFingerings };
         }
 
         return {
           manualFingerings,
-          script,
-          totalSteps: script.length,
+          script: reprocessed.script,
+          scoreTiming: reprocessed.scoreTiming,
+          totalSteps: reprocessed.script.length,
         };
       });
     },
@@ -237,7 +246,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         const manualFingerings = { ...state.manualFingerings };
         delete manualFingerings[key];
 
-        const script = reprocessScriptFromRaw(
+        const reprocessed = reprocessScriptFromRaw(
           state.rawXml,
           manualFingerings,
           state.autoFingering,
@@ -246,14 +255,15 @@ export const useEngineStore = create<EngineState>((set) => ({
 
         persistManualFingerings(state.scoreId, manualFingerings, userId);
 
-        if (!script) {
+        if (!reprocessed) {
           return { manualFingerings };
         }
 
         return {
           manualFingerings,
-          script,
-          totalSteps: script.length,
+          script: reprocessed.script,
+          scoreTiming: reprocessed.scoreTiming,
+          totalSteps: reprocessed.script.length,
         };
       });
     },

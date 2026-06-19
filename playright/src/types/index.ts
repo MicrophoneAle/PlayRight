@@ -8,6 +8,18 @@ export interface ScriptNote {
   hand: Hand;
   finger: Finger | null;
   fingerSource?: 'score' | 'predicted' | 'manual';
+  /** Note length in MusicXML divisions, when present in the score. */
+  durationDivisions?: number;
+}
+
+export interface ScoreTiming {
+  divisionsPerQuarter: number;
+  tempoBpm: number;
+}
+
+export interface ParseMusicXmlResult {
+  script: PlaybackScript;
+  scoreTiming: ScoreTiming;
 }
 
 export interface StepOrder {

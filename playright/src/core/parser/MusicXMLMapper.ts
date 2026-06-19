@@ -69,6 +69,7 @@ export class MusicXMLMapper {
           midi: getMidiNumber(element.step, element.octave, element.alter),
           hand: mapStaffToHand(element.staff),
           finger,
+          durationDivisions: element.duration,
           ...(finger !== null ? { fingerSource: 'score' as const } : {}),
         };
 

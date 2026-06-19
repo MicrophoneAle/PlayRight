@@ -30,7 +30,14 @@ async function buildMxlBuffer(xml: string): Promise<ArrayBuffer> {
 }
 
 describe('parseMusicXmlToScript', () => {
-  const script = parseMusicXmlToScript(MINIMAL_MUSICXML);
+  const { script, scoreTiming } = parseMusicXmlToScript(MINIMAL_MUSICXML);
+
+  it('captures score-level timing metadata', () => {
+    expect(scoreTiming).toEqual({
+      divisionsPerQuarter: 480,
+      tempoBpm: 100,
+    });
+  });
 
   it('parses step count and onset timing from divisions', () => {
     expect(script).toHaveLength(3);
@@ -61,6 +68,14 @@ describe('parseMusicXmlToScript', () => {
     expect(script[0].notes.map((note) => note.pitch).sort()).toEqual(['C3', 'C4']);
   });
 
+  it('preserves note duration in divisions on each script note', () => {
+    for (const step of script) {
+      for (const note of step.notes) {
+        expect(note.durationDivisions).toBe(480);
+      }
+    }
+  });
+
   it('preserves score fingerings and leaves absent fingerings null', () => {
     const c4 = script[0].notes.find((note) => note.pitch === 'C4');
     const e4 = script[1].notes.find((note) => note.pitch === 'E4');
@@ -82,6 +97,6 @@ describe('parseMusicXmlToScript', () => {
     const xmlFromMxl = await unzipScoreXmlFromMxlBuffer(mxlBuffer);
     const fromMxl = parseMusicXmlToScript(xmlFromMxl);
 
-    expect(fromMxl).toEqual(script);
+    expect(fromMxl).toEqual({ script, scoreTiming });
   });
 });

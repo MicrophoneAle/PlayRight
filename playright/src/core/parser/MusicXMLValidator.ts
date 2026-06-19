@@ -8,6 +8,7 @@ const ScriptNoteSchema = z.object({
   hand: z.enum(['L', 'R']),
   finger: z.number().int().min(1).max(5).nullable(),
   fingerSource: z.enum(['score', 'predicted', 'manual']).optional(),
+  durationDivisions: z.number().int().nonnegative().optional(),
 });
 
 /** Mirrors {@link StepOrder} — domain field is `order`, not `orderId`. */
