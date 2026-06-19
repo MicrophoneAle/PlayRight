@@ -475,29 +475,32 @@ export function Lid() {
         onChange={handleFileUpload}
       />
 
-      <div className="flex min-w-0 items-center gap-3">
-        {collapseButton}
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
-          <Music2 size={18} strokeWidth={2} aria-hidden />
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          {collapseButton}
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
+            <Music2 size={18} strokeWidth={2} aria-hidden />
+          </div>
+          <div className="min-w-0 text-left">
+            <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
+              PlayRight
+            </h1>
+            <div className="text-xs leading-tight text-zinc-500">
+              <span className="block">Keyboard-Controlled</span>
+              <span className="block">Piano Practice</span>
+            </div>
+          </div>
         </div>
-        <div className="min-w-0 text-left">
-          <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
-            PlayRight
-          </h1>
-          <p className="truncate text-xs text-zinc-500">
-            Keyboard-Controlled Piano Practice
-          </p>
-        </div>
-      </div>
 
-      <div className="flex min-w-0 flex-1 items-center justify-center px-4">
-        <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-2.5">
-          <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
-            Piece
-          </span>
-          <span className="truncate text-sm text-zinc-400">
-            {songTitle ?? 'No Piece Loaded'}
-          </span>
+        <div className="flex min-w-0 flex-1 items-center">
+          <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-2.5">
+            <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
+              Piece
+            </span>
+            <span className="truncate text-sm text-zinc-400">
+              {songTitle ?? 'No Piece Loaded'}
+            </span>
+          </div>
         </div>
       </div>
 
