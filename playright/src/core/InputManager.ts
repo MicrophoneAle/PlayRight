@@ -77,6 +77,16 @@ function findNextWhiteAbove(midi: number): number | null {
   return null;
 }
 
+function findPreviousWhiteBelow(midi: number): number | null {
+  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
+    if (!isBlackKey(prev)) {
+      return prev;
+    }
+  }
+
+  return null;
+}
+
 function assignEndpointBlack(
   map: Record<string, number>,
   code: string,
@@ -167,6 +177,15 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     map.Tab = lowExtensionMidi;
   }
 
+  const lowWhiteExtensionMidi =
+    map.KeyA !== undefined ? findPreviousWhiteBelow(map.KeyA) : null;
+  if (
+    lowWhiteExtensionMidi !== null &&
+    !Object.values(map).includes(lowWhiteExtensionMidi)
+  ) {
+    map.CapsLock = lowWhiteExtensionMidi;
+  }
+
   const highWhiteExtensionMidi = (() => {
     const anchorMidi =
       map.Semicolon ??
@@ -200,7 +219,8 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     const isExtension =
       midi === lowExtensionMidi ||
       midi === highExtensionMidi ||
-      midi === highWhiteExtensionMidi;
+      midi === highWhiteExtensionMidi ||
+      midi === lowWhiteExtensionMidi;
 
     if (inScope || isExtension) {
       finalMap[key] = midi;
@@ -222,6 +242,7 @@ export function formatKeyCode(code: string): string {
     BracketRight: ']',
     Backslash: '\\',
     Tab: '↹',
+    CapsLock: '⇪',
   };
 
   return symbols[code] ?? code;
@@ -246,6 +267,10 @@ export function resolveNoteMidiFromKeyboard(
 
   if (event.key === 'Tab') {
     return keyMap.Tab;
+  }
+
+  if (event.code === 'CapsLock' || event.key === 'CapsLock') {
+    return keyMap.CapsLock;
   }
 
   if (event.key === "'" || event.key === '"') {

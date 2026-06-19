@@ -35,6 +35,22 @@ describe('getDynamicKeyMap scope endpoints', () => {
     expect(map.Tab).toBe(39);
   });
 
+  it('adds Caps Lock directly before A when in range', () => {
+    const scopeStart = 40;
+    const map = getDynamicKeyMap(scopeStart);
+
+    expect(map.KeyA).toBe(40);
+    expect(map.CapsLock).toBe(38);
+  });
+
+  it('adds Caps Lock directly before A for the default scope position', () => {
+    const scopeStart = 60;
+    const map = getDynamicKeyMap(scopeStart);
+
+    expect(map.KeyA).toBe(60);
+    expect(map.CapsLock).toBe(59);
+  });
+
   it("adds ' directly after ; when in range", () => {
     const scopeStart = 40;
     const map = getDynamicKeyMap(scopeStart);
