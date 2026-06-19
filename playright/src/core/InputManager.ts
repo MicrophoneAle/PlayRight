@@ -13,84 +13,37 @@ export const PIANO_END_MIDI = 108;
 const isBlackKey = (midi: number): boolean =>
   [1, 3, 6, 8, 10].includes(midi % 12);
 
-function findFirstBlackInScope(scopeStart: number): number | null {
-  for (let midi = scopeStart; midi < scopeStart + SCOPE_SIZE; midi += 1) {
-    if (isBlackKey(midi)) {
-      return midi;
-    }
-  }
+const CORE_WHITE_PHYSICALS = [
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyF',
+  'KeyG',
+  'KeyH',
+  'KeyJ',
+  'KeyK',
+  'KeyL',
+  'Semicolon',
+] as const;
 
-  return null;
-}
-
-function findLastBlackInScope(scopeStart: number): number | null {
-  for (let midi = scopeStart + SCOPE_SIZE - 1; midi >= scopeStart; midi -= 1) {
-    if (isBlackKey(midi)) {
-      return midi;
-    }
-  }
-
-  return null;
-}
-
-function findRightmostScopeWhiteMidi(
-  map: Record<string, number>,
-  scopeStart: number,
-): number | null {
-  const whitePhysicals = [
-    'KeyA',
-    'KeyS',
-    'KeyD',
-    'KeyF',
-    'KeyG',
-    'KeyH',
-    'KeyJ',
-    'KeyK',
-    'KeyL',
-    'Semicolon',
-  ];
-  const scopeEnd = scopeStart + SCOPE_SIZE - 1;
-  let rightmost: number | null = null;
-
-  for (const code of whitePhysicals) {
-    const midi = map[code];
-    if (
-      midi !== undefined &&
-      midi >= scopeStart &&
-      midi <= scopeEnd &&
-      (rightmost === null || midi > rightmost)
-    ) {
-      rightmost = midi;
-    }
-  }
-
-  return rightmost;
-}
+const CORE_BLACK_PHYSICALS = [
+  'KeyQ',
+  'KeyW',
+  'KeyE',
+  'KeyR',
+  'KeyT',
+  'KeyY',
+  'KeyU',
+  'KeyI',
+  'KeyO',
+  'KeyP',
+  'BracketLeft',
+] as const;
 
 function findNextWhiteAbove(midi: number): number | null {
   for (let next = midi + 1; next <= PIANO_END_MIDI; next += 1) {
     if (!isBlackKey(next)) {
       return next;
-    }
-  }
-
-  return null;
-}
-
-function findPreviousWhiteBelow(midi: number): number | null {
-  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
-    if (!isBlackKey(prev)) {
-      return prev;
-    }
-  }
-
-  return null;
-}
-
-function findPreviousBlackBelow(midi: number): number | null {
-  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
-    if (isBlackKey(prev)) {
-      return prev;
     }
   }
 
@@ -107,147 +60,106 @@ function findNextBlackAbove(midi: number): number | null {
   return null;
 }
 
-function assignEndpointBlack(
-  map: Record<string, number>,
-  code: string,
-  midi: number,
-): void {
-  if (map[code] === midi) {
-    return;
-  }
+function findLowExtensionsBeforeAnchor(
+  scopeStart: number,
+  anchorMidi: number,
+): { lowWhite: number | null; lowBlack: number | null } {
+  let lowWhite: number | null = null;
+  let lowBlack: number | null = null;
 
-  delete map[code];
-  for (const [existingCode, existingMidi] of Object.entries(map)) {
-    if (existingMidi === midi) {
-      delete map[existingCode];
+  for (let midi = scopeStart; midi < anchorMidi; midi += 1) {
+    if (isBlackKey(midi)) {
+      if (lowBlack === null) {
+        lowBlack = midi;
+      }
+      continue;
+    }
+
+    if (lowWhite === null) {
+      lowWhite = midi;
     }
   }
 
-  map[code] = midi;
+  return { lowWhite, lowBlack };
 }
 
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
-  const map: Record<string, number> = {};
   const scopeEnd = scopeStart + SCOPE_SIZE - 1;
+  const map: Record<string, number> = {};
 
-  const whitePhysicals = [
-    'KeyA',
-    'KeyS',
-    'KeyD',
-    'KeyF',
-    'KeyG',
-    'KeyH',
-    'KeyJ',
-    'KeyK',
-    'KeyL',
-    'Semicolon',
-  ];
+  const whitesInScope: number[] = [];
+  const blacksInScope: number[] = [];
 
-  const topLeftMap: Record<string, string> = {
-    KeyA: 'KeyQ',
-    KeyS: 'KeyW',
-    KeyD: 'KeyE',
-    KeyF: 'KeyR',
-    KeyG: 'KeyT',
-    KeyH: 'KeyY',
-    KeyJ: 'KeyU',
-    KeyK: 'KeyI',
-    KeyL: 'KeyO',
-    Semicolon: 'KeyP',
-  };
-
-  let whiteIndex = 0;
-  for (let midi = scopeStart; midi < scopeStart + SCOPE_SIZE; midi += 1) {
-    if (!isBlackKey(midi)) {
-      if (whiteIndex < whitePhysicals.length) {
-        map[whitePhysicals[whiteIndex]] = midi;
-      }
-      whiteIndex += 1;
-    }
-  }
-
-  for (let midi = scopeStart; midi < scopeStart + SCOPE_SIZE; midi += 1) {
+  for (let midi = scopeStart; midi <= scopeEnd; midi += 1) {
     if (isBlackKey(midi)) {
-      const rightWhiteMidi = midi + 1;
-      const rightWhitePhysical = Object.keys(map).find(
-        (key) => map[key] === rightWhiteMidi,
-      );
-      if (rightWhitePhysical && topLeftMap[rightWhitePhysical]) {
-        map[topLeftMap[rightWhitePhysical]] = midi;
+      blacksInScope.push(midi);
+    } else {
+      whitesInScope.push(midi);
+    }
+  }
+
+  whitesInScope.forEach((midi, index) => {
+    if (index < CORE_WHITE_PHYSICALS.length) {
+      map[CORE_WHITE_PHYSICALS[index]] = midi;
+    }
+  });
+
+  blacksInScope.forEach((midi, index) => {
+    if (index < CORE_BLACK_PHYSICALS.length) {
+      map[CORE_BLACK_PHYSICALS[index]] = midi;
+    }
+  });
+
+  const firstCoreWhite = whitesInScope[0];
+  const firstCoreBlack = blacksInScope[0];
+  const lastCoreBlack = blacksInScope[blacksInScope.length - 1];
+
+  if (firstCoreWhite !== undefined) {
+    const { lowWhite, lowBlack } = findLowExtensionsBeforeAnchor(
+      scopeStart,
+      firstCoreWhite,
+    );
+
+    if (lowWhite !== null && map.CapsLock === undefined) {
+      map.CapsLock = lowWhite;
+    }
+
+    if (lowBlack !== null && map.Tab === undefined) {
+      map.Tab = lowBlack;
+    }
+  } else if (firstCoreBlack !== undefined) {
+    const { lowWhite, lowBlack } = findLowExtensionsBeforeAnchor(
+      scopeStart,
+      firstCoreBlack,
+    );
+
+    if (lowWhite !== null && map.CapsLock === undefined) {
+      map.CapsLock = lowWhite;
+    }
+
+    if (lowBlack !== null && map.Tab === undefined) {
+      map.Tab = lowBlack;
+    }
+  }
+
+  if (map.Quote === undefined && map.Semicolon !== undefined) {
+    const highWhite = findNextWhiteAbove(map.Semicolon);
+    if (highWhite !== null && highWhite > scopeEnd) {
+      map.Quote = highWhite;
+    }
+  }
+
+  if (map.BracketRight === undefined) {
+    const highBlackAnchor = map.BracketLeft ?? lastCoreBlack;
+    if (highBlackAnchor !== undefined) {
+      const highBlack = findNextBlackAbove(highBlackAnchor);
+      if (highBlack !== null && highBlack > scopeEnd) {
+        map.BracketRight = highBlack;
       }
     }
   }
 
-  const firstBlackInScope = findFirstBlackInScope(scopeStart);
-  if (firstBlackInScope !== null) {
-    assignEndpointBlack(map, 'KeyQ', firstBlackInScope);
-  }
-
-  const lastBlackInScope = findLastBlackInScope(scopeStart);
-  if (lastBlackInScope !== null) {
-    assignEndpointBlack(map, 'BracketLeft', lastBlackInScope);
-  }
-
-  const lowBlackExtensionMidi =
-    map.KeyA !== undefined ? findPreviousBlackBelow(map.KeyA) : null;
-  if (
-    lowBlackExtensionMidi !== null &&
-    !Object.values(map).includes(lowBlackExtensionMidi)
-  ) {
-    map.Tab = lowBlackExtensionMidi;
-  }
-
-  const lowWhiteExtensionMidi =
-    map.KeyA !== undefined ? findPreviousWhiteBelow(map.KeyA) : null;
-  if (
-    lowWhiteExtensionMidi !== null &&
-    !Object.values(map).includes(lowWhiteExtensionMidi)
-  ) {
-    map.CapsLock = lowWhiteExtensionMidi;
-  }
-
-  const highWhiteExtensionMidi = (() => {
-    const anchorMidi =
-      map.Semicolon ??
-      findRightmostScopeWhiteMidi(map, scopeStart);
-    if (anchorMidi === null) {
-      return null;
-    }
-
-    return findNextWhiteAbove(anchorMidi);
-  })();
-  if (
-    highWhiteExtensionMidi !== null &&
-    !Object.values(map).includes(highWhiteExtensionMidi)
-  ) {
-    map.Quote = highWhiteExtensionMidi;
-  }
-
-  const highBlackExtensionMidi =
-    map.Quote !== undefined ? findNextBlackAbove(map.Quote) : null;
-  if (
-    highBlackExtensionMidi !== null &&
-    !Object.values(map).includes(highBlackExtensionMidi)
-  ) {
-    map.BracketRight = highBlackExtensionMidi;
-  }
-
-  const finalMap: Record<string, number> = {};
-  for (const key in map) {
-    const midi = map[key];
-    const inScope = midi >= scopeStart && midi <= scopeEnd;
-    const isExtension =
-      midi === lowBlackExtensionMidi ||
-      midi === highBlackExtensionMidi ||
-      midi === highWhiteExtensionMidi ||
-      midi === lowWhiteExtensionMidi;
-
-    if (inScope || isExtension) {
-      finalMap[key] = midi;
-    }
-  }
-
-  return finalMap;
+  return map;
 }
 
 export function getEffectiveKeyMap(

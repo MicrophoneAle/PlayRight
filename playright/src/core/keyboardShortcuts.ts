@@ -46,8 +46,9 @@ export function getKeyboardShortcuts(
 
   return [
     ...GLOBAL_SHORTCUTS,
-    { keys: '⇪, A – ;, \'', description: 'White keys in scope (⇪ / \' when in range)' },
-    { keys: '↹, Q – P, [, ]', description: 'Black keys in scope (↹ / ] when in range)' },
+    { keys: 'A – ;', description: 'White keys in scope' },
+    { keys: 'Q – [', description: 'Black keys in scope' },
+    { keys: '⇪ / ↹ / \' / ]', description: 'Extension keys when needed' },
     { keys: '← or 1', description: 'Move scope down' },
     { keys: '→ or 2', description: 'Move scope up' },
     {

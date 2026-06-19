@@ -1,95 +1,116 @@
 import { describe, expect, it } from 'vitest';
-import { getDynamicKeyMap, getEffectiveKeyMap, normalizeScopePosition, SCOPE_SIZE } from './InputManager.ts';
+import {
+  getDynamicKeyMap,
+  getEffectiveKeyMap,
+  normalizeScopePosition,
+} from './InputManager.ts';
 
-describe('getDynamicKeyMap scope endpoints', () => {
-  it('maps the lowest in-scope black to Q when scope starts on white', () => {
-    const scopeStart = 40;
-    const map = getDynamicKeyMap(scopeStart);
+const CORE_WHITE_CODES = [
+  'KeyA',
+  'KeyS',
+  'KeyD',
+  'KeyF',
+  'KeyG',
+  'KeyH',
+  'KeyJ',
+  'KeyK',
+  'KeyL',
+  'Semicolon',
+] as const;
 
-    expect(map.KeyA).toBe(40);
-    expect(map.KeyQ).toBe(42);
-    expect(map.KeyW).toBeUndefined();
-  });
+const CORE_BLACK_CODES = [
+  'KeyQ',
+  'KeyW',
+  'KeyE',
+  'KeyR',
+  'KeyT',
+  'KeyY',
+  'KeyU',
+  'KeyI',
+  'KeyO',
+  'KeyP',
+  'BracketLeft',
+] as const;
 
-  it('maps the highest in-scope black to [ when scope ends on black', () => {
-    const scopeStart = 40;
-    const map = getDynamicKeyMap(scopeStart);
-    const lastMidi = scopeStart + SCOPE_SIZE - 1;
-
-    expect(lastMidi).toBe(57);
-    expect(map.BracketLeft).toBe(56);
-    expect(map.KeyQ).toBe(42);
-  });
-
-  it('keeps Q on the leading black when scope starts on black', () => {
-    const scopeStart = 39;
-    const map = getDynamicKeyMap(scopeStart);
-
-    expect(map.KeyQ).toBe(39);
-  });
-
-  it('adds Tab directly before A when in range', () => {
-    const scopeStart = 40;
-    const map = getDynamicKeyMap(scopeStart);
-
-    expect(map.KeyA).toBe(40);
-    expect(map.Tab).toBe(39);
-  });
-
-  it('adds Tab directly before A for the default scope position', () => {
-    const scopeStart = 60;
-    const map = getDynamicKeyMap(scopeStart);
+describe('getDynamicKeyMap fixed keyboard rows', () => {
+  it('maps in-scope whites to A through ; only', () => {
+    const map = getDynamicKeyMap(60);
 
     expect(map.KeyA).toBe(60);
+    expect(map.KeyS).toBe(62);
+    expect(map.Semicolon).toBe(76);
+    expect(map.Quote).toBeUndefined();
+
+    for (const code of CORE_WHITE_CODES) {
+      expect(map[code]).toBeDefined();
+    }
+  });
+
+  it('maps in-scope blacks to Q through [ in order', () => {
+    const map = getDynamicKeyMap(60);
+
+    expect(map.KeyQ).toBe(61);
+    expect(map.KeyW).toBe(63);
+    expect(map.KeyE).toBe(66);
+    expect(map.KeyR).toBe(68);
+    expect(map.KeyT).toBe(70);
+    expect(map.KeyU).toBe(75);
+    expect(map.BracketLeft).toBeUndefined();
+    expect(map.KeyI).toBeUndefined();
+  });
+
+  it('does not add low extensions at the default scope', () => {
+    const map = getDynamicKeyMap(60);
+
+    expect(map.CapsLock).toBeUndefined();
+    expect(map.Tab).toBeUndefined();
+  });
+
+  it('adds low extensions only when the scope starts below the first white', () => {
+    const map = getDynamicKeyMap(58);
+
+    expect(map.KeyA).toBe(59);
     expect(map.Tab).toBe(58);
+    expect(map.CapsLock).toBeUndefined();
   });
 
-  it('adds Caps Lock directly before A when in range', () => {
-    const scopeStart = 40;
-    const map = getDynamicKeyMap(scopeStart);
-
-    expect(map.KeyA).toBe(40);
-    expect(map.CapsLock).toBe(38);
-  });
-
-  it('adds Caps Lock directly before A for the default scope position', () => {
-    const scopeStart = 60;
-    const map = getDynamicKeyMap(scopeStart);
-
-    expect(map.KeyA).toBe(60);
-    expect(map.CapsLock).toBe(59);
-  });
-
-  it("adds ' directly after ; when in range", () => {
-    const scopeStart = 40;
-    const map = getDynamicKeyMap(scopeStart);
+  it("adds ' only when ; cannot reach the next white in scope", () => {
+    const map = getDynamicKeyMap(40);
 
     expect(map.Semicolon).toBe(55);
-    expect(map.Quote).toBe(57);
+    expect(map.Quote).toBeUndefined();
   });
 
-  it("adds ' directly after ; for the default scope position", () => {
-    const scopeStart = 60;
-    const map = getDynamicKeyMap(scopeStart);
+  it('adds ] only when [ cannot reach the next black in scope', () => {
+    const map = getDynamicKeyMap(60);
 
-    expect(map.Semicolon).toBe(76);
-    expect(map.Quote).toBe(77);
-  });
-
-  it('adds ] directly after \' when in range', () => {
-    const scopeStart = 40;
-    const map = getDynamicKeyMap(scopeStart);
-
-    expect(map.Quote).toBe(57);
-    expect(map.BracketRight).toBe(58);
-  });
-
-  it('adds ] directly after \' for the default scope position', () => {
-    const scopeStart = 60;
-    const map = getDynamicKeyMap(scopeStart);
-
-    expect(map.Quote).toBe(77);
     expect(map.BracketRight).toBe(78);
+  });
+
+  it('never assigns black notes to the home row', () => {
+    const map = getDynamicKeyMap(60);
+
+    for (const code of CORE_WHITE_CODES) {
+      const midi = map[code];
+      expect(midi % 12).not.toBe(1);
+      expect(midi % 12).not.toBe(3);
+      expect(midi % 12).not.toBe(6);
+      expect(midi % 12).not.toBe(8);
+      expect(midi % 12).not.toBe(10);
+    }
+  });
+
+  it('never assigns white notes to the top row', () => {
+    const map = getDynamicKeyMap(60);
+
+    for (const code of CORE_BLACK_CODES) {
+      const midi = map[code];
+      if (midi === undefined) {
+        continue;
+      }
+
+      expect([1, 3, 6, 8, 10].includes(midi % 12)).toBe(true);
+    }
   });
 });
 
