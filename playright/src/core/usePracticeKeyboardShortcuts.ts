@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { practiceEngine } from './PracticeEngine.ts';
+import { playbackEngine } from './PlaybackEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -23,6 +24,54 @@ export function usePracticeKeyboardShortcuts(): void {
       }
 
       const state = useEngineStore.getState();
+
+      if (state.playMode) {
+        switch (event.code) {
+          case 'Enter':
+          case 'NumpadEnter': {
+            if (!state.script) {
+              return;
+            }
+
+            event.preventDefault();
+            if (state.isPlaybackActive && state.isPlaybackPaused) {
+              playbackEngine.resume();
+            } else if (!state.isPlaybackActive || state.isPlaybackPaused) {
+              void playbackEngine.play();
+            }
+            return;
+          }
+          case 'Space': {
+            if (!state.script || !state.isPlaybackActive) {
+              return;
+            }
+
+            event.preventDefault();
+            if (state.isPlaybackPaused) {
+              playbackEngine.resume();
+            } else {
+              playbackEngine.pause();
+            }
+            return;
+          }
+          case 'KeyX': {
+            if (!state.script || !state.isPlaybackActive) {
+              return;
+            }
+
+            event.preventDefault();
+            playbackEngine.stop();
+            return;
+          }
+          case 'KeyZ': {
+            event.preventDefault();
+            state.actions.toggleHeaderCollapsed();
+            return;
+          }
+          default:
+            return;
+        }
+      }
 
       switch (event.code) {
         case 'Enter':

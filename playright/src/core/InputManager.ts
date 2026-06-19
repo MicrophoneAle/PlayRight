@@ -596,6 +596,7 @@ export class InputManager {
       if (
         state.currentStepIndex !== prevState.currentStepIndex &&
         state.isPracticeActive &&
+        !state.playMode &&
         state.engineMode === 'one-hand'
       ) {
         for (const code of this.activePhysicalKeys) {
@@ -620,7 +621,20 @@ export class InputManager {
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    if (useEngineStore.getState().engineMode === 'two-hand') {
+    const state = useEngineStore.getState();
+    if (state.playMode) {
+      if (event.repeat) {
+        return;
+      }
+
+      if (this.isBlockedPracticeKey(event)) {
+        event.preventDefault();
+      }
+
+      return;
+    }
+
+    if (state.engineMode === 'two-hand') {
       if (event.repeat) {
         return;
       }
@@ -666,7 +680,16 @@ export class InputManager {
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
-    if (useEngineStore.getState().engineMode === 'two-hand') {
+    const state = useEngineStore.getState();
+    if (state.playMode) {
+      if (this.isBlockedPracticeKey(event)) {
+        event.preventDefault();
+      }
+
+      return;
+    }
+
+    if (state.engineMode === 'two-hand') {
       const mapping = getFingerMappingFromKeyboard(event);
       if (mapping !== null) {
         if (this.activePhysicalKeys.has(event.code)) {
@@ -697,6 +720,21 @@ export class InputManager {
     this.activePhysicalKeys.delete(event.code);
     this.audioEngine.noteOff(midiPitch);
   };
+
+  private isBlockedPracticeKey(event: KeyboardEvent): boolean {
+    if (this.isScopeShiftKey(event)) {
+      return true;
+    }
+
+    if (useEngineStore.getState().engineMode === 'two-hand') {
+      return (
+        getFingerMappingFromKeyboard(event) !== null ||
+        this.isOneHandNoteKeyCode(event.code)
+      );
+    }
+
+    return this.resolveMidiPitch(event) !== undefined;
+  }
 
   destroy(): void {
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });

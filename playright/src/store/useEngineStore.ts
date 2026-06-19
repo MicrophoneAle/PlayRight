@@ -20,6 +20,13 @@ export type SheetScrollMode = 'smooth' | 'instant';
 const SHEET_SCROLL_MODE_STORAGE_KEY = 'playright-sheet-scroll-mode';
 const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
 const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
+const PLAY_MODE_STORAGE_KEY = 'playright-play-mode';
+const TEMPO_FACTOR_STORAGE_KEY = 'playright-tempo-factor';
+
+export const TEMPO_FACTOR_MIN = 0.5;
+export const TEMPO_FACTOR_MAX = 1.5;
+export const TEMPO_FACTOR_STEP = 0.05;
+export const TEMPO_FACTOR_DEFAULT = 1;
 
 export const HAND_SPAN_PRESETS = [0.85, 1, 1.15] as const;
 export type HandSpanPreset = (typeof HAND_SPAN_PRESETS)[number];
@@ -53,6 +60,46 @@ function readStoredHandSpan(): HandSpanPreset {
   return HAND_SPAN_PRESETS.includes(parsed as HandSpanPreset)
     ? (parsed as HandSpanPreset)
     : 1;
+}
+
+function readStoredPlayMode(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(PLAY_MODE_STORAGE_KEY) === 'true';
+}
+
+function clampTempoFactor(value: number): number {
+  const rounded = Math.round(value / TEMPO_FACTOR_STEP) * TEMPO_FACTOR_STEP;
+  return Math.min(TEMPO_FACTOR_MAX, Math.max(TEMPO_FACTOR_MIN, rounded));
+}
+
+function readStoredTempoFactor(): number {
+  if (typeof window === 'undefined') {
+    return TEMPO_FACTOR_DEFAULT;
+  }
+
+  const stored = window.localStorage.getItem(TEMPO_FACTOR_STORAGE_KEY);
+  const parsed = stored !== null ? Number(stored) : TEMPO_FACTOR_DEFAULT;
+
+  if (!Number.isFinite(parsed)) {
+    return TEMPO_FACTOR_DEFAULT;
+  }
+
+  return clampTempoFactor(parsed);
+}
+
+function syncPlaybackTempoFactor(factor: number): void {
+  void import('../core/PlaybackEngine.ts').then(({ playbackEngine }) => {
+    playbackEngine.setTempoFactor(factor);
+  });
+}
+
+function stopPlaybackSession(): void {
+  void import('../core/PlaybackEngine.ts').then(({ playbackEngine }) => {
+    playbackEngine.stop();
+  });
 }
 
 function reprocessScriptFromRaw(
@@ -123,6 +170,10 @@ interface EngineState {
   hasPracticeStarted: boolean;
   /** True while a playback session is active (playing or paused). */
   isPlaybackActive: boolean;
+  /** True when playback is paused mid-session. */
+  isPlaybackPaused: boolean;
+  playMode: boolean;
+  tempoFactor: number;
   headerCollapsed: boolean;
   currentStepIndex: number;
   totalSteps: number;
@@ -161,6 +212,9 @@ interface EngineState {
     setPracticeActive: (isActive: boolean) => void;
     setHasPracticeStarted: (started: boolean) => void;
     setPlaybackActive: (active: boolean) => void;
+    setPlaybackPaused: (paused: boolean) => void;
+    setPlayMode: (enabled: boolean) => void;
+    setTempoFactor: (factor: number) => void;
     toggleHeaderCollapsed: () => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
@@ -185,6 +239,9 @@ export const useEngineStore = create<EngineState>((set) => ({
   isPracticeActive: false,
   hasPracticeStarted: false,
   isPlaybackActive: false,
+  isPlaybackPaused: false,
+  playMode: readStoredPlayMode(),
+  tempoFactor: readStoredTempoFactor(),
   headerCollapsed: false,
   currentStepIndex: 0,
   totalSteps: 0,
@@ -203,6 +260,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         isPracticeActive: false,
         hasPracticeStarted: false,
         isPlaybackActive: false,
+        isPlaybackPaused: false,
         expectedMidiNotes: [],
       });
     },
@@ -216,6 +274,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         manualFingerings: {},
         hasPracticeStarted: false,
         isPlaybackActive: false,
+        isPlaybackPaused: false,
         expectedMidiNotes: [],
       });
     },
@@ -356,6 +415,31 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setPlaybackActive: (active) => {
       set({ isPlaybackActive: active });
+    },
+    setPlaybackPaused: (paused) => {
+      set({ isPlaybackPaused: paused });
+    },
+    setPlayMode: (enabled) => {
+      window.localStorage.setItem(
+        PLAY_MODE_STORAGE_KEY,
+        enabled ? 'true' : 'false',
+      );
+
+      if (enabled) {
+        void import('../core/PracticeEngine.ts').then(({ practiceEngine }) => {
+          practiceEngine.stop();
+        });
+      } else {
+        stopPlaybackSession();
+      }
+
+      set({ playMode: enabled });
+    },
+    setTempoFactor: (factor) => {
+      const tempoFactor = clampTempoFactor(factor);
+      window.localStorage.setItem(TEMPO_FACTOR_STORAGE_KEY, String(tempoFactor));
+      set({ tempoFactor });
+      syncPlaybackTempoFactor(tempoFactor);
     },
     toggleHeaderCollapsed: () => {
       set((state) => ({ headerCollapsed: !state.headerCollapsed }));

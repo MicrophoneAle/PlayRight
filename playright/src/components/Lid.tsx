@@ -5,9 +5,10 @@ import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown,
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
+import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
-import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS } from '../store/useEngineStore.ts';
+import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { Hand, ManualFingeringMap, PlaybackScript } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -34,6 +35,10 @@ export function Lid() {
   const script = useEngineStore((state) => state.script);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const hasPracticeStarted = useEngineStore((state) => state.hasPracticeStarted);
+  const playMode = useEngineStore((state) => state.playMode);
+  const tempoFactor = useEngineStore((state) => state.tempoFactor);
+  const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
+  const isPlaybackPaused = useEngineStore((state) => state.isPlaybackPaused);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const autoFingering = useEngineStore((state) => state.autoFingering);
@@ -46,6 +51,8 @@ export function Lid() {
   const setAutoFingering = useEngineStore((state) => state.actions.setAutoFingering);
   const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
+  const setPlayMode = useEngineStore((state) => state.actions.setPlayMode);
+  const setTempoFactor = useEngineStore((state) => state.actions.setTempoFactor);
 
   const prepareScriptForLoad = (
     script: PlaybackScript,
@@ -134,6 +141,39 @@ export function Lid() {
         Settings
       </p>
       <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <label
+            htmlFor="play-mode-toggle"
+            className="text-xs text-zinc-400"
+          >
+            Play mode
+          </label>
+          <input
+            id="play-mode-toggle"
+            type="checkbox"
+            checked={playMode}
+            onChange={(event) => setPlayMode(event.target.checked)}
+            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <label
+            htmlFor="tempo-factor-slider"
+            className="text-xs text-zinc-400"
+          >
+            Playback tempo: {tempoFactor.toFixed(2)}x
+          </label>
+          <input
+            id="tempo-factor-slider"
+            type="range"
+            min={TEMPO_FACTOR_MIN}
+            max={TEMPO_FACTOR_MAX}
+            step={TEMPO_FACTOR_STEP}
+            value={tempoFactor}
+            onChange={(event) => setTempoFactor(Number(event.target.value))}
+            className="w-full accent-violet-600"
+          />
+        </div>
         <div className="flex flex-col gap-2">
           <span className="text-xs text-zinc-400">Practice Mode</span>
           <div
@@ -244,7 +284,7 @@ export function Lid() {
           <select
             id="shift-mode-select"
             value={shiftMode}
-            disabled={engineMode === 'two-hand'}
+            disabled={engineMode === 'two-hand' || playMode}
             onChange={(event) =>
               setShiftMode(event.target.value as ShiftMode)
             }
@@ -358,7 +398,53 @@ export function Lid() {
     toggleHeaderCollapsed();
   };
 
-  const playControls = (
+  const playbackRunning = isPlaybackActive && !isPlaybackPaused;
+
+  const playControls = playMode ? (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          if (playbackRunning) {
+            playbackEngine.pause();
+            return;
+          }
+
+          if (isPlaybackPaused) {
+            playbackEngine.resume();
+            return;
+          }
+
+          void playbackEngine.play();
+        }}
+        disabled={!script}
+        className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {playbackRunning ? (
+          <>
+            <Pause size={15} strokeWidth={2} aria-hidden />
+            Pause
+          </>
+        ) : (
+          <>
+            <Play size={15} strokeWidth={2} aria-hidden />
+            Play
+          </>
+        )}
+      </button>
+      {playbackRunning ? null : (
+        <button
+          type="button"
+          onClick={() => void playbackEngine.restart()}
+          disabled={!script || !isPlaybackActive}
+          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RotateCcw size={15} strokeWidth={2} aria-hidden />
+          Restart
+        </button>
+      )}
+    </>
+  ) : (
     <>
       <button
         type="button"
@@ -395,29 +481,29 @@ export function Lid() {
   const handToggle = script && (engineMode === 'one-hand' || engineMode === 'two-hand') ? (
     <div
       className={`flex gap-1 rounded-lg border p-0.5 ${
-        engineMode === 'two-hand'
+        engineMode === 'two-hand' || playMode
           ? 'cursor-not-allowed border-zinc-800 bg-zinc-950 opacity-50'
           : 'border-zinc-700 bg-zinc-900'
       }`}
       role="group"
       aria-label="Active hand"
-      aria-disabled={engineMode === 'two-hand'}
+      aria-disabled={engineMode === 'two-hand' || playMode}
     >
       <button
         type="button"
         onClick={() => handleHandChange('L')}
-        disabled={engineMode === 'two-hand'}
+        disabled={engineMode === 'two-hand' || playMode}
         aria-pressed={activeHand === 'L'}
-        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L', engineMode === 'two-hand')}`}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'L', engineMode === 'two-hand' || playMode)}`}
       >
         LH
       </button>
       <button
         type="button"
         onClick={() => handleHandChange('R')}
-        disabled={engineMode === 'two-hand'}
+        disabled={engineMode === 'two-hand' || playMode}
         aria-pressed={activeHand === 'R'}
-        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R', engineMode === 'two-hand')}`}
+        className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${handToggleClass(activeHand === 'R', engineMode === 'two-hand' || playMode)}`}
       >
         RH
       </button>

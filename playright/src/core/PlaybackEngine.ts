@@ -20,7 +20,6 @@ function quartersToTransportPosition(quarterNotes: number): string {
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
-  private tempoFactor = 1;
   private isPlaying = false;
   private isPaused = false;
   private storeSubscriptionInitialized = false;
@@ -80,7 +79,9 @@ export class PlaybackEngine {
     transport.start();
     this.isPlaying = true;
     this.isPaused = false;
-    useEngineStore.getState().actions.setPlaybackActive(true);
+    const { actions } = useEngineStore.getState();
+    actions.setPlaybackActive(true);
+    actions.setPlaybackPaused(false);
   }
 
   pause(): void {
@@ -90,6 +91,7 @@ export class PlaybackEngine {
 
     transport.pause();
     this.isPaused = true;
+    useEngineStore.getState().actions.setPlaybackPaused(true);
   }
 
   resume(): void {
@@ -99,6 +101,7 @@ export class PlaybackEngine {
 
     transport.start();
     this.isPaused = false;
+    useEngineStore.getState().actions.setPlaybackPaused(false);
   }
 
   async restart(): Promise<void> {
@@ -113,9 +116,10 @@ export class PlaybackEngine {
     transport.stop();
     this.isPlaying = false;
     this.isPaused = false;
-    useEngineStore.getState().actions.setPlaybackActive(false);
-
     const { actions } = useEngineStore.getState();
+    actions.setPlaybackActive(false);
+    actions.setPlaybackPaused(false);
+
     actions.setStepIndex(0);
     actions.setExpectedNotes([]);
     transport.position = 0;
@@ -144,20 +148,21 @@ export class PlaybackEngine {
       transport.start();
       this.isPlaying = true;
       this.isPaused = false;
+      actions.setPlaybackPaused(false);
       return;
     }
 
     transport.pause();
+    actions.setPlaybackPaused(true);
   }
 
   setTempoFactor(factor: number): void {
-    this.tempoFactor = factor;
     const { scoreTiming } = useEngineStore.getState();
     if (!scoreTiming) {
       return;
     }
 
-    this.applyTransportBpm(scoreTiming.tempoBpm);
+    transport.bpm.value = scoreTiming.tempoBpm * factor;
   }
 
   dispose(): void {
@@ -167,12 +172,13 @@ export class PlaybackEngine {
   }
 
   private applyTransportBpm(baseTempoBpm: number): void {
-    transport.bpm.value = baseTempoBpm * this.tempoFactor;
+    const { tempoFactor } = useEngineStore.getState();
+    transport.bpm.value = baseTempoBpm * tempoFactor;
   }
 
   private getEffectiveBpm(): number {
-    const { scoreTiming } = useEngineStore.getState();
-    return (scoreTiming?.tempoBpm ?? 100) * this.tempoFactor;
+    const { scoreTiming, tempoFactor } = useEngineStore.getState();
+    return (scoreTiming?.tempoBpm ?? 100) * tempoFactor;
   }
 
   private scheduleFromStep(fromStepIndex: number): void {
