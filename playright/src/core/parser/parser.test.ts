@@ -98,7 +98,7 @@ describe('parseMusicXmlToScript', () => {
     const xmlFromMxl = await unzipScoreXmlFromMxlBuffer(mxlBuffer);
     const fromMxl = parseMusicXmlToScript(xmlFromMxl);
 
-    expect(fromMxl).toEqual({ script, scoreTiming });
+    expect(fromMxl).toEqual({ script, scoreTiming, warnings: [] });
   });
 
   it('merges tied segments into one note with combined duration', () => {
@@ -134,5 +134,218 @@ describe('parseMusicXmlToScript', () => {
       'G4',
     ]);
     expect(chordStep.notes.every((note) => note.durationDivisions === 480)).toBe(true);
+  });
+});
+
+describe('parseMusicXmlToScript defensive fixes', () => {
+  const SCORE_TIMEWISE = `<?xml version="1.0" encoding="UTF-8"?>
+<score-timewise version="3.1">
+  <measure number="1">
+    <attributes>
+      <divisions>480</divisions>
+    </attributes>
+    <note>
+      <pitch>
+        <step>C</step>
+        <octave>4</octave>
+      </pitch>
+      <duration>480</duration>
+    </note>
+  </measure>
+</score-timewise>`;
+
+  const MULTI_PART = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const CUE_THEN_PITCHED = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <cue/>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const UNPITCHED_THEN_PITCHED = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <unpitched>
+          <display-step>C</display-step>
+          <display-octave>4</display-octave>
+        </unpitched>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+      <note>
+        <pitch>
+          <step>E</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const GRACE_THEN_PITCHED = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <grace/>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <staff>1</staff>
+      </note>
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const MEASURE_REST_THEN_PITCHED = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <time>
+          <beats>4</beats>
+          <beat-type>4</beat-type>
+        </time>
+      </attributes>
+      <note>
+        <rest measure="yes"/>
+        <staff>1</staff>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch>
+          <step>C</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>480</duration>
+        <staff>1</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  it('rejects score-timewise with a clear error', () => {
+    expect(() => parseMusicXmlToScript(SCORE_TIMEWISE)).toThrow(
+      /score-timewise MusicXML, which PlayRight does not support/i,
+    );
+  });
+
+  it('warns when multiple parts are present but still parses the first part', () => {
+    const { script, warnings } = parseMusicXmlToScript(MULTI_PART);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/2 parts/i);
+    expect(warnings[0]).toMatch(/first part/i);
+    expect(script).toHaveLength(1);
+    expect(script[0]).toMatchObject({ onset: 0 });
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'C4', midi: 60 });
+  });
+
+  it('skips cue notes but preserves later onsets', () => {
+    const { script, warnings } = parseMusicXmlToScript(CUE_THEN_PITCHED);
+
+    expect(warnings).toEqual([]);
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(480);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'D4', midi: 62 });
+    expect(script.flatMap((step) => step.notes).some((note) => note.midi === 0)).toBe(false);
+  });
+
+  it('skips unpitched notes but preserves later onsets', () => {
+    const { script } = parseMusicXmlToScript(UNPITCHED_THEN_PITCHED);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(480);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'E4', midi: 64 });
+    expect(script.flatMap((step) => step.notes).some((note) => note.midi === 0)).toBe(false);
+  });
+
+  it('does not advance time for grace notes', () => {
+    const { script } = parseMusicXmlToScript(GRACE_THEN_PITCHED);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(0);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'D4', midi: 62 });
+  });
+
+  it('advances a full measure for measure rests without duration', () => {
+    const { script } = parseMusicXmlToScript(MEASURE_REST_THEN_PITCHED);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(1920);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'C4', midi: 60 });
   });
 });

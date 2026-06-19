@@ -1,3 +1,5 @@
+export const NATURAL_PITCH_STEPS = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
+
 const NATURAL_SEMITONES: Readonly<Record<string, number>> = {
   C: 0,
   D: 2,
@@ -10,6 +12,12 @@ const NATURAL_SEMITONES: Readonly<Record<string, number>> = {
 
 const SHARP_ORDER = ['F', 'C', 'G', 'D', 'A', 'E', 'B'] as const;
 const FLAT_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'] as const;
+
+/** True when a MusicXML pitch step can map to a playable MIDI note. */
+export function isPlayablePitchStep(step: string): boolean {
+  const letter = step.trim().charAt(0).toUpperCase();
+  return NATURAL_PITCH_STEPS.has(letter);
+}
 
 /** Key-signature accidental when MusicXML omits `<alter>`. */
 export function keyAlterForStep(step: string, fifths: number): number {

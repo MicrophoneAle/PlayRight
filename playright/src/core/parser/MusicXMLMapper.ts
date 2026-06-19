@@ -18,6 +18,22 @@ function pitchStaffKey(element: NormalizedNote): string {
   return `${element.staff}:${element.step}:${element.octave}:${element.alter}`;
 }
 
+function fullMeasureDurationDivisions(element: NormalizedNote): number {
+  return (element.timeBeats * element.divisionsAtNote * 4) / element.timeBeatType;
+}
+
+function timeAdvanceForSkippedNote(element: NormalizedNote): number {
+  if (element.duration > 0) {
+    return element.duration;
+  }
+
+  if (element.isRest && element.isMeasureRest) {
+    return fullMeasureDurationDivisions(element);
+  }
+
+  return 0;
+}
+
 function groupByOnset(
   absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
 ): PlaybackScript {
@@ -80,8 +96,17 @@ export class MusicXMLMapper {
         continue;
       }
 
-      if (element.isRest || element.isGrace) {
-        currentTime += element.duration;
+      if (element.isGrace) {
+        continue;
+      }
+
+      if (element.isRest) {
+        currentTime += timeAdvanceForSkippedNote(element);
+        continue;
+      }
+
+      if (!element.hasPlayablePitch) {
+        currentTime += timeAdvanceForSkippedNote(element);
         continue;
       }
 

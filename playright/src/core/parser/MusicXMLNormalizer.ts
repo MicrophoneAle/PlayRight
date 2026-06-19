@@ -1,4 +1,4 @@
-import { keyAlterForStep } from './pitch.ts';
+import { keyAlterForStep, isPlayablePitchStep } from './pitch.ts';
 
 export interface NormalizedNote {
   type: 'note';
@@ -13,6 +13,13 @@ export interface NormalizedNote {
   isTieStart: boolean;
   isTieStop: boolean;
   isChord: boolean;
+  isCue: boolean;
+  isUnpitched: boolean;
+  isMeasureRest: boolean;
+  hasPlayablePitch: boolean;
+  timeBeats: number;
+  timeBeatType: number;
+  divisionsAtNote: number;
 }
 
 export interface NormalizedControl {
@@ -22,9 +29,16 @@ export interface NormalizedControl {
 
 export type NormalizedElement = NormalizedNote | NormalizedControl;
 
-interface KeyContext {
+interface MeasureContext {
   fifths: number;
+  beats: number;
+  beatType: number;
+  divisions: number;
 }
+
+const DEFAULT_BEATS = 4;
+const DEFAULT_BEAT_TYPE = 4;
+const DEFAULT_DIVISIONS = 1;
 
 type RawRecord = Record<string, unknown>;
 
@@ -107,6 +121,12 @@ function readTieTypesFromWrapper(child: RawRecord, tag: 'tie' | 'tied'): string[
   return types;
 }
 
+function readWrapperBooleanAttr(child: RawRecord, attr: string): boolean {
+  const attrs = isRecord(child[':@']) ? child[':@'] : {};
+  const value = attrs[`@_${attr}`];
+  return value === true || value === 'yes';
+}
+
 function orderedChildrenToRecord(children: unknown[]): RawRecord {
   const record: RawRecord = {};
 
@@ -122,8 +142,26 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
 
     const value = child[tag];
 
-    if (tag === 'chord' || tag === 'rest' || tag === 'grace') {
+    if (tag === 'chord' || tag === 'grace') {
       record[tag] = true;
+      continue;
+    }
+
+    if (tag === 'cue') {
+      record.cue = true;
+      continue;
+    }
+
+    if (tag === 'rest') {
+      record.rest = true;
+      if (readWrapperBooleanAttr(child, 'measure')) {
+        record.restMeasureYes = true;
+      }
+      continue;
+    }
+
+    if (tag === 'unpitched') {
+      record.unpitched = true;
       continue;
     }
 
@@ -250,6 +288,43 @@ function hasTieStart(note: RawRecord): boolean {
   return getTieTypes(note).includes('start');
 }
 
+function extractTimeSignature(
+  attributesChildren: unknown[],
+): { beats: number; beatType: number } | null {
+  for (const child of attributesChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (tag !== 'time' || !Array.isArray(child.time)) {
+      continue;
+    }
+
+    let beats: number | null = null;
+    let beatType: number | null = null;
+
+    for (const timeChild of child.time) {
+      if (!isRecord(timeChild)) {
+        continue;
+      }
+
+      const timeTag = Object.keys(timeChild).find((key) => key !== ':@');
+      if (timeTag === 'beats') {
+        beats = toNumber(readOrderedText(timeChild.beats), DEFAULT_BEATS);
+      } else if (timeTag === 'beat-type') {
+        beatType = toNumber(readOrderedText(timeChild['beat-type']), DEFAULT_BEAT_TYPE);
+      }
+    }
+
+    if (beats !== null && beatType !== null && beatType > 0) {
+      return { beats, beatType };
+    }
+  }
+
+  return null;
+}
+
 function extractKeyFifths(attributesChildren: unknown[]): number | null {
   for (const child of attributesChildren) {
     if (!isRecord(child)) {
@@ -276,28 +351,44 @@ function extractKeyFifths(attributesChildren: unknown[]): number | null {
   return null;
 }
 
-function normalizeNote(rawNote: unknown, keyContext: KeyContext): NormalizedNote {
+function normalizeNote(rawNote: unknown, measureContext: MeasureContext): NormalizedNote {
   const note = isRecord(rawNote) ? rawNote : {};
   const pitch = isRecord(note.pitch) ? note.pitch : {};
   const step = toString(pitch.step, '').trim().charAt(0).toUpperCase();
   const octave = toNumber(pitch.octave, 0);
   const hasExplicitAlter = pitch.alter !== undefined && pitch.alter !== null;
   const explicitAlter = hasExplicitAlter ? toNumber(pitch.alter, 0) : null;
+  const isRest = note.rest != null;
+  const isCue = note.cue != null;
+  const isUnpitched = note.unpitched != null;
+  const isMeasureRest = isRest && note.restMeasureYes === true;
+  const hasPlayablePitch =
+    !isRest &&
+    !isCue &&
+    !isUnpitched &&
+    isPlayablePitchStep(step);
 
   return {
     type: 'note',
     step,
     octave,
     alter:
-      explicitAlter !== null ? explicitAlter : keyAlterForStep(step, keyContext.fifths),
+      explicitAlter !== null ? explicitAlter : keyAlterForStep(step, measureContext.fifths),
     duration: toNumber(note.duration, 0),
     staff: toNumber(note.staff, 1),
     fingering: extractFingering(note),
-    isRest: note.rest != null,
+    isRest,
     isGrace: note.grace != null,
     isTieStart: hasTieStart(note),
     isTieStop: hasTieStop(note),
     isChord: note.chord != null,
+    isCue,
+    isUnpitched,
+    isMeasureRest,
+    hasPlayablePitch,
+    timeBeats: measureContext.beats,
+    timeBeatType: measureContext.beatType,
+    divisionsAtNote: measureContext.divisions,
   };
 }
 
@@ -313,10 +404,31 @@ function normalizeControl(
   };
 }
 
+function applyAttributesToContext(
+  attributesChildren: unknown[],
+  measureContext: MeasureContext,
+): void {
+  const fifths = extractKeyFifths(attributesChildren);
+  if (fifths !== null) {
+    measureContext.fifths = fifths;
+  }
+
+  const timeSignature = extractTimeSignature(attributesChildren);
+  if (timeSignature !== null) {
+    measureContext.beats = timeSignature.beats;
+    measureContext.beatType = timeSignature.beatType;
+  }
+
+  const divisions = extractDivisions(attributesChildren);
+  if (divisions !== null && divisions > 0) {
+    measureContext.divisions = divisions;
+  }
+}
+
 function collectOrderedMeasureElements(
   measureChildren: unknown[],
   results: NormalizedElement[],
-  keyContext: KeyContext,
+  measureContext: MeasureContext,
 ): void {
   for (const child of measureChildren) {
     if (!isRecord(child)) {
@@ -329,15 +441,14 @@ function collectOrderedMeasureElements(
     }
 
     if (tag === 'attributes' && Array.isArray(child.attributes)) {
-      const fifths = extractKeyFifths(child.attributes);
-      if (fifths !== null) {
-        keyContext.fifths = fifths;
-      }
+      applyAttributesToContext(child.attributes, measureContext);
       continue;
     }
 
     if (tag === 'note' && Array.isArray(child.note)) {
-      results.push(normalizeNote(orderedChildrenToRecord(child.note), keyContext));
+      results.push(
+        normalizeNote(orderedChildrenToRecord(child.note), measureContext),
+      );
       continue;
     }
 
@@ -372,14 +483,19 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
     return results;
   }
 
-  const keyContext: KeyContext = { fifths: 0 };
+  const measureContext: MeasureContext = {
+    fifths: 0,
+    beats: DEFAULT_BEATS,
+    beatType: DEFAULT_BEAT_TYPE,
+    divisions: DEFAULT_DIVISIONS,
+  };
 
   for (const measureWrapper of partEntry.part) {
     if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
       continue;
     }
 
-    collectOrderedMeasureElements(measureWrapper.measure, results, keyContext);
+    collectOrderedMeasureElements(measureWrapper.measure, results, measureContext);
   }
 
   return results;

@@ -22,6 +22,8 @@ export interface ScoreTiming {
 export interface ParseMusicXmlResult {
   script: PlaybackScript;
   scoreTiming: ScoreTiming;
+  /** Non-fatal parse notices surfaced to the user after a successful load. */
+  warnings: string[];
 }
 
 export interface StepOrder {
