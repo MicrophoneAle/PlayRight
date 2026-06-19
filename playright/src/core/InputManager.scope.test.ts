@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   FULL_SCOPE_SIZE,
+  getDisplayScopeMidiBounds,
   getDynamicKeyMap,
   getEffectiveKeyMap,
-  getFullScopeMidiBounds,
+  getScopeKeyMap,
   isBlackRowCode,
-  isMidiInFullScope,
+  isMidiInDisplayScope,
   isWhiteRowCode,
   SCOPE_SIZE,
 } from './InputManager.ts';
@@ -104,14 +105,7 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('maps the highest in-scope black to [ when no black sits between ; and quote', () => {
-    const map = getDynamicKeyMap(60);
-
-    expect(map.BracketLeft).toBe(75);
-    expect(map.Quote).toBe(77);
-  });
-
-  it('always includes extension keys when adjacent notes exist', () => {
+  it('anchors low extensions to the scope window', () => {
     const map = getDynamicKeyMap(60);
 
     expect(map.CapsLock).toBe(59);
@@ -120,19 +114,29 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     expect(map.BracketRight).toBe(78);
   });
 
-  it('spans a 21-semitone full scope from Tab through ]', () => {
-    const map = getDynamicKeyMap(60);
-    const bounds = getFullScopeMidiBounds(map);
+  it('spans a 21-note display scope from Tab through ]', () => {
+    const bounds = getDisplayScopeMidiBounds(60);
 
     expect(bounds).toEqual({ min: 58, max: 78 });
-    expect(bounds!.max - bounds!.min + 1).toBe(FULL_SCOPE_SIZE);
+    expect(bounds.max - bounds.min + 1).toBe(FULL_SCOPE_SIZE);
 
-    for (let midi = bounds!.min; midi <= bounds!.max; midi += 1) {
-      expect(isMidiInFullScope(midi, map)).toBe(true);
+    for (let midi = bounds.min; midi <= bounds.max; midi += 1) {
+      expect(isMidiInDisplayScope(midi, 60)).toBe(true);
     }
 
-    expect(isMidiInFullScope(bounds!.min - 1, map)).toBe(false);
-    expect(isMidiInFullScope(bounds!.max + 1, map)).toBe(false);
+    expect(isMidiInDisplayScope(79, 60)).toBe(false);
+    expect(isMidiInDisplayScope(57, 60)).toBe(false);
+  });
+
+  it('shows Tab and ] only when their mapped notes are inside the display scope', () => {
+    const atDefault = getScopeKeyMap(60);
+    const shifted = getScopeKeyMap(66);
+
+    expect(atDefault.Tab).toBe(58);
+    expect(atDefault.BracketRight).toBe(78);
+    expect(shifted.Tab).toBeUndefined();
+    expect(isMidiInDisplayScope(79, 60)).toBe(false);
+    expect(isMidiInDisplayScope(78, 60)).toBe(true);
   });
 
   it('never assigns black notes to the home row', () => {
@@ -172,6 +176,14 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
 });
 
 describe('semitone scope shift', () => {
+  it('shifts Quote with the scope window', () => {
+    const before = getDynamicKeyMap(60);
+    const after = getDynamicKeyMap(61);
+
+    expect(before.Quote).toBe(77);
+    expect(after.Quote).toBe(79);
+  });
+
   it('shifts the chromatic scope window by one semitone', () => {
     const before = getDynamicKeyMap(60);
     const after = getDynamicKeyMap(61);

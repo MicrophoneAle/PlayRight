@@ -1,4 +1,5 @@
 import {
+  getDisplayScopeMidiBounds,
   getDynamicKeyMap,
   PIANO_END_MIDI,
   PIANO_START_MIDI,
@@ -7,10 +8,6 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 const MAX_SCOPE_START = PIANO_END_MIDI - (SCOPE_SIZE - 1);
-
-export function isMidiInScope(midi: number, scopeStart: number): boolean {
-  return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
-}
 
 function midisFitCoreAnchors(midis: number[], scopeStart: number): boolean {
   const map = getDynamicKeyMap(scopeStart);
@@ -23,17 +20,9 @@ function midisFitCoreAnchors(midis: number[], scopeStart: number): boolean {
   );
 }
 
-function midisFitFullKeyMap(midis: number[], scopeStart: number): boolean {
-  const map = getDynamicKeyMap(scopeStart);
-  const values = Object.values(map);
-  if (values.length === 0) {
-    return false;
-  }
-
-  const minMidi = Math.min(...values);
-  const maxMidi = Math.max(...values);
-
-  return midis.every((midi) => midi >= minMidi && midi <= maxMidi);
+function midisFitDisplayScope(midis: number[], scopeStart: number): boolean {
+  const { min, max } = getDisplayScopeMidiBounds(scopeStart);
+  return midis.every((midi) => midi >= min && midi <= max);
 }
 
 function findBestScopeStart(
@@ -47,7 +36,7 @@ function findBestScopeStart(
   for (let start = PIANO_START_MIDI; start <= MAX_SCOPE_START; start += 1) {
     const fits = preferCore
       ? midisFitCoreAnchors(midis, start)
-      : midisFitFullKeyMap(midis, start);
+      : midisFitDisplayScope(midis, start);
 
     if (!fits) {
       continue;
@@ -87,12 +76,12 @@ export function alignScopeToMidis(midis: Iterable<number>): void {
     return;
   }
 
-  const fullScopeStart = findBestScopeStart(
+  const displayScopeStart = findBestScopeStart(
     midiList,
     currentScopeStart,
     false,
   );
-  if (fullScopeStart !== null && fullScopeStart !== currentScopeStart) {
-    useEngineStore.getState().actions.setScopeStart(fullScopeStart);
+  if (displayScopeStart !== null && displayScopeStart !== currentScopeStart) {
+    useEngineStore.getState().actions.setScopeStart(displayScopeStart);
   }
 }

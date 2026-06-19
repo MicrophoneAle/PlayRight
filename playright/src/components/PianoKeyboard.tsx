@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import {
-  getEffectiveKeyMap,
   getLabelForKeyMapMidi,
-  isMidiInFullScope,
+  getScopeKeyMap,
+  isMidiInDisplayScope,
   resolveNoteMidiFromKeyboard,
 } from '../core/InputManager.ts';
 import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
@@ -191,7 +191,7 @@ export function PianoKeyboard() {
   );
 
   const keyMap = useMemo(
-    () => getEffectiveKeyMap(scopeStartMidi, scopeTranspose),
+    () => getScopeKeyMap(scopeStartMidi, scopeTranspose),
     [scopeStartMidi, scopeTranspose],
   );
 
@@ -205,7 +205,7 @@ export function PianoKeyboard() {
       return false;
     }
 
-    return isMidiInFullScope(midi, keyMap);
+    return isMidiInDisplayScope(midi, scopeStartMidi);
   };
 
   const twoHandMidiLabels = useMemo(() => {

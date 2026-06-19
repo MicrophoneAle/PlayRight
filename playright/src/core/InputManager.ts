@@ -7,8 +7,15 @@ import {
 } from './twoHandMapping.ts';
 
 export const SCOPE_SIZE = 17;
-/** Chromatic span from Tab through ] when all extension keys are present. */
-export const FULL_SCOPE_SIZE = 21;
+/** Semitones below scopeStart reserved for Tab (black). */
+export const LOW_EXTENSION_OFFSET = 2;
+/** Semitones above scopeEnd reserved for Quote (white). */
+export const HIGH_EXTENSION_OFFSET = 1;
+/** Semitones above scopeEnd reserved for ] (black). */
+export const HIGH_BRACKET_OFFSET = 2;
+/** Chromatic span from Tab through ]: 17 core + 2 low + 2 high. */
+export const FULL_SCOPE_SIZE =
+  SCOPE_SIZE + LOW_EXTENSION_OFFSET + HIGH_BRACKET_OFFSET;
 export const PIANO_START_MIDI = 21;
 export const PIANO_END_MIDI = 108;
 
@@ -128,46 +135,6 @@ export function getCoreAnchorMidis(
   };
 }
 
-function findNextWhiteAbove(midi: number): number | null {
-  for (let next = midi + 1; next <= PIANO_END_MIDI; next += 1) {
-    if (!isBlackKey(next)) {
-      return next;
-    }
-  }
-
-  return null;
-}
-
-function findNextBlackAbove(midi: number): number | null {
-  for (let next = midi + 1; next <= PIANO_END_MIDI; next += 1) {
-    if (isBlackKey(next)) {
-      return next;
-    }
-  }
-
-  return null;
-}
-
-function findPreviousWhiteBelow(midi: number): number | null {
-  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
-    if (!isBlackKey(prev)) {
-      return prev;
-    }
-  }
-
-  return null;
-}
-
-function findPreviousBlackBelow(midi: number): number | null {
-  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
-    if (isBlackKey(prev)) {
-      return prev;
-    }
-  }
-
-  return null;
-}
-
 function shiftAlongRow(midi: number, steps: number, wantBlack: boolean): number | null {
   if (steps === 0) {
     return midi;
@@ -196,30 +163,50 @@ export function isMidiInCoreScope(midi: number, scopeStart: number): boolean {
   return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
 }
 
-export function getFullScopeMidiBounds(
-  keyMap: Record<string, number>,
-): { min: number; max: number } | null {
-  const values = Object.values(keyMap);
-  if (values.length === 0) {
-    return null;
-  }
+export function getDisplayScopeMidiBounds(scopeStart: number): {
+  min: number;
+  max: number;
+} {
+  const scopeEnd = scopeStart + SCOPE_SIZE - 1;
 
   return {
-    min: Math.min(...values),
-    max: Math.max(...values),
+    min: Math.max(PIANO_START_MIDI, scopeStart - LOW_EXTENSION_OFFSET),
+    max: Math.min(PIANO_END_MIDI, scopeEnd + HIGH_BRACKET_OFFSET),
   };
 }
 
-export function isMidiInFullScope(
+export function isMidiInDisplayScope(
   midi: number,
-  keyMap: Record<string, number>,
+  scopeStart: number,
 ): boolean {
-  const bounds = getFullScopeMidiBounds(keyMap);
-  if (bounds === null) {
-    return false;
+  const { min, max } = getDisplayScopeMidiBounds(scopeStart);
+  return midi >= min && midi <= max;
+}
+
+export function filterKeyMapToDisplayScope(
+  keyMap: Record<string, number>,
+  scopeStart: number,
+): Record<string, number> {
+  const { min, max } = getDisplayScopeMidiBounds(scopeStart);
+  const filtered: Record<string, number> = {};
+
+  for (const [code, midi] of Object.entries(keyMap)) {
+    if (midi >= min && midi <= max) {
+      filtered[code] = midi;
+    }
   }
 
-  return midi >= bounds.min && midi <= bounds.max;
+  return filtered;
+}
+
+export function getScopeKeyMap(
+  scopeStart: number,
+  transpose = 0,
+): Record<string, number> {
+  return filterKeyMapToDisplayScope(
+    getEffectiveKeyMap(scopeStart, transpose),
+    scopeStart,
+  );
 }
 
 export function getExtensionMidis(
@@ -259,28 +246,52 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     return map;
   }
 
-  const lowWhite = findPreviousWhiteBelow(map.KeyA);
-  if (lowWhite !== null) {
-    map.CapsLock = lowWhite;
+  const displayMin = Math.max(PIANO_START_MIDI, scopeStart - LOW_EXTENSION_OFFSET);
+
+  if (displayMin < scopeStart && isBlackKey(displayMin)) {
+    map.Tab = displayMin;
+
+    if (
+      displayMin + 1 < scopeStart &&
+      !isBlackKey(displayMin + 1)
+    ) {
+      map.CapsLock = displayMin + 1;
+    }
+  } else if (
+    displayMin + 1 < scopeStart &&
+    isBlackKey(displayMin + 1)
+  ) {
+    map.Tab = displayMin + 1;
+
+    if (displayMin < scopeStart && !isBlackKey(displayMin)) {
+      map.CapsLock = displayMin;
+    }
+  } else if (displayMin < scopeStart && !isBlackKey(displayMin)) {
+    map.CapsLock = displayMin;
+
+    for (let midi = displayMin - 1; midi >= PIANO_START_MIDI; midi -= 1) {
+      if (isBlackKey(midi)) {
+        map.Tab = midi;
+        break;
+      }
+    }
   }
 
-  if (map.CapsLock !== undefined) {
-    const tabBlack = findPreviousBlackBelow(map.CapsLock);
-    if (tabBlack !== null) {
-      map.Tab = tabBlack;
-    }
-  } else {
-    const tabBlack = findPreviousBlackBelow(map.KeyA);
-    if (tabBlack !== null) {
-      map.Tab = tabBlack;
+  const quoteCandidate = scopeEnd + HIGH_EXTENSION_OFFSET;
+  let quoteMidi = quoteCandidate;
+
+  if (quoteCandidate <= PIANO_END_MIDI && isBlackKey(quoteCandidate)) {
+    quoteMidi = quoteCandidate;
+    for (let midi = quoteCandidate + 1; midi <= PIANO_END_MIDI; midi += 1) {
+      if (!isBlackKey(midi)) {
+        quoteMidi = midi;
+        break;
+      }
     }
   }
 
-  if (map.Semicolon !== undefined) {
-    const highWhite = findNextWhiteAbove(map.Semicolon);
-    if (highWhite !== null && highWhite <= PIANO_END_MIDI) {
-      map.Quote = highWhite;
-    }
+  if (quoteMidi <= PIANO_END_MIDI && !isBlackKey(quoteMidi)) {
+    map.Quote = quoteMidi;
   }
 
   for (const { code, left, right } of BLACKS_BETWEEN_WHITES) {
@@ -304,11 +315,9 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     }
   }
 
-  if (map.BracketLeft !== undefined) {
-    const highBlack = findNextBlackAbove(map.BracketLeft);
-    if (highBlack !== null && highBlack <= PIANO_END_MIDI) {
-      map.BracketRight = highBlack;
-    }
+  const bracketSlot = scopeEnd + HIGH_BRACKET_OFFSET;
+  if (bracketSlot <= PIANO_END_MIDI && isBlackKey(bracketSlot)) {
+    map.BracketRight = bracketSlot;
   }
 
   return map;
@@ -615,7 +624,7 @@ export class InputManager {
     ) {
       this.cachedScopeStart = scopeStart;
       this.cachedTranspose = transpose;
-      this.cachedKeyMap = getEffectiveKeyMap(scopeStart, transpose);
+      this.cachedKeyMap = getScopeKeyMap(scopeStart, transpose);
     }
 
     return resolveNoteMidiFromKeyboard(event, this.cachedKeyMap);
