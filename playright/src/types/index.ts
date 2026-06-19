@@ -19,7 +19,7 @@ export interface StepOrder {
 
 export type PlaybackScript = StepOrder[];
 
-export type EngineMode = 'default' | 'one-hand' | 'two-hand';
+export type EngineMode = 'one-hand' | 'two-hand';
 
 /** Stable key for a note in manual fingering overrides: stepIndex:hand:midi */
 export type ManualFingeringKey = `${number}:${Hand}:${number}`;
