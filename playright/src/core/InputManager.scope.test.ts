@@ -65,28 +65,39 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('places Q on the black note directly left of A', () => {
+  it('places Tab on the black note directly left of A when Q cannot sit between Caps and A', () => {
     const map = getDynamicKeyMap(60);
 
     expect(map.KeyA).toBe(60);
-    expect(map.KeyQ).toBe(58);
+    expect(map.Tab).toBe(58);
     expect(map.CapsLock).toBe(59);
+    expect(map.KeyQ).toBeUndefined();
     expect(map.KeyW).toBe(getBlackBetween(map.KeyA!, map.KeyS!));
   });
 
-  it('anchors CapsLock directly left of Q', () => {
+  it('uses Tab instead of Q when scope shifts up to A4', () => {
     const map = getDynamicKeyMap(69);
 
-    expect(map.KeyQ).toBe(68);
+    expect(map.Tab).toBe(68);
     expect(map.CapsLock).toBe(67);
     expect(map.KeyA).toBe(69);
+    expect(map.KeyQ).toBeUndefined();
+  });
+
+  it('extends Semicolon and Quote when only nine whites fit in the core scope', () => {
+    const map = getDynamicKeyMap(66);
+
+    expect(map.KeyL).toBe(81);
+    expect(map.Semicolon).toBe(83);
+    expect(map.Quote).toBe(84);
+    expect(map.KeyP).toBe(82);
   });
 
   it('leaves high keys unmapped when there are more whites than physical keys', () => {
     const map = getDynamicKeyMap(60);
 
     expect(map.Quote).toBe(77);
-    expect(map.KeyQ).toBe(58);
+    expect(map.Tab).toBe(58);
   });
 
   it('places each core black between its neighboring whites when possible', () => {
@@ -119,10 +130,10 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('anchors low extensions from Q and A', () => {
+  it('anchors low extensions from Tab and A', () => {
     const map = getDynamicKeyMap(60);
 
-    expect(map.KeyQ).toBe(58);
+    expect(map.Tab).toBe(58);
     expect(map.CapsLock).toBe(59);
     expect(map.Quote).toBe(77);
     expect(map.BracketRight).toBe(78);
@@ -146,7 +157,7 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     const atDefault = getScopeKeyMap(60);
     const shifted = getScopeKeyMap(66);
 
-    expect(atDefault.KeyQ).toBe(58);
+    expect(atDefault.Tab).toBe(58);
     expect(atDefault.BracketRight).toBe(78);
 
     for (const midi of Object.values(shifted)) {

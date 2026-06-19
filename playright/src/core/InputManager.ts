@@ -124,6 +124,16 @@ function findWhiteLeftOf(midi: number): number | null {
   return null;
 }
 
+function findNextWhite(midi: number): number | null {
+  for (let candidate = midi; candidate <= PIANO_END_MIDI; candidate += 1) {
+    if (!isBlackKey(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function assignLowExtensions(map: Record<string, number>, scopeStart: number): void {
   if (map.KeyA === undefined) {
     return;
@@ -142,15 +152,9 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
     qMidi = getBlackBetween(capsSeed, map.KeyA);
   }
 
-  if (qMidi === null) {
-    qMidi = findBlackLeftOf(map.KeyA);
-  }
-
   if (qMidi !== null && qMidi < map.KeyA) {
     map.KeyQ = qMidi;
-  }
 
-  if (map.KeyQ !== undefined) {
     if (
       capsSeed !== undefined &&
       capsSeed < map.KeyA &&
@@ -163,14 +167,32 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
         map.CapsLock = capsMidi;
       }
     }
-  } else if (capsSeed !== undefined) {
-    map.CapsLock = capsSeed;
-  }
 
-  if (map.CapsLock !== undefined) {
-    const tabMidi = findBlackLeftOf(map.CapsLock);
-    if (tabMidi !== null && tabMidi !== map.KeyQ) {
+    if (map.CapsLock !== undefined) {
+      const tabMidi = findBlackLeftOf(map.CapsLock);
+      if (tabMidi !== null && tabMidi !== map.KeyQ) {
+        map.Tab = tabMidi;
+      }
+    }
+  } else {
+    const tabMidi = findBlackLeftOf(map.KeyA);
+    if (tabMidi !== null && tabMidi < map.KeyA) {
       map.Tab = tabMidi;
+
+      if (
+        capsSeed !== undefined &&
+        capsSeed > tabMidi &&
+        capsSeed < map.KeyA
+      ) {
+        map.CapsLock = capsSeed;
+      } else {
+        const capsMidi = findWhiteLeftOf(tabMidi);
+        if (capsMidi !== null) {
+          map.CapsLock = capsMidi;
+        }
+      }
+    } else if (capsSeed !== undefined) {
+      map.CapsLock = capsSeed;
     }
   }
 
@@ -183,6 +205,48 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
     tabSlot !== map.KeyQ
   ) {
     map.Tab = tabSlot;
+  }
+}
+
+function assignHighExtensions(
+  map: Record<string, number>,
+  scopeEnd: number,
+  whitesInScope: number[],
+): void {
+  if (
+    map.Semicolon === undefined &&
+    whitesInScope.length >= 9 &&
+    map.KeyL !== undefined
+  ) {
+    const tenthWhite = findNextWhite(whitesInScope[8]! + 1);
+    if (
+      tenthWhite !== null &&
+      tenthWhite <= scopeEnd + HIGH_BRACKET_OFFSET
+    ) {
+      map.Semicolon = tenthWhite;
+    }
+  }
+
+  let quoteMidi: number | null = null;
+
+  if (map.Semicolon !== undefined) {
+    quoteMidi = findNextWhite(map.Semicolon + 1);
+  } else {
+    const quoteCandidate = scopeEnd + HIGH_EXTENSION_OFFSET;
+    if (quoteCandidate <= PIANO_END_MIDI) {
+      quoteMidi = isBlackKey(quoteCandidate)
+        ? findNextWhite(quoteCandidate + 1)
+        : quoteCandidate;
+    }
+  }
+
+  if (
+    quoteMidi !== null &&
+    quoteMidi <= PIANO_END_MIDI &&
+    !isBlackKey(quoteMidi) &&
+    (map.Semicolon === undefined || quoteMidi > map.Semicolon)
+  ) {
+    map.Quote = quoteMidi;
   }
 }
 
@@ -199,7 +263,7 @@ export function getCoreAnchorMidis(
   return {
     lowWhite: map.KeyA,
     highWhite: map.Semicolon,
-    lowBlack: map.KeyQ,
+    lowBlack: map.KeyQ ?? map.Tab,
     highBlack: map.BracketLeft,
   };
 }
@@ -316,23 +380,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   }
 
   assignLowExtensions(map, scopeStart);
-
-  const quoteCandidate = scopeEnd + HIGH_EXTENSION_OFFSET;
-  let quoteMidi = quoteCandidate;
-
-  if (quoteCandidate <= PIANO_END_MIDI && isBlackKey(quoteCandidate)) {
-    quoteMidi = quoteCandidate;
-    for (let midi = quoteCandidate + 1; midi <= PIANO_END_MIDI; midi += 1) {
-      if (!isBlackKey(midi)) {
-        quoteMidi = midi;
-        break;
-      }
-    }
-  }
-
-  if (quoteMidi <= PIANO_END_MIDI && !isBlackKey(quoteMidi)) {
-    map.Quote = quoteMidi;
-  }
+  assignHighExtensions(map, scopeEnd, whitesInScope);
 
   for (const { code, left, right } of BLACKS_BETWEEN_WHITES) {
     const leftMidi = map[left];
