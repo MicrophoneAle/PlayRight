@@ -256,10 +256,11 @@ export class PracticeEngine {
     });
   }
 
-  loadCurrentStep(options: { alignScope?: boolean } = {}): void {
-    const { alignScope = false } = options;
+  loadCurrentStep(options: { alignScope?: boolean; exactStep?: boolean } = {}): void {
+    const { alignScope = false, exactStep = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
+    this.cancelCompletionCheck();
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
@@ -271,16 +272,18 @@ export class PracticeEngine {
 
     let index = useEngineStore.getState().currentStepIndex;
 
-    while (index < script.length) {
-      const step = script[index];
-      if (stepHasPracticeNotes(step, engineMode, activeHand)) {
-        break;
+    if (!exactStep) {
+      while (index < script.length) {
+        const step = script[index];
+        if (stepHasPracticeNotes(step, engineMode, activeHand)) {
+          break;
+        }
+        index += 1;
       }
-      index += 1;
-    }
 
-    if (index !== useEngineStore.getState().currentStepIndex) {
-      actions.setStepIndex(index);
+      if (index !== useEngineStore.getState().currentStepIndex) {
+        actions.setStepIndex(index);
+      }
     }
 
     if (index >= script.length) {
@@ -300,6 +303,19 @@ export class PracticeEngine {
     if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
     }
+  }
+
+  seekToStep(stepIndex: number): void {
+    const { script, actions } = useEngineStore.getState();
+    if (!script || stepIndex < 0 || stepIndex >= script.length) {
+      return;
+    }
+
+    actions.setStepIndex(stepIndex);
+    this.loadCurrentStep({
+      alignScope: useEngineStore.getState().isPracticeActive,
+      exactStep: true,
+    });
   }
 
   private checkStepCompletion(): void {

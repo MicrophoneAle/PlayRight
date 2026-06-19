@@ -539,6 +539,55 @@ function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
   return bounds;
 }
 
+function pointInRect(x: number, y: number, rect: DOMRect): boolean {
+  return (
+    x >= rect.left &&
+    x <= rect.right &&
+    y >= rect.top &&
+    y <= rect.bottom
+  );
+}
+
+/** Resolve a sheet pointer position to a practice step using the visual index. */
+export function resolveStepIndexFromPointer(
+  visualIndex: PracticeVisualIndex | null,
+  clientX: number,
+  clientY: number,
+): number | null {
+  if (!visualIndex) {
+    return null;
+  }
+
+  let matchedStep: number | null = null;
+  let matchedArea = Infinity;
+
+  for (
+    let stepIndex = 0;
+    stepIndex < visualIndex.stepGraphicalNotes.length;
+    stepIndex += 1
+  ) {
+    const gNotes = visualIndex.stepGraphicalNotes[stepIndex];
+    if (gNotes.length === 0) {
+      continue;
+    }
+
+    for (const gNote of gNotes) {
+      const bounds = getGraphicalNotesBounds([gNote]);
+      if (!bounds || !pointInRect(clientX, clientY, bounds)) {
+        continue;
+      }
+
+      const area = bounds.width * bounds.height;
+      if (area < matchedArea) {
+        matchedArea = area;
+        matchedStep = stepIndex;
+      }
+    }
+  }
+
+  return matchedStep;
+}
+
 /** Hands whose notes contribute to line scroll extent for the current engine mode. */
 function getHandsForLineExtent(
   engineMode: EngineMode,

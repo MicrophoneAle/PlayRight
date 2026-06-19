@@ -7,9 +7,11 @@ import {
   buildPracticeVisualIndex,
   type PracticeScrollState,
   type PracticeVisualIndex,
+  resolveStepIndexFromPointer,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
 import type { GraphicalNote } from "opensheetmusicdisplay";
+import { practiceEngine } from "../core/PracticeEngine.ts";
 import { getPracticeNotes } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
@@ -263,6 +265,30 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
   };
 
+  const handleSheetPointerSeek = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const stepIndex = resolveStepIndexFromPointer(
+      visualIndexRef.current,
+      event.clientX,
+      event.clientY,
+    );
+
+    if (stepIndex === null) {
+      return;
+    }
+
+    const state = useEngineStore.getState();
+    if (stepIndex === state.currentStepIndex) {
+      return;
+    }
+
+    scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+    practiceEngine.seekToStep(stepIndex);
+  };
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !musicXml) {
@@ -382,7 +408,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 w-full overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      onClick={handleSheetPointerSeek}
+      className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }
