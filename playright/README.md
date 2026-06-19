@@ -13,8 +13,9 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Auto-fingering** — Predicts fingerings from the score with adjustable hand size (small / medium / large); respects MusicXML fingering markings and manual overrides
 - **Smart scrolling** — Anchors each staff line using the full vertical extent of that hand’s notes on the line; scrolls only when you reach a new line or content leaves the viewport
 - **Practice controls** — Start, pause, restart, and stop; chord steps require all notes before advancing
+- **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×); sheet music and keyboard show green/grey highlights while each note sounds; click the score to seek; piece auto-ends and offers **Replay** to start from the top
 - **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase)
-- **Settings** — Practice mode, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
+- **Settings** — Practice mode, **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
 - **Collapsible header** — More room for sheet music (`Z` to toggle)
 
 ### Keyboard shortcuts
@@ -23,10 +24,25 @@ Global shortcuts apply in every mode:
 
 | Key | Action |
 |-----|--------|
+| `Z` | Toggle header |
+
+**Practice mode** (default)
+
+| Key | Action |
+|-----|--------|
 | `Enter` | Start practice |
 | `Space` | Pause / resume |
 | `X` | Stop and return to start |
-| `Z` | Toggle header |
+
+**Play mode** (enable in Settings)
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Play / **Replay** (after the piece ends) |
+| `Space` | Pause / resume |
+| `X` | Stop playback and return to start |
+
+During play mode, computer piano keys are disabled; LH/RH toggle and scope shift are disabled.
 
 **One-hand mode**
 
@@ -143,6 +159,8 @@ playright/
 | Module | Role |
 |--------|------|
 | `PracticeEngine.ts` | Step progression, chords, pause/stop, one-hand notes and two-hand finger input |
+| `PlaybackEngine.ts` | Play mode transport scheduling, note durations, ties, articulation gaps, auto-end and replay |
+| `playbackTiming.ts` | Musical timing helpers (onsets, durations, piece end, articulation gap) |
 | `InputManager.ts` | Keyboard → MIDI mapping for the active scope; two-hand finger routing |
 | `scopeShift.ts` / `scopeAlign.ts` | Scope movement and alignment to the current step |
 | `twoHandMapping.ts` | Finger key → hand/finger mapping for two-hand mode |
@@ -159,6 +177,7 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 
 - [ ] Additional practice modes and scoring
 - [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
+- [x] Play mode with tempo control, seek, and replay
 
 ## License
 

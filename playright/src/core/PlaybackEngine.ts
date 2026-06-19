@@ -92,6 +92,7 @@ export class PlaybackEngine {
     this.isPaused = false;
     const { actions } = useEngineStore.getState();
     actions.setPlaybackActive(true);
+    actions.setPlaybackFinished(false);
     actions.setPlaybackPaused(false);
   }
 
@@ -139,6 +140,7 @@ export class PlaybackEngine {
     this.audioEngine?.releaseAll();
 
     actions.setPlaybackActive(true);
+    actions.setPlaybackFinished(false);
     actions.setPlaybackPaused(true);
   }
 
@@ -150,6 +152,7 @@ export class PlaybackEngine {
     this.hasFinishedPiece = false;
     const { actions } = useEngineStore.getState();
     actions.setPlaybackActive(false);
+    actions.setPlaybackFinished(false);
     actions.setPlaybackPaused(false);
 
     actions.setStepIndex(0);
@@ -306,7 +309,9 @@ export class PlaybackEngine {
     this.isPaused = true;
     this.hasFinishedPiece = true;
     this.clearPlayingMidis();
-    useEngineStore.getState().actions.setPlaybackPaused(true);
+    const { actions } = useEngineStore.getState();
+    actions.setPlaybackFinished(true);
+    actions.setPlaybackPaused(true);
   }
 
   private applyStepVisual(stepIndex: number): void {

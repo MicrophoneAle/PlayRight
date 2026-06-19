@@ -166,6 +166,8 @@ interface EngineState {
   hasPracticeStarted: boolean;
   /** True while a playback session is active (playing or paused). */
   isPlaybackActive: boolean;
+  /** True when play mode reached the end of the piece and is paused awaiting replay. */
+  isPlaybackFinished: boolean;
   /** True when playback is paused mid-session. */
   isPlaybackPaused: boolean;
   playMode: boolean;
@@ -209,6 +211,7 @@ interface EngineState {
     setPracticeActive: (isActive: boolean) => void;
     setHasPracticeStarted: (started: boolean) => void;
     setPlaybackActive: (active: boolean) => void;
+    setPlaybackFinished: (finished: boolean) => void;
     setPlaybackPaused: (paused: boolean) => void;
     setPlayMode: (enabled: boolean) => void;
     setTempoFactor: (factor: number) => void;
@@ -237,6 +240,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   isPracticeActive: false,
   hasPracticeStarted: false,
   isPlaybackActive: false,
+  isPlaybackFinished: false,
   isPlaybackPaused: false,
   playMode: readStoredPlayMode(),
   tempoFactor: readStoredTempoFactor(),
@@ -259,6 +263,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         isPracticeActive: false,
         hasPracticeStarted: false,
         isPlaybackActive: false,
+        isPlaybackFinished: false,
         isPlaybackPaused: false,
         expectedMidiNotes: [],
         playingMidiNotes: [],
@@ -274,6 +279,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         manualFingerings: {},
         hasPracticeStarted: false,
         isPlaybackActive: false,
+        isPlaybackFinished: false,
         isPlaybackPaused: false,
         expectedMidiNotes: [],
         playingMidiNotes: [],
@@ -416,6 +422,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setPlaybackActive: (active) => {
       set({ isPlaybackActive: active });
+    },
+    setPlaybackFinished: (finished) => {
+      set({ isPlaybackFinished: finished });
     },
     setPlaybackPaused: (paused) => {
       set({ isPlaybackPaused: paused });

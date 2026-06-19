@@ -38,6 +38,7 @@ export function Lid() {
   const playMode = useEngineStore((state) => state.playMode);
   const tempoFactor = useEngineStore((state) => state.tempoFactor);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
+  const isPlaybackFinished = useEngineStore((state) => state.isPlaybackFinished);
   const isPlaybackPaused = useEngineStore((state) => state.isPlaybackPaused);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
@@ -424,6 +425,11 @@ export function Lid() {
           <>
             <Pause size={15} strokeWidth={2} aria-hidden />
             Pause
+          </>
+        ) : isPlaybackFinished ? (
+          <>
+            <RotateCcw size={15} strokeWidth={2} aria-hidden />
+            Replay
           </>
         ) : (
           <>
