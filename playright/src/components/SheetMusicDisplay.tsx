@@ -13,7 +13,7 @@ import {
 import type { GraphicalNote } from "opensheetmusicdisplay";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
-import { getPracticeNotes } from "../core/practiceSteps.ts";
+import { getDisplayEngineMode, getDisplayNotesForStep } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -226,6 +226,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     lineScrollTop: null,
   });
   const script = useEngineStore((state) => state.script);
+  const playMode = useEngineStore((state) => state.playMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
@@ -240,10 +241,15 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     const state = useEngineStore.getState();
+    const displayEngineMode = getDisplayEngineMode(
+      state.playMode,
+      state.engineMode,
+    );
     const practiceNotes =
       state.script && state.script[state.currentStepIndex]
-        ? getPracticeNotes(
+        ? getDisplayNotesForStep(
             state.script[state.currentStepIndex],
+            state.playMode,
             state.engineMode,
             state.activeHand,
           )
@@ -260,7 +266,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       scrollStateRef,
       scrollMode: state.sheetScrollMode,
       activeHand: state.activeHand,
-      engineMode: state.engineMode,
+      engineMode: displayEngineMode,
     });
   };
 
@@ -285,7 +291,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         visualIndexRef.current = buildPracticeVisualIndex(
           osmd,
           state.script,
-          state.engineMode,
+          getDisplayEngineMode(state.playMode, state.engineMode),
           state.activeHand,
         );
 
@@ -433,7 +439,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     scheduleVisualIndexBuild();
-  }, [script, engineMode, musicXml]);
+  }, [script, engineMode, playMode, musicXml]);
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };

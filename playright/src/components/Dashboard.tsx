@@ -16,16 +16,17 @@ export function Dashboard() {
   const rawXml = useEngineStore((s) => s.rawXml);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const totalSteps = useEngineStore((state) => state.totalSteps);
+  const playMode = useEngineStore((state) => state.playMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
 
   const practiceStepTotal =
-    script && engineMode === 'one-hand'
+    script && engineMode === 'one-hand' && !playMode
       ? countPracticeSteps(script, engineMode, activeHand)
       : totalSteps;
 
   const practiceStepNumber =
-    script && engineMode === 'one-hand'
+    script && engineMode === 'one-hand' && !playMode
       ? countCompletedPracticeSteps(script, engineMode, activeHand, currentStepIndex) + 1
       : currentStepIndex + 1;
 
@@ -42,9 +43,11 @@ export function Dashboard() {
               {script ? (
                 <p className="text-sm font-medium leading-tight text-zinc-300">
                   {isComplete
-                    ? `Piece complete${engineMode === 'one-hand' ? ` — ${formatHandLabel(activeHand)}` : ''}`
+                    ? 'Piece complete'
                     : `Step ${practiceStepNumber} of ${practiceStepTotal}${
-                        engineMode === 'one-hand' ? ` · ${formatHandLabel(activeHand)}` : ''
+                        !playMode && engineMode === 'one-hand'
+                          ? ` · ${formatHandLabel(activeHand)}`
+                          : ''
                       }`}
                 </p>
               ) : null}

@@ -19,6 +19,27 @@ export function getPracticeNotes(
   return step.notes.filter((note) => note.hand === activeHand);
 }
 
+/** During play mode, every note in the step is shown; otherwise practice filtering applies. */
+export function getDisplayNotesForStep(
+  step: StepOrder,
+  playMode: boolean,
+  engineMode: EngineMode,
+  activeHand: Hand,
+): ScriptNote[] {
+  if (playMode) {
+    return step.notes;
+  }
+
+  return getPracticeNotes(step, engineMode, activeHand);
+}
+
+export function getDisplayEngineMode(
+  playMode: boolean,
+  engineMode: EngineMode,
+): EngineMode {
+  return playMode ? 'two-hand' : engineMode;
+}
+
 export function stepHasPracticeNotes(
   step: StepOrder,
   engineMode: EngineMode,

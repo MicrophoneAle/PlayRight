@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import type { AudioEngine } from './AudioEngine.ts';
-import { getPracticeNotes } from './practiceSteps.ts';
+import { getDisplayNotesForStep } from './practiceSteps.ts';
 import {
   noteDurationQuarterNotes,
   quarterNotesToSeconds,
@@ -219,19 +219,21 @@ export class PlaybackEngine {
   }
 
   private applyStepVisual(stepIndex: number): void {
-    const { script, engineMode, activeHand, actions } = useEngineStore.getState();
+    const { script, engineMode, activeHand, playMode, actions } =
+      useEngineStore.getState();
     if (!script || stepIndex < 0 || stepIndex >= script.length) {
       return;
     }
 
-    const practiceNotes = getPracticeNotes(
+    const displayNotes = getDisplayNotesForStep(
       script[stepIndex],
+      playMode,
       engineMode,
       activeHand,
     );
 
     actions.setStepIndex(stepIndex);
-    actions.setExpectedNotes(practiceNotes.map((note) => note.midi));
+    actions.setExpectedNotes(displayNotes.map((note) => note.midi));
   }
 
   private clearScheduledEvents(): void {
