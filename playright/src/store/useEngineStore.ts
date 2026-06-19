@@ -3,6 +3,10 @@ import { applyFingeringSettings, prepareScriptWithFingering } from '../core/fing
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
+import {
+  normalizeScopePosition,
+} from '../core/InputManager.ts';
+import { shiftScopeStart } from '../core/scopeShift.ts';
 import type {
   EngineMode,
   Finger,
@@ -105,6 +109,7 @@ interface EngineState {
   scoreId: string | null;
   manualFingerings: ManualFingeringMap;
   scopeStartMidi: number;
+  scopeTranspose: number;
   shiftMode: ShiftMode;
   sheetScrollMode: SheetScrollMode;
   autoFingering: boolean;
@@ -141,6 +146,7 @@ interface EngineState {
       userId?: string | null,
     ) => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
+    nudgeScope: (direction: 'up' | 'down') => void;
     setShiftMode: (mode: ShiftMode) => void;
     setSheetScrollMode: (mode: SheetScrollMode) => void;
     setAutoFingering: (enabled: boolean) => void;
@@ -163,6 +169,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   scoreId: null,
   manualFingerings: {},
   scopeStartMidi: 60,
+  scopeTranspose: 0,
   shiftMode: 'semitone',
   sheetScrollMode: readStoredSheetScrollMode(),
   autoFingering: readStoredAutoFingering(),
@@ -257,7 +264,28 @@ export const useEngineStore = create<EngineState>((set) => ({
       set((state) => ({
         scopeStartMidi:
           typeof midi === 'function' ? midi(state.scopeStartMidi) : midi,
+        scopeTranspose: 0,
       }));
+    },
+    nudgeScope: (direction) => {
+      set((state) => {
+        if (state.shiftMode === 'semitone') {
+          const delta = direction === 'up' ? 1 : -1;
+          return normalizeScopePosition(
+            state.scopeStartMidi,
+            state.scopeTranspose + delta,
+          );
+        }
+
+        return {
+          scopeStartMidi: shiftScopeStart(
+            state.scopeStartMidi,
+            direction,
+            state.shiftMode,
+          ),
+          scopeTranspose: 0,
+        };
+      });
     },
     setShiftMode: (mode) => {
       set({ shiftMode: mode });

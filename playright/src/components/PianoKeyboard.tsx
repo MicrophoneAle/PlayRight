@@ -3,13 +3,12 @@ import { flushSync } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import {
   formatKeyCode,
-  getDynamicKeyMap,
+  getEffectiveKeyMap,
   resolveNoteMidiFromKeyboard,
-  SCOPE_SIZE,
 } from '../core/InputManager.ts';
 import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
 import { TWO_HAND_KEY_MAP } from '../core/twoHandMapping.ts';
-import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
+import { useEngineStore } from '../store/useEngineStore.ts';
 import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 const START_MIDI = 21;
@@ -30,29 +29,8 @@ interface SelectedStepNote {
   midi: number;
 }
 
-function getShiftAmount(mode: ShiftMode): number {
-  switch (mode) {
-    case 'octave':
-      return 12;
-    case 'semitone':
-      return 1;
-    case 'full-range':
-      return SCOPE_SIZE;
-  }
-}
-
-function shiftScope(
-  direction: 'up' | 'down',
-  setScopeStart: (midi: number | ((prev: number) => number)) => void,
-): void {
-  const shiftAmount = getShiftAmount(useEngineStore.getState().shiftMode);
-  if (direction === 'up') {
-    setScopeStart((prev) =>
-      Math.min(prev + shiftAmount, END_MIDI - (SCOPE_SIZE - 1)),
-    );
-  } else {
-    setScopeStart((prev) => Math.max(prev - shiftAmount, START_MIDI));
-  }
+function shiftScope(direction: 'up' | 'down'): void {
+  useEngineStore.getState().actions.nudgeScope(direction);
 }
 
 interface KeyLayout {
@@ -191,13 +169,13 @@ function getBlackKeyClasses(
 
 export function PianoKeyboard() {
   const scopeStartMidi = useEngineStore((state) => state.scopeStartMidi);
+  const scopeTranspose = useEngineStore((state) => state.scopeTranspose);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const engineMode = useEngineStore((state) => state.engineMode);
   const script = useEngineStore((state) => state.script);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const manualFingerings = useEngineStore((state) => state.manualFingerings);
-  const setScopeStart = useEngineStore((state) => state.actions.setScopeStart);
   const setManualFinger = useEngineStore((state) => state.actions.setManualFinger);
   const clearManualFinger = useEngineStore(
     (state) => state.actions.clearManualFinger,
@@ -212,8 +190,8 @@ export function PianoKeyboard() {
   );
 
   const keyMap = useMemo(
-    () => getDynamicKeyMap(scopeStartMidi),
-    [scopeStartMidi],
+    () => getEffectiveKeyMap(scopeStartMidi, scopeTranspose),
+    [scopeStartMidi, scopeTranspose],
   );
 
   const playableMidiSet = useMemo(
@@ -252,7 +230,7 @@ export function PianoKeyboard() {
   }, [manualFingerings, selectedNote]);
 
   const midiToPhysical = useMemo(() => {
-    const currentMap = getDynamicKeyMap(scopeStartMidi);
+    const currentMap = getEffectiveKeyMap(scopeStartMidi, scopeTranspose);
     return Object.entries(currentMap).reduce<Record<number, string>>(
       (acc, [code, midi]) => {
         acc[midi] = formatKeyCode(code);
@@ -260,7 +238,7 @@ export function PianoKeyboard() {
       },
       {},
     );
-  }, [scopeStartMidi]);
+  }, [scopeStartMidi, scopeTranspose]);
 
   const { whiteKeys, blackKeys } = useMemo(() => {
     const whiteKeys: KeyLayout[] = [];
@@ -292,13 +270,13 @@ export function PianoKeyboard() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight' || event.code === 'Digit2') {
         event.preventDefault();
-        shiftScope('up', setScopeStart);
+        shiftScope('up');
         return;
       }
 
       if (event.key === 'ArrowLeft' || event.code === 'Digit1') {
         event.preventDefault();
-        shiftScope('down', setScopeStart);
+        shiftScope('down');
         return;
       }
 
@@ -358,7 +336,7 @@ export function PianoKeyboard() {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
       window.removeEventListener('keyup', handleKeyUp, { capture: true });
     };
-  }, [isTwoHand, setScopeStart, keyMap]);
+  }, [isTwoHand, keyMap]);
 
   const handleTwoHandKeySelect = (midi: number) => {
     const stepNotes = twoHandStepNotesByMidi?.get(midi);

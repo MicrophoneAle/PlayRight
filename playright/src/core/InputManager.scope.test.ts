@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getDynamicKeyMap, SCOPE_SIZE } from './InputManager.ts';
+import { getDynamicKeyMap, getEffectiveKeyMap, normalizeScopePosition, SCOPE_SIZE } from './InputManager.ts';
 
 describe('getDynamicKeyMap scope endpoints', () => {
   it('maps the lowest in-scope black to Q when scope starts on white', () => {
@@ -28,11 +28,20 @@ describe('getDynamicKeyMap scope endpoints', () => {
     expect(map.KeyQ).toBe(39);
   });
 
-  it('adds Tab for the low black extension when in range', () => {
+  it('adds Tab directly before A when in range', () => {
     const scopeStart = 40;
     const map = getDynamicKeyMap(scopeStart);
 
+    expect(map.KeyA).toBe(40);
     expect(map.Tab).toBe(39);
+  });
+
+  it('adds Tab directly before A for the default scope position', () => {
+    const scopeStart = 60;
+    const map = getDynamicKeyMap(scopeStart);
+
+    expect(map.KeyA).toBe(60);
+    expect(map.Tab).toBe(58);
   });
 
   it('adds Caps Lock directly before A when in range', () => {
@@ -67,10 +76,34 @@ describe('getDynamicKeyMap scope endpoints', () => {
     expect(map.Quote).toBe(77);
   });
 
-  it('adds ] for the high black extension when in range', () => {
+  it('adds ] directly after \' when in range', () => {
     const scopeStart = 40;
     const map = getDynamicKeyMap(scopeStart);
 
+    expect(map.Quote).toBe(57);
     expect(map.BracketRight).toBe(58);
+  });
+
+  it('adds ] directly after \' for the default scope position', () => {
+    const scopeStart = 60;
+    const map = getDynamicKeyMap(scopeStart);
+
+    expect(map.Quote).toBe(77);
+    expect(map.BracketRight).toBe(78);
+  });
+});
+
+describe('shiftScopeStart semitone mode', () => {
+  it('shifts every mapped note by exactly one semitone', () => {
+    const before = getDynamicKeyMap(60);
+    const shifted = normalizeScopePosition(60, 1);
+    const after = getEffectiveKeyMap(
+      shifted.scopeStartMidi,
+      shifted.scopeTranspose,
+    );
+
+    for (const [key, midi] of Object.entries(before)) {
+      expect(after[key]).toBe(midi + 1);
+    }
   });
 });

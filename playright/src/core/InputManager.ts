@@ -87,6 +87,26 @@ function findPreviousWhiteBelow(midi: number): number | null {
   return null;
 }
 
+function findPreviousBlackBelow(midi: number): number | null {
+  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
+    if (isBlackKey(prev)) {
+      return prev;
+    }
+  }
+
+  return null;
+}
+
+function findNextBlackAbove(midi: number): number | null {
+  for (let next = midi + 1; next <= PIANO_END_MIDI; next += 1) {
+    if (isBlackKey(next)) {
+      return next;
+    }
+  }
+
+  return null;
+}
+
 function assignEndpointBlack(
   map: Record<string, number>,
   code: string,
@@ -168,13 +188,13 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     assignEndpointBlack(map, 'BracketLeft', lastBlackInScope);
   }
 
-  const lowExtensionMidi = scopeStart - 1;
+  const lowBlackExtensionMidi =
+    map.KeyA !== undefined ? findPreviousBlackBelow(map.KeyA) : null;
   if (
-    lowExtensionMidi >= PIANO_START_MIDI &&
-    isBlackKey(lowExtensionMidi) &&
-    !Object.values(map).includes(lowExtensionMidi)
+    lowBlackExtensionMidi !== null &&
+    !Object.values(map).includes(lowBlackExtensionMidi)
   ) {
-    map.Tab = lowExtensionMidi;
+    map.Tab = lowBlackExtensionMidi;
   }
 
   const lowWhiteExtensionMidi =
@@ -203,13 +223,13 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     map.Quote = highWhiteExtensionMidi;
   }
 
-  const highExtensionMidi = scopeStart + SCOPE_SIZE;
+  const highBlackExtensionMidi =
+    map.Quote !== undefined ? findNextBlackAbove(map.Quote) : null;
   if (
-    highExtensionMidi <= PIANO_END_MIDI &&
-    isBlackKey(highExtensionMidi) &&
-    !Object.values(map).includes(highExtensionMidi)
+    highBlackExtensionMidi !== null &&
+    !Object.values(map).includes(highBlackExtensionMidi)
   ) {
-    map.BracketRight = highExtensionMidi;
+    map.BracketRight = highBlackExtensionMidi;
   }
 
   const finalMap: Record<string, number> = {};
@@ -217,8 +237,8 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     const midi = map[key];
     const inScope = midi >= scopeStart && midi <= scopeEnd;
     const isExtension =
-      midi === lowExtensionMidi ||
-      midi === highExtensionMidi ||
+      midi === lowBlackExtensionMidi ||
+      midi === highBlackExtensionMidi ||
       midi === highWhiteExtensionMidi ||
       midi === lowWhiteExtensionMidi;
 
@@ -228,6 +248,68 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   }
 
   return finalMap;
+}
+
+export function getEffectiveKeyMap(
+  scopeStart: number,
+  transpose = 0,
+): Record<string, number> {
+  const base = getDynamicKeyMap(scopeStart);
+  if (transpose === 0) {
+    return base;
+  }
+
+  const effective: Record<string, number> = {};
+  for (const [code, midi] of Object.entries(base)) {
+    const shiftedMidi = midi + transpose;
+    if (
+      shiftedMidi >= PIANO_START_MIDI &&
+      shiftedMidi <= PIANO_END_MIDI
+    ) {
+      effective[code] = shiftedMidi;
+    }
+  }
+
+  return effective;
+}
+
+export function normalizeScopePosition(
+  scopeStart: number,
+  transpose: number,
+): { scopeStartMidi: number; scopeTranspose: number } {
+  const maxScopeStart = PIANO_END_MIDI - (SCOPE_SIZE - 1);
+  let start = scopeStart;
+  let offset = transpose;
+
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const map = getEffectiveKeyMap(start, offset);
+    const midis = Object.values(map);
+    if (midis.length === 0) {
+      break;
+    }
+
+    const maxMidi = Math.max(...midis);
+    const minMidi = Math.min(...midis);
+
+    if (maxMidi > PIANO_END_MIDI && start < maxScopeStart) {
+      start += 1;
+      offset -= 1;
+      continue;
+    }
+
+    if (minMidi < PIANO_START_MIDI && start > PIANO_START_MIDI) {
+      start -= 1;
+      offset += 1;
+      continue;
+    }
+
+    break;
+  }
+
+  return {
+    scopeStartMidi: Math.max(PIANO_START_MIDI, Math.min(start, maxScopeStart)),
+    scopeTranspose: offset,
+  };
 }
 
 export function formatKeyCode(code: string): string {
@@ -282,14 +364,17 @@ export function resolveNoteMidiFromKeyboard(
 
 export interface InputManagerOptions {
   onFingerPress?: (mapping: FingerMapping) => void;
+  getScopeTranspose?: () => number;
 }
 
 export class InputManager {
   private readonly audioEngine: AudioEngine;
   private readonly getScopeStart: () => number;
+  private readonly getScopeTranspose: () => number;
   private readonly onFingerPress?: (mapping: FingerMapping) => void;
   private readonly activePhysicalKeys = new Set<string>();
   private cachedScopeStart: number | null = null;
+  private cachedTranspose: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
 
   constructor(
@@ -299,15 +384,20 @@ export class InputManager {
   ) {
     this.audioEngine = audioEngine;
     this.getScopeStart = getScopeStart;
+    this.getScopeTranspose = options.getScopeTranspose ?? (() => 0);
     this.onFingerPress = options.onFingerPress;
     practiceEngine.attachAudioEngine(audioEngine);
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
 
     useEngineStore.subscribe((state, prevState) => {
-      if (state.scopeStartMidi !== prevState.scopeStartMidi) {
+      if (
+        state.scopeStartMidi !== prevState.scopeStartMidi ||
+        state.scopeTranspose !== prevState.scopeTranspose
+      ) {
         this.activePhysicalKeys.clear();
         this.cachedScopeStart = null;
+        this.cachedTranspose = null;
         return;
       }
 
@@ -428,9 +518,14 @@ export class InputManager {
 
   private resolveMidiPitch(event: KeyboardEvent): number | undefined {
     const scopeStart = this.getScopeStart();
-    if (this.cachedScopeStart !== scopeStart) {
+    const transpose = this.getScopeTranspose();
+    if (
+      this.cachedScopeStart !== scopeStart ||
+      this.cachedTranspose !== transpose
+    ) {
       this.cachedScopeStart = scopeStart;
-      this.cachedKeyMap = getDynamicKeyMap(scopeStart);
+      this.cachedTranspose = transpose;
+      this.cachedKeyMap = getEffectiveKeyMap(scopeStart, transpose);
     }
 
     return resolveNoteMidiFromKeyboard(event, this.cachedKeyMap);

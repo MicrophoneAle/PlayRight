@@ -23,6 +23,7 @@ function App() {
       audioEngine,
       () => useEngineStore.getState().scopeStartMidi,
       {
+        getScopeTranspose: () => useEngineStore.getState().scopeTranspose,
         onFingerPress: (mapping) => practiceEngine.handleFingerPress(mapping),
       },
     );
