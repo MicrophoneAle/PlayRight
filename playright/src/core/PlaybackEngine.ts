@@ -4,6 +4,7 @@ import { getDisplayNotesForStep } from './practiceSteps.ts';
 import {
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
+  pieceEndQuarterNotes,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
@@ -25,6 +26,7 @@ export class PlaybackEngine {
   private playingPressTracker = new PlayingMidiPressTracker();
   private isPlaying = false;
   private isPaused = false;
+  private hasFinishedPiece = false;
   private storeSubscriptionInitialized = false;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -62,6 +64,11 @@ export class PlaybackEngine {
 
     await engine.warm();
     await engine.init();
+
+    if (this.hasFinishedPiece) {
+      this.hasFinishedPiece = false;
+      useEngineStore.getState().actions.setStepIndex(0);
+    }
 
     const startIndex = Math.min(
       Math.max(currentStepIndex, 0),
@@ -103,6 +110,11 @@ export class PlaybackEngine {
       return;
     }
 
+    if (this.hasFinishedPiece) {
+      void this.play();
+      return;
+    }
+
     transport.start();
     this.isPaused = false;
     useEngineStore.getState().actions.setPlaybackPaused(false);
@@ -118,6 +130,7 @@ export class PlaybackEngine {
     transport.stop();
     this.isPlaying = false;
     this.isPaused = true;
+    this.hasFinishedPiece = false;
 
     this.applyTransportBpm(scoreTiming.tempoBpm);
     transport.position = 0;
@@ -133,6 +146,7 @@ export class PlaybackEngine {
     transport.stop();
     this.isPlaying = false;
     this.isPaused = false;
+    this.hasFinishedPiece = false;
     const { actions } = useEngineStore.getState();
     actions.setPlaybackActive(false);
     actions.setPlaybackPaused(false);
@@ -158,6 +172,7 @@ export class PlaybackEngine {
 
     this.clearScheduledEvents();
     transport.position = quartersToTransportPosition(onsetQuarters);
+    this.hasFinishedPiece = false;
     actions.setStepIndex(stepIndex);
     this.applyStepVisual(stepIndex);
 
@@ -262,6 +277,26 @@ export class PlaybackEngine {
 
       this.scheduledEventIds.push(eventId);
     }
+
+    const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
+    const endEventId = transport.scheduleOnce((time) => {
+      draw.schedule(() => {
+        this.completePlayback();
+      }, time);
+    }, quartersToTransportPosition(pieceEndQuarters));
+    this.scheduledEventIds.push(endEventId);
+  }
+
+  private completePlayback(): void {
+    if (!this.isPlaying || this.isPaused) {
+      return;
+    }
+
+    transport.pause();
+    this.isPaused = true;
+    this.hasFinishedPiece = true;
+    this.clearPlayingMidis();
+    useEngineStore.getState().actions.setPlaybackPaused(true);
   }
 
   private applyStepVisual(stepIndex: number): void {

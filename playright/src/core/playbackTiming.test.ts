@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
+  pieceEndQuarterNotes,
   quarterNotesToSeconds,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
@@ -40,5 +41,23 @@ describe('playbackTiming', () => {
   it('keeps tied playback durations at the written length', () => {
     expect(playbackDurationQuarterNotes(1, true)).toBe(1);
     expect(playbackDurationQuarterNotes(2, true)).toBe(2);
+  });
+
+  it('finds the latest note release across a script', () => {
+    const end = pieceEndQuarterNotes(
+      [
+        {
+          onset: 0,
+          notes: [{ durationDivisions: 480 }],
+        },
+        {
+          onset: 480,
+          notes: [{ durationDivisions: 240 }, { durationDivisions: 480 }],
+        },
+      ],
+      480,
+    );
+
+    expect(end).toBeCloseTo(1.94, 5);
   });
 });

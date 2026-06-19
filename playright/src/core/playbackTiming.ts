@@ -43,3 +43,38 @@ export function quarterNotesToToneDuration(quarterNotes: number): string {
 
   return `${4 / quarterNotes}n`;
 }
+
+interface PieceEndStep {
+  onset: number;
+  notes: Array<{
+    durationDivisions?: number;
+    tiedToNext?: boolean;
+  }>;
+}
+
+/** Latest release point in the piece, in quarter-note units from the start. */
+export function pieceEndQuarterNotes(
+  script: PieceEndStep[],
+  divisionsPerQuarter: number,
+): number {
+  let endQuarters = 0;
+
+  for (const step of script) {
+    const onsetQuarters = stepOnsetQuarterNotes(step.onset, divisionsPerQuarter);
+
+    for (const note of step.notes) {
+      const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+      const writtenQuarters = noteDurationQuarterNotes(
+        durationDivisions,
+        divisionsPerQuarter,
+      );
+      const playedQuarters = playbackDurationQuarterNotes(
+        writtenQuarters,
+        note.tiedToNext ?? false,
+      );
+      endQuarters = Math.max(endQuarters, onsetQuarters + playedQuarters);
+    }
+  }
+
+  return endQuarters;
+}
