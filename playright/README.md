@@ -12,11 +12,22 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Scope shifting** — Arrow keys or `1`/`2` move the window; `↑`/`3` cycles shift distance (semitone, octave, or full 22-semitone range)
 - **Auto-fingering** — Predicts fingerings from the score with adjustable hand size (small / medium / large); respects MusicXML fingering markings and manual overrides
 - **Smart scrolling** — Anchors each staff line using the full vertical extent of that hand’s notes on the line; scrolls only when you reach a new line or content leaves the viewport
-- **Practice controls** — Start, pause, restart, and stop; chord steps require all notes before advancing
-- **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×); sheet music and keyboard show green/grey highlights while each note sounds; click the score to seek; piece auto-ends and offers **Replay** to start from the top
+- **Practice controls** — Start, pause, restart, and stop; practice mode is the default; chord steps require all notes before advancing
+- **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
 - **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase)
 - **Settings** — Practice mode, **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
 - **Collapsible header** — More room for sheet music (`Z` to toggle)
+
+### Play mode behavior
+
+When play mode is enabled in Settings:
+
+- **Practice is the default** — Toggle play mode on to listen instead of step through manually.
+- **Visual sync** — Green highlights on the sheet music and keyboard follow the same press/release schedule. Longer notes stay highlighted until their scheduled release, not just until the next step in the script.
+- **Ties and chords** — Tied notes play through their combined duration; chord tones on the same beat start and release together.
+- **Articulation** — Non-tied notes include a short release gap before the next attack so repeated pitches re-articulate cleanly.
+- **Keyboard in play mode** — Keys show green while a note is held and grey while it is sounding; scope labels and purple scope highlights are hidden. Computer piano keys are disabled.
+- **Transport** — Pause clears sounding highlights; stop returns to the beginning; **Replay** appears after the piece finishes.
 
 ### Keyboard shortcuts
 
@@ -147,7 +158,7 @@ npm test
 playright/
 ├── src/
 │   ├── components/     # UI (Dashboard, Lid, SheetMusicDisplay, PianoKeyboard, …)
-│   ├── core/           # Practice engine, input, audio, parser, scroll sync, fingering
+│   ├── core/           # Practice engine, playback, input, audio, parser, scroll sync
 │   ├── store/          # Zustand (useEngineStore)
 │   └── types/
 ├── supabase/           # RLS policies and schema helpers for score library
@@ -159,14 +170,16 @@ playright/
 | Module | Role |
 |--------|------|
 | `PracticeEngine.ts` | Step progression, chords, pause/stop, one-hand notes and two-hand finger input |
-| `PlaybackEngine.ts` | Play mode transport scheduling, note durations, ties, articulation gaps, auto-end and replay |
-| `playbackTiming.ts` | Musical timing helpers (onsets, durations, piece end, articulation gap) |
+| `PlaybackEngine.ts` | Play mode transport scheduling, per-note press/release tracking, auto-end and replay |
+| `playbackTiming.ts` | Musical timing helpers (onsets, durations, articulation gap, piece end) |
+| `playingMidiPressTracker.ts` | Tracks overlapping presses by unique id (same pitch repeated consecutively) |
+| `AudioEngine.ts` | Tone.js sampler scheduling and release handling |
 | `InputManager.ts` | Keyboard → MIDI mapping for the active scope; two-hand finger routing |
 | `scopeShift.ts` / `scopeAlign.ts` | Scope movement and alignment to the current step |
 | `twoHandMapping.ts` | Finger key → hand/finger mapping for two-hand mode |
 | `fingeringPredictor.ts` | Auto-fingering from score geometry and hand-span settings |
-| `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll anchoring |
-| `parser/` | MusicXML/MXL → practice script |
+| `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll; play-mode duration-aligned highlights |
+| `parser/` | MusicXML/MXL → practice script (ties, chords, timing) |
 | `scoreLibrary.ts` | Supabase CRUD for saved scores and manual fingerings |
 
 ## Deployment
@@ -177,7 +190,7 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 
 - [ ] Additional practice modes and scoring
 - [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
-- [x] Play mode with tempo control, seek, and replay
+- [x] Play mode with tempo control, seek, replay, and sheet/keyboard duration sync
 
 ## License
 
