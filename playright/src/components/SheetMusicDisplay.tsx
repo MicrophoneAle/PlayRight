@@ -373,6 +373,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
+    let resizeDebounceId: ReturnType<typeof setTimeout> | null = null;
     osmdReadyRef.current = false;
     cursorsEnabledRef.current = false;
     visualIndexRef.current = null;
@@ -429,7 +430,25 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           return;
         }
 
-        resizeObserver = new ResizeObserver(() => safeRender(false));
+        resizeObserver = new ResizeObserver(() => {
+          const state = useEngineStore.getState();
+          const playbackRunning =
+            state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
+
+          if (playbackRunning) {
+            syncPracticeVisuals();
+            if (resizeDebounceId !== null) {
+              clearTimeout(resizeDebounceId);
+            }
+            resizeDebounceId = setTimeout(() => {
+              resizeDebounceId = null;
+              safeRender(false);
+            }, 250);
+            return;
+          }
+
+          safeRender(false);
+        });
         resizeObserver.observe(container);
 
         requestAnimationFrame(() => {
@@ -452,6 +471,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       cursorOffsetRef.current = -1;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       resizeObserver?.disconnect();
+      if (resizeDebounceId !== null) {
+        clearTimeout(resizeDebounceId);
+      }
       osmdRef.current = null;
       container.innerHTML = "";
     };

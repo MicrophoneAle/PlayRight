@@ -1,6 +1,5 @@
 import * as Tone from 'tone';
 import type { AudioEngine } from './AudioEngine.ts';
-import { getDisplayNotesForStep } from './practiceSteps.ts';
 import {
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -11,10 +10,10 @@ import {
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
+import { getDisplayNotesForStep } from './practiceSteps.ts';
 import type { Hand } from '../types/index.ts';
 
 const transport = Tone.getTransport();
-const draw = Tone.getDraw();
 
 function quartersToTransportPosition(quarterNotes: number): string {
   const bars = Math.floor(quarterNotes / 4);
@@ -205,6 +204,15 @@ export class PlaybackEngine {
     transport.bpm.value = scoreTiming.tempoBpm * factor;
   }
 
+  /** Re-push active note highlights after layout changes (e.g. header toggle). */
+  refreshPlayingVisuals(): void {
+    if (!this.isPlaying || this.isPaused) {
+      return;
+    }
+
+    this.syncPlayingNotes();
+  }
+
   dispose(): void {
     this.stop();
     this.audioEngine = null;
@@ -260,9 +268,7 @@ export class PlaybackEngine {
       const transportTime = quartersToTransportPosition(onsetQuarters);
 
       const eventId = transport.scheduleOnce((time) => {
-        draw.schedule(() => {
-          this.applyStepVisual(stepIndex);
-        }, time);
+        this.applyStepVisual(stepIndex);
 
         for (const note of step.notes) {
           const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
@@ -282,14 +288,10 @@ export class PlaybackEngine {
           );
           const pressId = this.playingPressTracker.allocatePressId();
 
-          draw.schedule(() => {
-            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
-          }, time);
+          this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
 
-          const releaseEventId = transport.scheduleOnce((releaseTime) => {
-            draw.schedule(() => {
-              this.releasePlayingNote(pressId);
-            }, releaseTime);
+          const releaseEventId = transport.scheduleOnce(() => {
+            this.releasePlayingNote(pressId);
           }, quartersToTransportPosition(releaseQuarters));
           this.scheduledEventIds.push(releaseEventId);
 
@@ -301,10 +303,8 @@ export class PlaybackEngine {
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
-    const endEventId = transport.scheduleOnce((time) => {
-      draw.schedule(() => {
-        this.completePlayback();
-      }, time);
+    const endEventId = transport.scheduleOnce(() => {
+      this.completePlayback();
     }, quartersToTransportPosition(pieceEndQuarters));
     this.scheduledEventIds.push(endEventId);
   }

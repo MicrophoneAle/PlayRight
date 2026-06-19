@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react';
 import { Lid } from './Lid.tsx';
 import { PianoKeyboard } from './PianoKeyboard.tsx';
 import { SheetMusicDisplay } from './SheetMusicDisplay.tsx';
@@ -5,6 +6,7 @@ import {
   countCompletedPracticeSteps,
   countPracticeSteps,
 } from '../core/practiceSteps.ts';
+import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 function formatHandLabel(hand: 'L' | 'R'): string {
@@ -19,6 +21,13 @@ export function Dashboard() {
   const playMode = useEngineStore((state) => state.playMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
+  const headerCollapsed = useEngineStore((state) => state.headerCollapsed);
+
+  useLayoutEffect(() => {
+    requestAnimationFrame(() => {
+      playbackEngine.refreshPlayingVisuals();
+    });
+  }, [headerCollapsed]);
 
   const practiceStepTotal =
     script && engineMode === 'one-hand' && !playMode
