@@ -138,6 +138,12 @@ export const WEAK_FINGER_PENALTY = 0.5;
 export const THUMB_ON_BLACK_PENALTY = 1.5;
 export const PHRASE_START_BIAS = 1.5;
 
+/** Default thumb anchor when both hands rest near the middle of the keyboard. */
+export const DEFAULT_HAND_HOME_MIDI: Readonly<Record<Hand, number>> = {
+  L: 48, // C3
+  R: 60, // C4
+};
+
 const FINGERS: Finger[] = [1, 2, 3, 4, 5];
 
 const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
@@ -228,17 +234,27 @@ export function localCost(finger: Finger, midi: number): number {
   return 0;
 }
 
-/** Bias the first note of a phrase toward a natural hand position (pinky on high RH, etc.). */
-export function phraseStartCost(
+/** MIDI for a finger when the thumb rests at the hand's default home key. */
+export function defaultPositionMidi(
+  hand: Hand,
+  finger: Finger,
+  homeMidi: number,
+  spanScale = 1,
+): number {
+  if (finger === 1) {
+    return homeMidi;
+  }
+
+  const span = idealDistance(1, finger) * spanScale;
+  return hand === 'R' ? homeMidi + span : homeMidi - span;
+}
+
+function directionalPhraseStartCost(
   hand: Hand,
   finger: Finger,
   note: NoteEvent,
   phraseNotes: NoteEvent[],
 ): number {
-  if (note.authoredFinger !== null) {
-    return 0;
-  }
-
   if (phraseNotes.length === 1) {
     if (hand === 'R') {
       return note.midi >= 72
@@ -275,6 +291,54 @@ export function phraseStartCost(
   return 0;
 }
 
+/** Bias phrase openings toward fingers that fit the default middle-keyboard hand pose. */
+export function phraseStartCost(
+  hand: Hand,
+  finger: Finger,
+  note: NoteEvent,
+  phraseNotes: NoteEvent[],
+  spanScale = 1,
+  useDefaultHomePosition = false,
+): number {
+  if (note.authoredFinger !== null) {
+    return 0;
+  }
+
+  if (useDefaultHomePosition) {
+    const homeMidi = DEFAULT_HAND_HOME_MIDI[hand];
+    const expectedMidi = defaultPositionMidi(hand, finger, homeMidi, spanScale);
+    return Math.abs(note.midi - expectedMidi) * PHRASE_START_BIAS;
+  }
+
+  return directionalPhraseStartCost(hand, finger, note, phraseNotes);
+}
+
+function chordHomePositionCost(
+  chord: NoteEvent[],
+  fingers: Finger[],
+  hand: Hand,
+  spanScale: number,
+): number {
+  const homeMidi = DEFAULT_HAND_HOME_MIDI[hand];
+  let cost = 0;
+
+  for (let index = 0; index < chord.length; index += 1) {
+    if (chord[index].authoredFinger !== null) {
+      continue;
+    }
+
+    const expectedMidi = defaultPositionMidi(
+      hand,
+      fingers[index],
+      homeMidi,
+      spanScale,
+    );
+    cost += Math.abs(chord[index].midi - expectedMidi);
+  }
+
+  return cost * PHRASE_START_BIAS;
+}
+
 function argminFinger(
   candidates: Finger[],
   costs: Partial<Record<Finger, number>>,
@@ -299,6 +363,7 @@ export function fingerPhrase(
   notes: NoteEvent[],
   hand: Hand,
   spanScale = 1,
+  useDefaultHomePosition = false,
 ): Finger[] {
   if (notes.length === 0) {
     return [];
@@ -317,7 +382,9 @@ export function fingerPhrase(
       const local = localCost(finger, note.midi);
 
       if (index === 0) {
-        row[finger] = local + phraseStartCost(hand, finger, note, notes);
+        row[finger] =
+          local +
+          phraseStartCost(hand, finger, note, notes, spanScale, useDefaultHomePosition);
         backRow[finger] = null;
         continue;
       }
@@ -522,6 +589,7 @@ function assignChordFingersToPlayableNotes(
   chord: NoteEvent[],
   hand: Hand,
   spanScale = 1,
+  useDefaultHomePosition = false,
 ): Finger[] {
   let bestAssignment: Finger[] | null = null;
   let bestCost = Infinity;
@@ -531,7 +599,11 @@ function assignChordFingersToPlayableNotes(
       continue;
     }
 
-    const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
+    const cost =
+      scoreChordFingerAssignment(chord, assignment, spanScale) +
+      (useDefaultHomePosition
+        ? chordHomePositionCost(chord, assignment, hand, spanScale)
+        : 0);
     if (
       bestAssignment === null ||
       chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
@@ -543,7 +615,11 @@ function assignChordFingersToPlayableNotes(
 
   if (bestAssignment === null) {
     for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
-      const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
+      const cost =
+        scoreChordFingerAssignment(chord, assignment, spanScale) +
+        (useDefaultHomePosition
+          ? chordHomePositionCost(chord, assignment, hand, spanScale)
+          : 0);
       if (
         bestAssignment === null ||
         chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
@@ -565,6 +641,7 @@ export function assignChordFingers(
   chord: NoteEvent[],
   hand: Hand,
   spanScale = 1,
+  useDefaultHomePosition = false,
 ): (Finger | null)[] {
   if (chord.length === 0) {
     return [];
@@ -581,6 +658,7 @@ export function assignChordFingers(
       playableNotes,
       hand,
       spanScale,
+      useDefaultHomePosition,
     );
     const result: (Finger | null)[] = chord.map(() => null);
 
@@ -591,7 +669,12 @@ export function assignChordFingers(
     return result;
   }
 
-  return assignChordFingersToPlayableNotes(chord, hand, spanScale);
+  return assignChordFingersToPlayableNotes(
+    chord,
+    hand,
+    spanScale,
+    useDefaultHomePosition,
+  );
 }
 
 function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
@@ -617,6 +700,7 @@ export function fingerPhraseWithChords(
   phrase: NoteEvent[],
   hand: Hand,
   spanScale = 1,
+  useDefaultHomePosition = false,
 ): (Finger | null)[] {
   if (phrase.length === 0) {
     return [];
@@ -627,16 +711,24 @@ export function fingerPhraseWithChords(
   const onsetNotesByStep = new Map<number, NoteEvent[]>();
   const representatives: NoteEvent[] = [];
 
-  for (const onset of onsets) {
+  for (let onsetIndex = 0; onsetIndex < onsets.length; onsetIndex += 1) {
+    const onset = onsets[onsetIndex];
     const stepIndex = onset[0].stepIndex;
     onsetNotesByStep.set(stepIndex, onset);
+    const anchorOpening =
+      useDefaultHomePosition && onsetIndex === 0;
 
     if (onset.length === 1) {
       representatives.push(onset[0]);
       continue;
     }
 
-    const chordFingers = assignChordFingers(onset, hand, spanScale);
+    const chordFingers = assignChordFingers(
+      onset,
+      hand,
+      spanScale,
+      anchorOpening,
+    );
     chordFingersByStep.set(stepIndex, chordFingers);
 
     const representativeIndex = hand === 'R' ? onset.length - 1 : 0;
@@ -651,7 +743,12 @@ export function fingerPhraseWithChords(
   }
 
   const solvedByStep = new Map<number, Finger>();
-  const solved = fingerPhrase(representatives, hand, spanScale);
+  const solved = fingerPhrase(
+    representatives,
+    hand,
+    spanScale,
+    useDefaultHomePosition,
+  );
 
   representatives.forEach((representative, index) => {
     solvedByStep.set(representative.stepIndex, solved[index]);
@@ -686,8 +783,15 @@ function predictFingersForHand(
   const phrases = segmentIntoPhrases(timeline);
   const fingers: (Finger | null)[] = [];
 
-  for (const phrase of phrases) {
-    fingers.push(...fingerPhraseWithChords(phrase, hand, spanScale));
+  for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
+    fingers.push(
+      ...fingerPhraseWithChords(
+        phrases[phraseIndex],
+        hand,
+        spanScale,
+        phraseIndex === 0,
+      ),
+    );
   }
 
   return fingers;

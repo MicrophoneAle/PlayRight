@@ -167,6 +167,15 @@ export function Lid() {
             </button>
           </div>
         </div>
+        {engineMode === 'two-hand' ? (
+          <div className="rounded-md border border-zinc-800 bg-zinc-900/60 px-2.5 py-2">
+            <p className="text-xs font-medium text-zinc-400">Hand Position</p>
+            <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+              Default: LH thumb on C3, RH thumb on C4 (middle keyboard). Opening
+              fingerings assume this pose before you move.
+            </p>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-3">
           <label
             htmlFor="auto-fingering-toggle"
