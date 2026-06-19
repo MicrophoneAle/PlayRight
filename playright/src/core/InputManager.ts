@@ -8,6 +8,19 @@ import {
 
 export const SCOPE_SIZE = 17;
 
+const isBlackKey = (midi: number): boolean =>
+  [1, 3, 6, 8, 10].includes(midi % 12);
+
+function findFirstBlackInScope(scopeStart: number): number | null {
+  for (let midi = scopeStart; midi < scopeStart + SCOPE_SIZE; midi += 1) {
+    if (isBlackKey(midi)) {
+      return midi;
+    }
+  }
+
+  return null;
+}
+
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const map: Record<string, number> = {};
 
@@ -37,7 +50,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     Semicolon: 'KeyP',
   };
 
-  const isBlack = (m: number) => [1, 3, 6, 8, 10].includes(m % 12);
+  const isBlack = (m: number) => isBlackKey(m);
 
   let whiteIndex = 0;
   for (let midi = scopeStart; midi <= scopeStart + SCOPE_SIZE; midi += 1) {
@@ -59,6 +72,17 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
         map[topLeftMap[rightWhitePhysical]] = midi;
       }
     }
+  }
+
+  const firstBlackInScope = findFirstBlackInScope(scopeStart);
+  if (firstBlackInScope !== null && map.KeyQ !== firstBlackInScope) {
+    delete map.KeyQ;
+    for (const [code, midi] of Object.entries(map)) {
+      if (midi === firstBlackInScope) {
+        delete map[code];
+      }
+    }
+    map.KeyQ = firstBlackInScope;
   }
 
   const lastMidiInScope = scopeStart + SCOPE_SIZE - 1;
