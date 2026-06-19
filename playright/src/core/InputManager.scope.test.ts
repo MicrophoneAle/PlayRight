@@ -69,6 +69,7 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     const map = getDynamicKeyMap(60);
 
     expect(map.KeyA).toBe(60);
+    expect(map.ShiftLeft).toBe(57);
     expect(map.CapsLock).toBe(59);
     expect(map.Tab).toBe(58);
     expect(map.KeyQ).toBeUndefined();
@@ -78,6 +79,7 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
   it('places Q on the black note between Caps Lock and A when one exists', () => {
     const map = getDynamicKeyMap(61);
 
+    expect(map.ShiftLeft).toBe(59);
     expect(map.CapsLock).toBe(60);
     expect(map.KeyQ).toBe(61);
     expect(map.KeyA).toBe(62);
@@ -143,30 +145,33 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
   it('anchors low extensions from Tab and Caps Lock at default scope', () => {
     const map = getDynamicKeyMap(60);
 
+    expect(map.ShiftLeft).toBe(57);
     expect(map.Tab).toBe(58);
     expect(map.CapsLock).toBe(59);
     expect(map.Quote).toBe(77);
     expect(map.BracketRight).toBe(78);
   });
 
-  it('spans a 21-note display scope from Tab through ]', () => {
+  it('spans a 22-note display scope from Shift through ]', () => {
     const bounds = getDisplayScopeMidiBounds(60);
 
-    expect(bounds).toEqual({ min: 58, max: 78 });
+    expect(bounds).toEqual({ min: 57, max: 78 });
     expect(bounds.max - bounds.min + 1).toBe(FULL_SCOPE_SIZE);
 
     for (let midi = bounds.min; midi <= bounds.max; midi += 1) {
       expect(isMidiInDisplayScope(midi, 60)).toBe(true);
     }
 
+    expect(isMidiInDisplayScope(57, 60)).toBe(true);
     expect(isMidiInDisplayScope(79, 60)).toBe(false);
-    expect(isMidiInDisplayScope(57, 60)).toBe(false);
+    expect(isMidiInDisplayScope(56, 60)).toBe(false);
   });
 
   it('shows Tab and ] only when their mapped notes are inside the display scope', () => {
     const atDefault = getScopeKeyMap(60);
     const shifted = getScopeKeyMap(66);
 
+    expect(atDefault.ShiftLeft).toBe(57);
     expect(atDefault.Tab).toBe(58);
     expect(atDefault.CapsLock).toBe(59);
     expect(atDefault.BracketRight).toBe(78);
@@ -182,7 +187,7 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
   it('never assigns black notes to the home row', () => {
     const map = getDynamicKeyMap(60);
 
-    for (const code of [...CORE_WHITE_CODES, 'CapsLock', 'Quote'] as const) {
+    for (const code of [...CORE_WHITE_CODES, 'CapsLock', 'ShiftLeft', 'Quote'] as const) {
       const midi = map[code];
       expect(midi).toBeDefined();
       expect([1, 3, 6, 8, 10].includes(midi! % 12)).toBe(false);
@@ -236,7 +241,7 @@ describe('semitone scope shift', () => {
   it('preserves white/black row colors after chromatic scope shift', () => {
     const map = getDynamicKeyMap(61);
 
-    for (const code of [...CORE_WHITE_CODES, 'CapsLock', 'Quote'] as const) {
+    for (const code of [...CORE_WHITE_CODES, 'CapsLock', 'ShiftLeft', 'Quote'] as const) {
       const midi = map[code];
       if (midi === undefined) {
         continue;

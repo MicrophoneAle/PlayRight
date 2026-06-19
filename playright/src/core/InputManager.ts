@@ -7,13 +7,15 @@ import {
 } from './twoHandMapping.ts';
 
 export const SCOPE_SIZE = 17;
-/** Semitones below scopeStart reserved for Tab (black). */
-export const LOW_EXTENSION_OFFSET = 2;
+/** Semitones below scopeStart shown in the display window (Shift through Tab). */
+export const LOW_EXTENSION_OFFSET = 3;
+/** Fallback Tab slot when not derived from Caps Lock. */
+export const TAB_SLOT_OFFSET = 2;
 /** Semitones above scopeEnd reserved for Quote (white). */
 export const HIGH_EXTENSION_OFFSET = 1;
 /** Semitones above scopeEnd reserved for ] (black). */
 export const HIGH_BRACKET_OFFSET = 2;
-/** Chromatic span from Tab through ]: 17 core + 2 low + 2 high. */
+/** Chromatic span from Shift through ]: 17 core + 3 low + 2 high. */
 export const FULL_SCOPE_SIZE =
   SCOPE_SIZE + LOW_EXTENSION_OFFSET + HIGH_BRACKET_OFFSET;
 export const PIANO_START_MIDI = 21;
@@ -47,6 +49,7 @@ export const CORE_BLACK_PHYSICALS = [
 ] as const;
 
 export const EXTENSION_PHYSICALS = [
+  'ShiftLeft',
   'Tab',
   'CapsLock',
   'Quote',
@@ -82,6 +85,7 @@ export function isWhiteRowCode(code: string): boolean {
   return (
     (CORE_WHITE_PHYSICALS as readonly string[]).includes(code) ||
     code === 'CapsLock' ||
+    code === 'ShiftLeft' ||
     code === 'Quote'
   );
 }
@@ -134,6 +138,17 @@ function findNextWhite(midi: number): number | null {
   return null;
 }
 
+function assignShiftLeft(map: Record<string, number>): void {
+  if (map.CapsLock === undefined) {
+    return;
+  }
+
+  const shiftMidi = findWhiteLeftOf(map.CapsLock);
+  if (shiftMidi !== null) {
+    map.ShiftLeft = shiftMidi;
+  }
+}
+
 function assignLowExtensions(map: Record<string, number>, scopeStart: number): void {
   if (map.KeyA === undefined) {
     return;
@@ -163,6 +178,8 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
         map.Tab = tabMidi;
       }
     }
+
+    assignShiftLeft(map);
   } else {
     const qMidi = findBlackLeftOf(map.KeyA);
     if (qMidi === null) {
@@ -182,9 +199,11 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
         map.Tab = tabMidi;
       }
     }
+
+    assignShiftLeft(map);
   }
 
-  const tabSlot = scopeStart - LOW_EXTENSION_OFFSET;
+  const tabSlot = scopeStart - TAB_SLOT_OFFSET;
   if (
     map.Tab === undefined &&
     tabSlot >= PIANO_START_MIDI &&
@@ -471,6 +490,7 @@ export function formatKeyCode(code: string): string {
     Backslash: '\\',
     Tab: '↹',
     CapsLock: '⇪',
+    ShiftLeft: '⇧',
   };
 
   return symbols[code] ?? code;
@@ -521,6 +541,10 @@ export function resolveNoteMidiFromKeyboard(
 
   if (event.code === 'CapsLock' || event.key === 'CapsLock') {
     return keyMap.CapsLock;
+  }
+
+  if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+    return keyMap.ShiftLeft;
   }
 
   if (event.key === "'" || event.key === '"') {
