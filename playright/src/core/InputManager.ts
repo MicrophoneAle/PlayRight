@@ -139,13 +139,6 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
     return;
   }
 
-  const qMidi = findBlackLeftOf(map.KeyA);
-  if (qMidi === null) {
-    return;
-  }
-
-  map.KeyQ = qMidi;
-
   const capsSeed =
     scopeStart - 1 >= PIANO_START_MIDI &&
     scopeStart - 1 < map.KeyA &&
@@ -153,20 +146,41 @@ function assignLowExtensions(map: Record<string, number>, scopeStart: number): v
       ? scopeStart - 1
       : undefined;
 
-  const capsMidi =
-    capsSeed !== undefined &&
-    getBlackBetween(capsSeed, map.KeyA) === qMidi
-      ? capsSeed
-      : findWhiteLeftOf(qMidi);
+  if (capsSeed !== undefined) {
+    map.CapsLock = capsSeed;
 
-  if (capsMidi !== null) {
-    map.CapsLock = capsMidi;
-  }
+    const qMidi = getBlackBetween(capsSeed, map.KeyA);
+    if (qMidi !== null) {
+      map.KeyQ = qMidi;
 
-  if (map.CapsLock !== undefined) {
-    const tabMidi = findBlackLeftOf(map.CapsLock);
-    if (tabMidi !== null && tabMidi !== map.KeyQ) {
-      map.Tab = tabMidi;
+      const tabMidi = findBlackLeftOf(capsSeed);
+      if (tabMidi !== null && tabMidi !== map.KeyQ) {
+        map.Tab = tabMidi;
+      }
+    } else {
+      const tabMidi = findBlackLeftOf(map.KeyA);
+      if (tabMidi !== null && tabMidi < map.KeyA) {
+        map.Tab = tabMidi;
+      }
+    }
+  } else {
+    const qMidi = findBlackLeftOf(map.KeyA);
+    if (qMidi === null) {
+      return;
+    }
+
+    map.KeyQ = qMidi;
+
+    const capsMidi = findWhiteLeftOf(qMidi);
+    if (capsMidi !== null) {
+      map.CapsLock = capsMidi;
+    }
+
+    if (map.CapsLock !== undefined) {
+      const tabMidi = findBlackLeftOf(map.CapsLock);
+      if (tabMidi !== null && tabMidi !== map.KeyQ) {
+        map.Tab = tabMidi;
+      }
     }
   }
 

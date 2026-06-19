@@ -65,14 +65,23 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('places Q on the black note between Caps Lock and A', () => {
+  it('uses Tab instead of Q when Caps Lock sits directly left of A', () => {
     const map = getDynamicKeyMap(60);
 
     expect(map.KeyA).toBe(60);
-    expect(map.KeyQ).toBe(58);
-    expect(map.CapsLock).toBe(57);
-    expect(getBlackBetween(map.CapsLock!, map.KeyA!)).toBe(map.KeyQ);
+    expect(map.CapsLock).toBe(59);
+    expect(map.Tab).toBe(58);
+    expect(map.KeyQ).toBeUndefined();
     expect(map.KeyW).toBe(getBlackBetween(map.KeyA!, map.KeyS!));
+  });
+
+  it('places Q on the black note between Caps Lock and A when one exists', () => {
+    const map = getDynamicKeyMap(61);
+
+    expect(map.CapsLock).toBe(60);
+    expect(map.KeyQ).toBe(61);
+    expect(map.KeyA).toBe(62);
+    expect(getBlackBetween(map.CapsLock!, map.KeyA!)).toBe(map.KeyQ);
   });
 
   it('keeps Q between Caps Lock and A when scope shifts up to A4', () => {
@@ -98,7 +107,7 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     const map = getDynamicKeyMap(60);
 
     expect(map.Quote).toBe(77);
-    expect(map.KeyQ).toBe(58);
+    expect(map.Tab).toBe(58);
   });
 
   it('places each core black between its neighboring whites when possible', () => {
@@ -131,11 +140,11 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('anchors low extensions from Q and A', () => {
+  it('anchors low extensions from Tab and Caps Lock at default scope', () => {
     const map = getDynamicKeyMap(60);
 
-    expect(map.KeyQ).toBe(58);
-    expect(map.CapsLock).toBe(57);
+    expect(map.Tab).toBe(58);
+    expect(map.CapsLock).toBe(59);
     expect(map.Quote).toBe(77);
     expect(map.BracketRight).toBe(78);
   });
@@ -158,7 +167,8 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     const atDefault = getScopeKeyMap(60);
     const shifted = getScopeKeyMap(66);
 
-    expect(atDefault.KeyQ).toBe(58);
+    expect(atDefault.Tab).toBe(58);
+    expect(atDefault.CapsLock).toBe(59);
     expect(atDefault.BracketRight).toBe(78);
 
     for (const midi of Object.values(shifted)) {
