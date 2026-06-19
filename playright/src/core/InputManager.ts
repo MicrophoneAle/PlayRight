@@ -7,6 +7,8 @@ import {
 } from './twoHandMapping.ts';
 
 export const SCOPE_SIZE = 17;
+/** Chromatic span from Tab through ] when all extension keys are present. */
+export const FULL_SCOPE_SIZE = 21;
 export const PIANO_START_MIDI = 21;
 export const PIANO_END_MIDI = 108;
 
@@ -192,6 +194,32 @@ function shiftAlongRow(midi: number, steps: number, wantBlack: boolean): number 
 
 export function isMidiInCoreScope(midi: number, scopeStart: number): boolean {
   return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
+}
+
+export function getFullScopeMidiBounds(
+  keyMap: Record<string, number>,
+): { min: number; max: number } | null {
+  const values = Object.values(keyMap);
+  if (values.length === 0) {
+    return null;
+  }
+
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+  };
+}
+
+export function isMidiInFullScope(
+  midi: number,
+  keyMap: Record<string, number>,
+): boolean {
+  const bounds = getFullScopeMidiBounds(keyMap);
+  if (bounds === null) {
+    return false;
+  }
+
+  return midi >= bounds.min && midi <= bounds.max;
 }
 
 export function getExtensionMidis(

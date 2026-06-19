@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FULL_SCOPE_SIZE,
   getDynamicKeyMap,
   getEffectiveKeyMap,
+  getFullScopeMidiBounds,
   isBlackRowCode,
+  isMidiInFullScope,
   isWhiteRowCode,
   SCOPE_SIZE,
 } from './InputManager.ts';
@@ -115,6 +118,21 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     expect(map.Tab).toBe(58);
     expect(map.Quote).toBe(77);
     expect(map.BracketRight).toBe(78);
+  });
+
+  it('spans a 21-semitone full scope from Tab through ]', () => {
+    const map = getDynamicKeyMap(60);
+    const bounds = getFullScopeMidiBounds(map);
+
+    expect(bounds).toEqual({ min: 58, max: 78 });
+    expect(bounds!.max - bounds!.min + 1).toBe(FULL_SCOPE_SIZE);
+
+    for (let midi = bounds!.min; midi <= bounds!.max; midi += 1) {
+      expect(isMidiInFullScope(midi, map)).toBe(true);
+    }
+
+    expect(isMidiInFullScope(bounds!.min - 1, map)).toBe(false);
+    expect(isMidiInFullScope(bounds!.max + 1, map)).toBe(false);
   });
 
   it('never assigns black notes to the home row', () => {
