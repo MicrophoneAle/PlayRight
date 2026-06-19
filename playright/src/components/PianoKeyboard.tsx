@@ -60,10 +60,6 @@ interface KeyLayout {
   offsetIndex: number;
 }
 
-function isInScope(midi: number, scopeStartMidi: number): boolean {
-  return midi >= scopeStartMidi && midi <= scopeStartMidi + SCOPE_SIZE - 1;
-}
-
 function isMidiActive(
   midi: number,
   keyMap: Record<string, number>,
@@ -218,6 +214,11 @@ export function PianoKeyboard() {
   const keyMap = useMemo(
     () => getDynamicKeyMap(scopeStartMidi),
     [scopeStartMidi],
+  );
+
+  const playableMidiSet = useMemo(
+    () => new Set(Object.values(keyMap)),
+    [keyMap],
   );
 
   const expectedMidiSet = useMemo(
@@ -455,7 +456,7 @@ export function PianoKeyboard() {
         aria-label="88-key piano keyboard"
       >
         {whiteKeys.map((key) => {
-          const inScope = isTwoHand ? false : isInScope(key.midi, scopeStartMidi);
+          const inScope = isTwoHand ? false : playableMidiSet.has(key.midi);
           const isActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
@@ -496,7 +497,7 @@ export function PianoKeyboard() {
           );
         })}
         {blackKeys.map((key) => {
-          const inScope = isTwoHand ? false : isInScope(key.midi, scopeStartMidi);
+          const inScope = isTwoHand ? false : playableMidiSet.has(key.midi);
           const isActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);

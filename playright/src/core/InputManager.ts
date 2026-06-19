@@ -158,7 +158,7 @@ export function formatKeyCode(code: string): string {
     BracketLeft: '[',
     BracketRight: ']',
     Backslash: '\\',
-    Tab: 'tab',
+    Tab: '↹',
   };
 
   return symbols[code] ?? code;
