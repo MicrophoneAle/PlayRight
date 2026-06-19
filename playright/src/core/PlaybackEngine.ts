@@ -94,6 +94,7 @@ export class PlaybackEngine {
 
     transport.pause();
     this.isPaused = true;
+    this.clearPlayingMidis();
     useEngineStore.getState().actions.setPlaybackPaused(true);
   }
 
@@ -241,16 +242,19 @@ export class PlaybackEngine {
           );
           const playedQuarters = playbackDurationQuarterNotes(writtenQuarters);
           const toneDuration = quarterNotesToToneDuration(writtenQuarters);
-          const playedDuration = quarterNotesToToneDuration(playedQuarters);
-          const releaseTime = time + Tone.Time(playedDuration).toSeconds();
+          const releaseQuarters = onsetQuarters + playedQuarters;
           const pressId = this.playingPressTracker.allocatePressId();
 
           draw.schedule(() => {
             this.pressPlayingMidi(note.midi, pressId);
           }, time);
-          draw.schedule(() => {
-            this.releasePlayingMidi(pressId);
-          }, releaseTime);
+
+          const releaseEventId = transport.scheduleOnce((releaseTime) => {
+            draw.schedule(() => {
+              this.releasePlayingMidi(pressId);
+            }, releaseTime);
+          }, quartersToTransportPosition(releaseQuarters));
+          this.scheduledEventIds.push(releaseEventId);
 
           engine.scheduleAttackRelease(note.midi, toneDuration, time);
         }

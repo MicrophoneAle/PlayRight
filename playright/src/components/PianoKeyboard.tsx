@@ -168,6 +168,51 @@ function getBlackKeyClasses(
   return `${base} bg-zinc-900`;
 }
 
+function getKeyHighlightState(
+  midi: number,
+  options: {
+    playMode: boolean;
+    isPlaybackActive: boolean;
+    isPracticeActive: boolean;
+    isTwoHand: boolean;
+    playingMidiCounts: Map<number, number>;
+    expectedMidiSet: Set<number>;
+    showStepKeyHighlight: boolean;
+    isKeyInDisplayRange: (midi: number) => boolean;
+    twoHandMidiLabels: Map<number, string> | null;
+    isPhysicallyActive: boolean;
+  },
+): { isExpected: boolean; isPressed: boolean } {
+  const {
+    playMode,
+    isPlaybackActive,
+    isTwoHand,
+    playingMidiCounts,
+    expectedMidiSet,
+    showStepKeyHighlight,
+    isKeyInDisplayRange,
+    twoHandMidiLabels,
+    isPhysicallyActive,
+  } = options;
+
+  if (playMode && isPlaybackActive) {
+    const isSounding = (playingMidiCounts.get(midi) ?? 0) > 0;
+    return { isExpected: isSounding, isPressed: isSounding };
+  }
+
+  if (isTwoHand) {
+    const isExpected = twoHandMidiLabels?.has(midi) ?? false;
+    return { isExpected, isPressed: isPhysicallyActive };
+  }
+
+  const isExpected =
+    showStepKeyHighlight &&
+    expectedMidiSet.has(midi) &&
+    isKeyInDisplayRange(midi);
+
+  return { isExpected, isPressed: isPhysicallyActive };
+}
+
 export function PianoKeyboard() {
   const scopeStartMidi = useEngineStore((state) => state.scopeStartMidi);
   const scopeTranspose = useEngineStore((state) => state.scopeTranspose);
@@ -416,6 +461,18 @@ export function PianoKeyboard() {
     selectedNote.midi === midi &&
     selectedNote.stepIndex === currentStepIndex;
 
+  const highlightOptions = {
+    playMode,
+    isPlaybackActive,
+    isPracticeActive,
+    isTwoHand,
+    playingMidiCounts,
+    expectedMidiSet,
+    showStepKeyHighlight,
+    isKeyInDisplayRange,
+    twoHandMidiLabels,
+  };
+
   return (
     <div className="relative">
       {isTwoHand && selectedNote ? (
@@ -455,17 +512,10 @@ export function PianoKeyboard() {
           const isPhysicallyActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
-          const isSounding =
-            playMode &&
-            isPlaybackActive &&
-            (playingMidiCounts.get(key.midi) ?? 0) > 0;
-          const isPressed = isSounding || isPhysicallyActive;
-          const isExpected = isTwoHand
-            ? (twoHandMidiLabels?.has(key.midi) ?? false)
-            : isSounding ||
-              (showStepKeyHighlight &&
-                expectedMidiSet.has(key.midi) &&
-                isKeyInDisplayRange(key.midi));
+          const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
+            ...highlightOptions,
+            isPhysicallyActive,
+          });
           const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, false);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
@@ -503,17 +553,10 @@ export function PianoKeyboard() {
           const isPhysicallyActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
-          const isSounding =
-            playMode &&
-            isPlaybackActive &&
-            (playingMidiCounts.get(key.midi) ?? 0) > 0;
-          const isPressed = isSounding || isPhysicallyActive;
-          const isExpected = isTwoHand
-            ? (twoHandMidiLabels?.has(key.midi) ?? false)
-            : isSounding ||
-              (showStepKeyHighlight &&
-                expectedMidiSet.has(key.midi) &&
-                isKeyInDisplayRange(key.midi));
+          const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
+            ...highlightOptions,
+            isPhysicallyActive,
+          });
           const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
