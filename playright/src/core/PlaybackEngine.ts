@@ -52,7 +52,7 @@ export class PlaybackEngine {
   }
 
   async play(): Promise<void> {
-    const { script, scoreTiming, currentStepIndex } = useEngineStore.getState();
+    const { script, scoreTiming } = useEngineStore.getState();
     if (!script || !scoreTiming || script.length === 0) {
       return;
     }
@@ -65,15 +65,16 @@ export class PlaybackEngine {
     await engine.warm();
     await engine.init();
 
-    if (this.hasFinishedPiece) {
+    const restartingFromEnd = this.hasFinishedPiece;
+    if (restartingFromEnd) {
       this.hasFinishedPiece = false;
       useEngineStore.getState().actions.setStepIndex(0);
     }
 
-    const startIndex = Math.min(
-      Math.max(currentStepIndex, 0),
-      script.length - 1,
-    );
+    const { currentStepIndex } = useEngineStore.getState();
+    const startIndex = restartingFromEnd
+      ? 0
+      : Math.min(Math.max(currentStepIndex, 0), script.length - 1);
     const startOnsetQuarters = stepOnsetQuarterNotes(
       script[startIndex].onset,
       scoreTiming.divisionsPerQuarter,
@@ -255,8 +256,11 @@ export class PlaybackEngine {
             durationDivisions,
             divisionsPerQuarter,
           );
-          const playedQuarters = playbackDurationQuarterNotes(writtenQuarters);
-          const toneDuration = quarterNotesToToneDuration(writtenQuarters);
+          const playedQuarters = playbackDurationQuarterNotes(
+            writtenQuarters,
+            note.tiedToNext ?? false,
+          );
+          const playedDuration = quarterNotesToToneDuration(playedQuarters);
           const releaseQuarters = onsetQuarters + playedQuarters;
           const pressId = this.playingPressTracker.allocatePressId();
 
@@ -271,7 +275,13 @@ export class PlaybackEngine {
           }, quartersToTransportPosition(releaseQuarters));
           this.scheduledEventIds.push(releaseEventId);
 
-          engine.scheduleAttackRelease(note.midi, toneDuration, time);
+          engine.scheduleAttackRelease(
+            note.midi,
+            playedDuration,
+            time,
+            0.8,
+            true,
+          );
         }
       }, transportTime);
 

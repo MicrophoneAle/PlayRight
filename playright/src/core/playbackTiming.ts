@@ -20,7 +20,7 @@ export function quarterNotesToSeconds(quarterNotes: number, bpm: number): number
 }
 
 /** Gap before the next attack for non-tied notes, in quarter-note units. */
-export const PLAYBACK_ARTICULATION_GAP_QUARTERS = 0.06;
+export const PLAYBACK_ARTICULATION_GAP_QUARTERS = 0.12;
 
 /** Played length after applying a release gap unless the note ties forward. */
 export function playbackDurationQuarterNotes(

@@ -131,7 +131,7 @@ export class AudioEngine {
     const writtenSeconds = Tone.Time(writtenDuration).toSeconds();
     const gapSeconds = tiedToNext
       ? 0
-      : Math.min(0.04, writtenSeconds * 0.12);
+      : Math.min(0.07, writtenSeconds * 0.18);
     const playSeconds = Math.max(writtenSeconds - gapSeconds, writtenSeconds * 0.25);
 
     this.sampler!.triggerAttack(note, time, velocity);
