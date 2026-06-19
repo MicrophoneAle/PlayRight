@@ -165,7 +165,7 @@ describe('InputManager two-hand routing', () => {
     useEngineStore.setState({ engineMode: 'one-hand', scopeStartMidi: 60 });
     mount();
 
-    windowStub.dispatchEvent(keyEvent('keydown', 'q', 'KeyQ'));
+    windowStub.dispatchEvent(keyEvent('keydown', 'w', 'KeyW'));
 
     expect(onFingerPress).not.toHaveBeenCalled();
     expect(practiceEngine.handleNoteOn).toHaveBeenCalledTimes(1);

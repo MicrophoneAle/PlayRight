@@ -1,25 +1,66 @@
-import { SCOPE_SIZE } from './InputManager.ts';
+import {
+  getDynamicKeyMap,
+  PIANO_END_MIDI,
+  PIANO_START_MIDI,
+  SCOPE_SIZE,
+} from './InputManager.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
-const START_MIDI = 21;
-const END_MIDI = 108;
+const MAX_SCOPE_START = PIANO_END_MIDI - (SCOPE_SIZE - 1);
 
 export function isMidiInScope(midi: number, scopeStart: number): boolean {
   return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
 }
 
-function clampScopeStart(scopeStart: number): number {
-  const maxScopeStart = END_MIDI - (SCOPE_SIZE - 1);
-  return Math.max(START_MIDI, Math.min(scopeStart, maxScopeStart));
+function midisFitCoreAnchors(midis: number[], scopeStart: number): boolean {
+  const map = getDynamicKeyMap(scopeStart);
+  if (map.KeyA === undefined || map.Semicolon === undefined) {
+    return false;
+  }
+
+  return midis.every(
+    (midi) => midi >= map.KeyA! && midi <= map.Semicolon!,
+  );
 }
 
-/** Fit every MIDI in the list inside one scope window. */
-function scopeStartForSpan(minMidi: number, maxMidi: number): number {
-  let scopeStart = minMidi;
-  if (scopeStart + SCOPE_SIZE - 1 < maxMidi) {
-    scopeStart = maxMidi - (SCOPE_SIZE - 1);
+function midisFitFullKeyMap(midis: number[], scopeStart: number): boolean {
+  const map = getDynamicKeyMap(scopeStart);
+  const values = Object.values(map);
+  if (values.length === 0) {
+    return false;
   }
-  return clampScopeStart(scopeStart);
+
+  const minMidi = Math.min(...values);
+  const maxMidi = Math.max(...values);
+
+  return midis.every((midi) => midi >= minMidi && midi <= maxMidi);
+}
+
+function findBestScopeStart(
+  midis: number[],
+  currentScopeStart: number,
+  preferCore: boolean,
+): number | null {
+  let best: number | null = null;
+  let bestDistance = Infinity;
+
+  for (let start = PIANO_START_MIDI; start <= MAX_SCOPE_START; start += 1) {
+    const fits = preferCore
+      ? midisFitCoreAnchors(midis, start)
+      : midisFitFullKeyMap(midis, start);
+
+    if (!fits) {
+      continue;
+    }
+
+    const distance = Math.abs(start - currentScopeStart);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = start;
+    }
+  }
+
+  return best;
 }
 
 export function alignScopeToMidis(midis: Iterable<number>): void {
@@ -29,37 +70,29 @@ export function alignScopeToMidis(midis: Iterable<number>): void {
   }
 
   const currentScopeStart = useEngineStore.getState().scopeStartMidi;
-  const scopeEnd = currentScopeStart + SCOPE_SIZE - 1;
-  const allInScope = midiList.every((midi) =>
-    isMidiInScope(midi, currentScopeStart),
+
+  if (midisFitCoreAnchors(midiList, currentScopeStart)) {
+    return;
+  }
+
+  const coreScopeStart = findBestScopeStart(
+    midiList,
+    currentScopeStart,
+    true,
   );
-
-  if (allInScope) {
+  if (coreScopeStart !== null) {
+    if (coreScopeStart !== currentScopeStart) {
+      useEngineStore.getState().actions.setScopeStart(coreScopeStart);
+    }
     return;
   }
 
-  const minMidi = Math.min(...midiList);
-  const maxMidi = Math.max(...midiList);
-  const span = maxMidi - minMidi;
-
-  let scopeStart: number;
-
-  if (span >= SCOPE_SIZE) {
-    scopeStart = scopeStartForSpan(minMidi, maxMidi);
-  } else if (minMidi > scopeEnd) {
-    // Entirely above the current range — slide the high edge up to the top note.
-    scopeStart = clampScopeStart(maxMidi - (SCOPE_SIZE - 1));
-  } else if (maxMidi < currentScopeStart) {
-    // Entirely below the current range — slide the low edge down to the bottom note.
-    scopeStart = clampScopeStart(minMidi);
-  } else {
-    // Partial overlap or notes on both sides — fit the full span in the window.
-    scopeStart = scopeStartForSpan(minMidi, maxMidi);
+  const fullScopeStart = findBestScopeStart(
+    midiList,
+    currentScopeStart,
+    false,
+  );
+  if (fullScopeStart !== null && fullScopeStart !== currentScopeStart) {
+    useEngineStore.getState().actions.setScopeStart(fullScopeStart);
   }
-
-  if (scopeStart === currentScopeStart) {
-    return;
-  }
-
-  useEngineStore.getState().actions.setScopeStart(scopeStart);
 }

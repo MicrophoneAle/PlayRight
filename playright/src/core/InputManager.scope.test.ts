@@ -34,6 +34,16 @@ const CORE_BLACK_CODES = [
   'BracketLeft',
 ] as const;
 
+function getBlackBetween(leftWhite: number, rightWhite: number): number | null {
+  for (let midi = leftWhite + 1; midi < rightWhite; midi += 1) {
+    if ([1, 3, 6, 8, 10].includes(midi % 12)) {
+      return midi;
+    }
+  }
+
+  return null;
+}
+
 describe('getDynamicKeyMap fixed keyboard rows', () => {
   it('uses a 17-semitone core scope window', () => {
     expect(SCOPE_SIZE).toBe(17);
@@ -51,16 +61,51 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('maps in-scope blacks to Q through [ in order', () => {
+  it('places W between A and S', () => {
     const map = getDynamicKeyMap(60);
 
-    expect(map.KeyQ).toBe(61);
-    expect(map.KeyW).toBe(63);
-    expect(map.KeyE).toBe(66);
-    expect(map.KeyR).toBe(68);
-    expect(map.KeyT).toBe(70);
-    expect(map.KeyU).toBe(75);
-    expect(map.BracketLeft).toBeUndefined();
+    expect(map.KeyA).toBeDefined();
+    expect(map.KeyS).toBeDefined();
+    expect(map.KeyW).toBe(
+      getBlackBetween(map.KeyA!, map.KeyS!),
+    );
+  });
+
+  it('places each core black between its neighboring whites when possible', () => {
+    const map = getDynamicKeyMap(60);
+    const pairs = [
+      ['KeyW', 'KeyA', 'KeyS'],
+      ['KeyE', 'KeyS', 'KeyD'],
+      ['KeyT', 'KeyF', 'KeyG'],
+      ['KeyY', 'KeyG', 'KeyH'],
+      ['KeyU', 'KeyH', 'KeyJ'],
+      ['KeyI', 'KeyJ', 'KeyK'],
+      ['KeyO', 'KeyK', 'KeyL'],
+      ['KeyP', 'KeyL', 'Semicolon'],
+    ] as const;
+
+    for (const [blackCode, leftCode, rightCode] of pairs) {
+      const leftMidi = map[leftCode];
+      const rightMidi = map[rightCode];
+      const blackMidi = map[blackCode];
+
+      if (
+        leftMidi === undefined ||
+        rightMidi === undefined ||
+        blackMidi === undefined
+      ) {
+        continue;
+      }
+
+      expect(blackMidi).toBe(getBlackBetween(leftMidi, rightMidi));
+    }
+  });
+
+  it('maps the highest in-scope black to [ when no black sits between ; and quote', () => {
+    const map = getDynamicKeyMap(60);
+
+    expect(map.BracketLeft).toBe(75);
+    expect(map.Quote).toBe(77);
   });
 
   it('always includes extension keys when adjacent notes exist', () => {
@@ -109,21 +154,13 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
 });
 
 describe('semitone scope shift', () => {
-  it('moves the core scope window by one chromatic semitone', () => {
+  it('shifts the chromatic scope window by one semitone', () => {
     const before = getDynamicKeyMap(60);
     const after = getDynamicKeyMap(61);
 
-    const beforeCoreMidis = [
-      ...CORE_WHITE_CODES,
-      ...CORE_BLACK_CODES,
-    ].map((code) => before[code]).filter((midi): midi is number => midi !== undefined);
-    const afterCoreMidis = [
-      ...CORE_WHITE_CODES,
-      ...CORE_BLACK_CODES,
-    ].map((code) => after[code]).filter((midi): midi is number => midi !== undefined);
-
-    expect(Math.min(...afterCoreMidis)).toBe(Math.min(...beforeCoreMidis) + 1);
-    expect(Math.max(...afterCoreMidis)).toBe(Math.max(...beforeCoreMidis) + 1);
+    expect(after.KeyW).toBe(getBlackBetween(after.KeyA!, after.KeyS!));
+    expect(after.KeyA).toBeGreaterThan(before.KeyA!);
+    expect(after.Semicolon).toBeGreaterThan(before.Semicolon!);
   });
 
   it('preserves white/black row colors after chromatic scope shift', () => {
@@ -146,6 +183,12 @@ describe('semitone scope shift', () => {
 
       expect([1, 3, 6, 8, 10].includes(midi % 12)).toBe(true);
     }
+  });
+
+  it('keeps W between A and S after chromatic scope shift', () => {
+    const map = getDynamicKeyMap(61);
+
+    expect(map.KeyW).toBe(getBlackBetween(map.KeyA!, map.KeyS!));
   });
 });
 

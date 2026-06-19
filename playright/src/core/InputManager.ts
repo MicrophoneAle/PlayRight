@@ -37,6 +37,32 @@ export const CORE_BLACK_PHYSICALS = [
   'BracketLeft',
 ] as const;
 
+export const EXTENSION_PHYSICALS = [
+  'Tab',
+  'CapsLock',
+  'Quote',
+  'BracketRight',
+] as const;
+
+/** Blacks that sit between two mapped whites in keyboard order. */
+const BLACKS_BETWEEN_WHITES: ReadonlyArray<{
+  code: (typeof CORE_BLACK_PHYSICALS)[number];
+  left: string;
+  right: string;
+}> = [
+  { code: 'KeyQ', left: 'CapsLock', right: 'KeyA' },
+  { code: 'KeyW', left: 'KeyA', right: 'KeyS' },
+  { code: 'KeyE', left: 'KeyS', right: 'KeyD' },
+  { code: 'KeyR', left: 'KeyD', right: 'KeyF' },
+  { code: 'KeyT', left: 'KeyF', right: 'KeyG' },
+  { code: 'KeyY', left: 'KeyG', right: 'KeyH' },
+  { code: 'KeyU', left: 'KeyH', right: 'KeyJ' },
+  { code: 'KeyI', left: 'KeyJ', right: 'KeyK' },
+  { code: 'KeyO', left: 'KeyK', right: 'KeyL' },
+  { code: 'KeyP', left: 'KeyL', right: 'Semicolon' },
+  { code: 'BracketLeft', left: 'Semicolon', right: 'Quote' },
+];
+
 const isBlackKey = (midi: number): boolean =>
   [1, 3, 6, 8, 10].includes(midi % 12);
 
@@ -58,6 +84,46 @@ export function isBlackRowCode(code: string): boolean {
     code === 'Tab' ||
     code === 'BracketRight'
   );
+}
+
+function getBlackBetween(leftWhite: number, rightWhite: number): number | null {
+  for (let midi = leftWhite + 1; midi < rightWhite; midi += 1) {
+    if (isBlackKey(midi)) {
+      return midi;
+    }
+  }
+
+  return null;
+}
+
+function getBlacksInScope(scopeStart: number, scopeEnd: number): number[] {
+  const blacks: number[] = [];
+
+  for (let midi = scopeStart; midi <= scopeEnd; midi += 1) {
+    if (isBlackKey(midi)) {
+      blacks.push(midi);
+    }
+  }
+
+  return blacks;
+}
+
+export function getCoreAnchorMidis(
+  scopeStart: number,
+): {
+  lowWhite: number | undefined;
+  highWhite: number | undefined;
+  lowBlack: number | undefined;
+  highBlack: number | undefined;
+} {
+  const map = getDynamicKeyMap(scopeStart);
+
+  return {
+    lowWhite: map.KeyA,
+    highWhite: map.Semicolon,
+    lowBlack: map.KeyQ,
+    highBlack: map.BracketLeft,
+  };
 }
 
 function findNextWhiteAbove(midi: number): number | null {
@@ -128,45 +194,57 @@ export function isMidiInCoreScope(midi: number, scopeStart: number): boolean {
   return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
 }
 
+export function getExtensionMidis(
+  keyMap: Record<string, number>,
+): Set<number> {
+  const midis = new Set<number>();
+
+  for (const code of EXTENSION_PHYSICALS) {
+    const midi = keyMap[code];
+    if (midi !== undefined) {
+      midis.add(midi);
+    }
+  }
+
+  return midis;
+}
+
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const scopeEnd = scopeStart + SCOPE_SIZE - 1;
   const map: Record<string, number> = {};
 
   const whitesInScope: number[] = [];
-  const blacksInScope: number[] = [];
 
   for (let midi = scopeStart; midi <= scopeEnd; midi += 1) {
-    if (isBlackKey(midi)) {
-      blacksInScope.push(midi);
-    } else {
+    if (!isBlackKey(midi)) {
       whitesInScope.push(midi);
     }
   }
 
-  whitesInScope.forEach((midi, index) => {
-    if (index < CORE_WHITE_PHYSICALS.length) {
-      map[CORE_WHITE_PHYSICALS[index]] = midi;
+  CORE_WHITE_PHYSICALS.forEach((code, index) => {
+    if (index < whitesInScope.length) {
+      map[code] = whitesInScope[index];
     }
   });
 
-  blacksInScope.forEach((midi, index) => {
-    if (index < CORE_BLACK_PHYSICALS.length) {
-      map[CORE_BLACK_PHYSICALS[index]] = midi;
+  if (map.KeyA === undefined) {
+    return map;
+  }
+
+  const lowWhite = findPreviousWhiteBelow(map.KeyA);
+  if (lowWhite !== null) {
+    map.CapsLock = lowWhite;
+  }
+
+  if (map.CapsLock !== undefined) {
+    const tabBlack = findPreviousBlackBelow(map.CapsLock);
+    if (tabBlack !== null) {
+      map.Tab = tabBlack;
     }
-  });
-
-  const lastCoreBlack = blacksInScope[blacksInScope.length - 1];
-
-  if (map.KeyA !== undefined) {
-    const lowWhite = findPreviousWhiteBelow(map.KeyA);
-    const lowBlack = findPreviousBlackBelow(map.KeyA);
-
-    if (lowWhite !== null) {
-      map.CapsLock = lowWhite;
-    }
-
-    if (lowBlack !== null) {
-      map.Tab = lowBlack;
+  } else {
+    const tabBlack = findPreviousBlackBelow(map.KeyA);
+    if (tabBlack !== null) {
+      map.Tab = tabBlack;
     }
   }
 
@@ -177,9 +255,29 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     }
   }
 
-  const highBlackAnchor = map.BracketLeft ?? lastCoreBlack;
-  if (highBlackAnchor !== undefined) {
-    const highBlack = findNextBlackAbove(highBlackAnchor);
+  for (const { code, left, right } of BLACKS_BETWEEN_WHITES) {
+    const leftMidi = map[left];
+    const rightMidi = map[right];
+
+    if (leftMidi === undefined || rightMidi === undefined) {
+      continue;
+    }
+
+    const blackMidi = getBlackBetween(leftMidi, rightMidi);
+    if (blackMidi !== null) {
+      map[code] = blackMidi;
+    }
+  }
+
+  if (map.BracketLeft === undefined && map.Semicolon !== undefined) {
+    const blacksInScope = getBlacksInScope(scopeStart, scopeEnd);
+    if (blacksInScope.length > 0) {
+      map.BracketLeft = blacksInScope[blacksInScope.length - 1];
+    }
+  }
+
+  if (map.BracketLeft !== undefined) {
+    const highBlack = findNextBlackAbove(map.BracketLeft);
     if (highBlack !== null && highBlack <= PIANO_END_MIDI) {
       map.BracketRight = highBlack;
     }

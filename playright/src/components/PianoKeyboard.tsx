@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import {
   getEffectiveKeyMap,
+  getExtensionMidis,
   getLabelForKeyMapMidi,
   isMidiInCoreScope,
   resolveNoteMidiFromKeyboard,
@@ -195,6 +196,11 @@ export function PianoKeyboard() {
     [scopeStartMidi, scopeTranspose],
   );
 
+  const extensionMidiSet = useMemo(
+    () => getExtensionMidis(keyMap),
+    [keyMap],
+  );
+
   const expectedMidiSet = useMemo(
     () => new Set(expectedMidiNotes),
     [expectedMidiNotes],
@@ -206,6 +212,10 @@ export function PianoKeyboard() {
     }
 
     if (isMidiInCoreScope(midi, scopeStartMidi)) {
+      return true;
+    }
+
+    if (extensionMidiSet.has(midi)) {
       return true;
     }
 
