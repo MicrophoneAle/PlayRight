@@ -109,13 +109,33 @@ export class AudioEngine {
     duration: ToneTime,
     time: number,
     velocity = 0.8,
+    tiedToNext = false,
+  ): void {
+    this.schedulePlayedNote(midi, duration, time, velocity, tiedToNext);
+  }
+
+  schedulePlayedNote(
+    midi: number,
+    writtenDuration: ToneTime,
+    time: number,
+    velocity = 0.8,
+    tiedToNext = false,
   ): void {
     this.resumeContextIfNeeded();
 
     const note = midiToNote(midi);
-    if (this.isReady) {
-      this.sampler!.triggerAttackRelease(note, duration, time, velocity);
+    if (!this.isReady) {
+      return;
     }
+
+    const writtenSeconds = Tone.Time(writtenDuration).toSeconds();
+    const gapSeconds = tiedToNext
+      ? 0
+      : Math.min(0.04, writtenSeconds * 0.12);
+    const playSeconds = Math.max(writtenSeconds - gapSeconds, writtenSeconds * 0.25);
+
+    this.sampler!.triggerAttack(note, time, velocity);
+    this.sampler!.triggerRelease(note, time + playSeconds);
   }
 
   releaseAll(): void {

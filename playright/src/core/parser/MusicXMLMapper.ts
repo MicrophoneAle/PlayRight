@@ -1,6 +1,6 @@
 import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
 import { formatPitch, getMidiNumber } from './pitch.ts';
-import type { NormalizedElement } from './MusicXMLNormalizer.ts';
+import type { NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
 function mapStaffToHand(staff: number): Hand {
   return staff === 2 ? 'L' : 'R';
@@ -12,6 +12,10 @@ function mapScoreFingering(fingering: number): Finger | null {
   }
 
   return null;
+}
+
+function pitchStaffKey(element: NormalizedNote): string {
+  return `${element.staff}:${element.step}:${element.octave}:${element.alter}`;
 }
 
 function groupByOnset(
@@ -39,12 +43,27 @@ function groupByOnset(
   return script;
 }
 
+function createScriptNote(element: NormalizedNote): ScriptNote {
+  const finger = mapScoreFingering(element.fingering);
+
+  return {
+    pitch: formatPitch(element.step, element.octave, element.alter),
+    midi: getMidiNumber(element.step, element.octave, element.alter),
+    hand: mapStaffToHand(element.staff),
+    finger,
+    durationDivisions: element.duration,
+    ...(element.isTieStart ? { tiedToNext: true } : {}),
+    ...(finger !== null ? { fingerSource: 'score' as const } : {}),
+  };
+}
+
 export { getMidiNumber, formatPitch } from './pitch.ts';
 
 export class MusicXMLMapper {
   static mapToDomain(elements: NormalizedElement[]): PlaybackScript {
     let currentTime = 0;
     const absoluteNotes: Array<{ note: ScriptNote; onset: number }> = [];
+    const openTies = new Map<string, number>();
 
     for (const element of elements) {
       if (element.type === 'backup') {
@@ -57,29 +76,47 @@ export class MusicXMLMapper {
         continue;
       }
 
-      if (element.type === 'note') {
-        if (element.isRest || element.isGrace || element.isTieStop) {
-          currentTime += element.duration;
-          continue;
+      if (element.type !== 'note') {
+        continue;
+      }
+
+      if (element.isRest || element.isGrace) {
+        currentTime += element.duration;
+        continue;
+      }
+
+      const tieKey = pitchStaffKey(element);
+      const isTieContinuation = element.isTieStop && !element.isTieStart;
+      const isTieMiddle = element.isTieStop && element.isTieStart;
+
+      if (isTieContinuation || isTieMiddle) {
+        const tiedNoteIndex = openTies.get(tieKey);
+        if (tiedNoteIndex !== undefined) {
+          const tiedNote = absoluteNotes[tiedNoteIndex].note;
+          tiedNote.durationDivisions =
+            (tiedNote.durationDivisions ?? 0) + element.duration;
+
+          if (isTieContinuation) {
+            tiedNote.tiedToNext = false;
+            openTies.delete(tieKey);
+          }
         }
 
-        const finger = mapScoreFingering(element.fingering);
-        const scriptNote: ScriptNote = {
-          pitch: formatPitch(element.step, element.octave, element.alter),
-          midi: getMidiNumber(element.step, element.octave, element.alter),
-          hand: mapStaffToHand(element.staff),
-          finger,
-          durationDivisions: element.duration,
-          ...(finger !== null ? { fingerSource: 'score' as const } : {}),
-        };
+        currentTime += element.duration;
+        continue;
+      }
 
-        if (element.isChord && absoluteNotes.length > 0) {
-          const chordOnset = absoluteNotes[absoluteNotes.length - 1].onset;
-          absoluteNotes.push({ note: scriptNote, onset: chordOnset });
-        } else {
-          absoluteNotes.push({ note: scriptNote, onset: currentTime });
-          currentTime += element.duration;
+      const scriptNote = createScriptNote(element);
+
+      if (element.isChord && absoluteNotes.length > 0) {
+        const chordOnset = absoluteNotes[absoluteNotes.length - 1].onset;
+        absoluteNotes.push({ note: scriptNote, onset: chordOnset });
+      } else {
+        absoluteNotes.push({ note: scriptNote, onset: currentTime });
+        if (element.isTieStart) {
+          openTies.set(tieKey, absoluteNotes.length - 1);
         }
+        currentTime += element.duration;
       }
     }
 

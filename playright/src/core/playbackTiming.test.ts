@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   noteDurationQuarterNotes,
+  playbackDurationQuarterNotes,
   quarterNotesToSeconds,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
@@ -28,5 +29,16 @@ describe('playbackTiming', () => {
     expect(quarterNotesToToneDuration(2)).toBe('2n');
     expect(quarterNotesToToneDuration(0.5)).toBe('8n');
     expect(quarterNotesToToneDuration(4)).toBe('1n');
+  });
+
+  it('shortens non-tied playback durations by a small articulation gap', () => {
+    expect(playbackDurationQuarterNotes(1)).toBeCloseTo(0.94, 5);
+    expect(playbackDurationQuarterNotes(2)).toBeCloseTo(1.94, 5);
+    expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.44, 5);
+  });
+
+  it('keeps tied playback durations at the written length', () => {
+    expect(playbackDurationQuarterNotes(1, true)).toBe(1);
+    expect(playbackDurationQuarterNotes(2, true)).toBe(2);
   });
 });

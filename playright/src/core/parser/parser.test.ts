@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import { parseMusicXmlToScript } from './index.ts';
 import { MINIMAL_MUSICXML } from './__fixtures__/minimal.musicxml.ts';
+import { TIE_AND_SYNC_MUSICXML } from './__fixtures__/tieAndSync.musicxml.ts';
 
 async function unzipScoreXmlFromMxlBuffer(buffer: ArrayBuffer): Promise<string> {
   const archive = await JSZip.loadAsync(buffer);
@@ -98,5 +99,40 @@ describe('parseMusicXmlToScript', () => {
     const fromMxl = parseMusicXmlToScript(xmlFromMxl);
 
     expect(fromMxl).toEqual({ script, scoreTiming });
+  });
+
+  it('merges tied segments into one note with combined duration', () => {
+    const { script } = parseMusicXmlToScript(TIE_AND_SYNC_MUSICXML);
+    const tiedC4 = script[0].notes.find((note) => note.pitch === 'C4');
+
+    expect(script[0].onset).toBe(0);
+    expect(tiedC4).toMatchObject({
+      midi: 60,
+      durationDivisions: 960,
+      tiedToNext: false,
+    });
+  });
+
+  it('keeps consecutive repeated pitches as separate steps', () => {
+    const { script } = parseMusicXmlToScript(TIE_AND_SYNC_MUSICXML);
+
+    expect(script[1]).toMatchObject({ onset: 960 });
+    expect(script[2]).toMatchObject({ onset: 1200 });
+    expect(script[1].notes[0]).toMatchObject({ pitch: 'D4', durationDivisions: 240 });
+    expect(script[2].notes[0]).toMatchObject({ pitch: 'D4', durationDivisions: 240 });
+  });
+
+  it('syncs chord tones and cross-staff notes on the same beat', () => {
+    const { script } = parseMusicXmlToScript(TIE_AND_SYNC_MUSICXML);
+    const chordStep = script[3];
+
+    expect(chordStep.onset).toBe(1440);
+    expect(chordStep.notes.map((note) => note.pitch).sort()).toEqual([
+      'E3',
+      'E4',
+      'G3',
+      'G4',
+    ]);
+    expect(chordStep.notes.every((note) => note.durationDivisions === 480)).toBe(true);
   });
 });

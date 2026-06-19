@@ -10,6 +10,7 @@ export interface NormalizedNote {
   fingering: number;
   isRest: boolean;
   isGrace: boolean;
+  isTieStart: boolean;
   isTieStop: boolean;
   isChord: boolean;
 }
@@ -245,6 +246,10 @@ function hasTieStop(note: RawRecord): boolean {
   return getTieTypes(note).includes('stop');
 }
 
+function hasTieStart(note: RawRecord): boolean {
+  return getTieTypes(note).includes('start');
+}
+
 function extractKeyFifths(attributesChildren: unknown[]): number | null {
   for (const child of attributesChildren) {
     if (!isRecord(child)) {
@@ -290,6 +295,7 @@ function normalizeNote(rawNote: unknown, keyContext: KeyContext): NormalizedNote
     fingering: extractFingering(note),
     isRest: note.rest != null,
     isGrace: note.grace != null,
+    isTieStart: hasTieStart(note),
     isTieStop: hasTieStop(note),
     isChord: note.chord != null,
   };

@@ -10,6 +10,8 @@ export interface ScriptNote {
   fingerSource?: 'score' | 'predicted' | 'manual';
   /** Note length in MusicXML divisions, when present in the score. */
   durationDivisions?: number;
+  /** True when this note ties into the next note of the same pitch (no release gap). */
+  tiedToNext?: boolean;
 }
 
 export interface ScoreTiming {

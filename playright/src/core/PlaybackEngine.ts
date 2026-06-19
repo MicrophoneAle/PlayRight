@@ -3,6 +3,7 @@ import type { AudioEngine } from './AudioEngine.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
 import {
   noteDurationQuarterNotes,
+  playbackDurationQuarterNotes,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
@@ -234,12 +235,14 @@ export class PlaybackEngine {
 
         for (const note of step.notes) {
           const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-          const durationQuarters = noteDurationQuarterNotes(
+          const writtenQuarters = noteDurationQuarterNotes(
             durationDivisions,
             divisionsPerQuarter,
           );
-          const toneDuration = quarterNotesToToneDuration(durationQuarters);
-          const releaseTime = time + Tone.Time(toneDuration).toSeconds();
+          const playedQuarters = playbackDurationQuarterNotes(writtenQuarters);
+          const toneDuration = quarterNotesToToneDuration(writtenQuarters);
+          const playedDuration = quarterNotesToToneDuration(playedQuarters);
+          const releaseTime = time + Tone.Time(playedDuration).toSeconds();
           const pressId = this.playingPressTracker.allocatePressId();
 
           draw.schedule(() => {
