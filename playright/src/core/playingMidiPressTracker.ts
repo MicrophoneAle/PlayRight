@@ -1,4 +1,4 @@
-import type { Hand, PlayingPlaybackNote } from '../types/index.ts';
+import type { PlayingPlaybackNote } from '../types/index.ts';
 
 /** Tracks active playback key presses by unique id so repeated pitches stay independent. */
 export class PlayingMidiPressTracker {
