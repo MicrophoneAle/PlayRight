@@ -6,7 +6,6 @@ import {
   getDynamicKeyMap,
   SCOPE_SIZE,
 } from '../core/InputManager.ts';
-import { DEFAULT_HAND_HOME_MIDI } from '../core/fingeringPredictor.ts';
 import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
 import { TWO_HAND_KEY_MAP } from '../core/twoHandMapping.ts';
 import { useEngineStore, type ShiftMode } from '../store/useEngineStore.ts';
@@ -141,28 +140,16 @@ function fingerLabelClass(
   return `${base} font-bold ${onBlackKey ? 'text-zinc-200' : 'text-zinc-800'}`;
 }
 
-function isHomeThumbKey(midi: number, isTwoHand: boolean): boolean {
-  if (!isTwoHand) {
-    return false;
-  }
-
-  return (
-    midi === DEFAULT_HAND_HOME_MIDI.L || midi === DEFAULT_HAND_HOME_MIDI.R
-  );
-}
-
 function getWhiteKeyClasses(
   inScope: boolean,
   isExpected: boolean,
   isActive: boolean,
   isSelected: boolean,
-  isHomeThumb: boolean,
 ): string {
   const base =
     'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-400' : '';
-  const homeRing = isHomeThumb ? ' ring-1 ring-inset ring-sky-300/80' : '';
 
   if (isActive && isExpected) {
     return `${base} translate-y-[3px] bg-emerald-300 shadow-[inset_0_3px_6px_rgba(5,150,105,0.45)] ring-2 ring-inset ring-emerald-500`;
@@ -174,10 +161,7 @@ function getWhiteKeyClasses(
     return `${base} bg-emerald-100 ring-2 ring-inset ring-emerald-400${selectedRing}`;
   }
   if (inScope) {
-    return `${base} bg-violet-100${homeRing}`;
-  }
-  if (isHomeThumb) {
-    return `${base} bg-sky-50${homeRing}`;
+    return `${base} bg-violet-100`;
   }
   return `${base} bg-white`;
 }
@@ -471,7 +455,6 @@ export function PianoKeyboard() {
             : midiToPhysical[key.midi];
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
-          const isHomeThumb = isHomeThumbKey(key.midi, isTwoHand);
 
           return (
             <div
@@ -489,16 +472,12 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getWhiteKeyClasses(inScope, isExpected, isActive, isSelected, isHomeThumb)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getWhiteKeyClasses(inScope, isExpected, isActive, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
             >
               {isTwoHand ? renderFingerLabel(key.midi, false) : null}
               {mappedLetter && (isTwoHand || inScope) ? (
                 <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
                   {mappedLetter}
-                </span>
-              ) : isHomeThumb ? (
-                <span className="absolute bottom-2 w-full text-center text-[10px] font-medium text-sky-600/80">
-                  {key.midi === DEFAULT_HAND_HOME_MIDI.L ? 'v' : 'n'}
                 </span>
               ) : null}
             </div>
