@@ -17,7 +17,11 @@ export function ShortcutsMenu({
 }: ShortcutsMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const shiftMode = useEngineStore((state) => state.shiftMode);
-  const shortcuts = getKeyboardShortcuts(SHIFT_MODE_LABELS[shiftMode]);
+  const engineMode = useEngineStore((state) => state.engineMode);
+  const shortcuts = getKeyboardShortcuts(
+    SHIFT_MODE_LABELS[shiftMode],
+    engineMode,
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -65,7 +69,7 @@ export function ShortcutsMenu({
           <ul className="flex flex-col gap-2.5">
             {shortcuts.map((shortcut) => (
               <li
-                key={shortcut.keys}
+                key={`${shortcut.keys}-${shortcut.description}`}
                 className="flex items-start justify-between gap-4 text-xs"
               >
                 <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200">
