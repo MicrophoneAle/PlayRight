@@ -17,6 +17,27 @@ export interface LibraryEntry {
   created_at: string;
 }
 
+const SCORE_SELECT_WITH_FINGERINGS =
+  'id, title, raw_xml, manual_fingerings, created_at, user_id';
+const SCORE_SELECT_BASE = 'id, title, raw_xml, created_at, user_id';
+
+let loggedMissingManualFingeringsColumn = false;
+
+function warnMissingManualFingeringsColumn(): void {
+  if (loggedMissingManualFingeringsColumn) {
+    return;
+  }
+
+  loggedMissingManualFingeringsColumn = true;
+  console.warn(
+    '[scoreLibrary] Column scores.manual_fingerings is missing. Run playright/supabase/manual_fingerings.sql in the Supabase SQL Editor. Manual fingering overrides will not persist until then.',
+  );
+}
+
+function isMissingManualFingeringsColumn(message: string): boolean {
+  return message.includes('manual_fingerings');
+}
+
 function parseManualFingerings(value: unknown): ManualFingeringMap {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -74,6 +95,27 @@ export async function saveScoreToLibrary(
     .select('id')
     .single();
 
+  if (error && isMissingManualFingeringsColumn(error.message)) {
+    warnMissingManualFingeringsColumn();
+
+    const fallback = await supabase
+      .from('scores')
+      .insert({
+        title,
+        raw_xml: rawXml,
+        user_id: userId,
+      })
+      .select('id')
+      .single();
+
+    if (fallback.error) {
+      console.error('[scoreLibrary] Failed to save score:', fallback.error.message);
+      return { ok: false, reason: fallback.error.message };
+    }
+
+    return { ok: true, id: fallback.data.id };
+  }
+
   if (error) {
     console.error('[scoreLibrary] Failed to save score:', error.message);
     return { ok: false, reason: error.message };
@@ -117,10 +159,31 @@ export async function fetchScoreById(
 
   const { data, error } = await supabase
     .from('scores')
-    .select('id, title, raw_xml, manual_fingerings, created_at, user_id')
+    .select(SCORE_SELECT_WITH_FINGERINGS)
     .eq('id', id)
     .eq('user_id', userId)
     .single();
+
+  if (error && isMissingManualFingeringsColumn(error.message)) {
+    warnMissingManualFingeringsColumn();
+
+    const fallback = await supabase
+      .from('scores')
+      .select(SCORE_SELECT_BASE)
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single();
+
+    if (fallback.error) {
+      console.error('[scoreLibrary] Failed to fetch score:', fallback.error.message);
+      return null;
+    }
+
+    return {
+      ...fallback.data,
+      manual_fingerings: {},
+    };
+  }
 
   if (error) {
     console.error('[scoreLibrary] Failed to fetch score:', error.message);
@@ -151,6 +214,11 @@ export async function updateScoreManualFingerings(
     .select('id');
 
   if (error) {
+    if (isMissingManualFingeringsColumn(error.message)) {
+      warnMissingManualFingeringsColumn();
+      return { ok: false, reason: 'manual_fingerings column missing' };
+    }
+
     console.error('[scoreLibrary] Failed to update manual fingerings:', error.message);
     return { ok: false, reason: error.message };
   }
