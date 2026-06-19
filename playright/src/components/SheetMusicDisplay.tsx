@@ -117,7 +117,7 @@ function normalizeMeasureNumberPositions(container: HTMLElement): void {
 
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   const rules = osmd.EngravingRules;
-  rules.PageTopMargin = 0;
+  rules.PageTopMargin = 6;
   rules.TitleTopDistance = 0;
   rules.SheetCopyrightMargin = 0;
   rules.SystemComposerDistance = 0;
@@ -125,24 +125,59 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.MeasureNumberLabelOffset = 2;
 }
 
-function trimTopWhitespace(container: HTMLElement): void {
-  const svg = container.querySelector("svg");
+const SHEET_TOP_CLEARANCE_PX = 24;
+
+const SCORE_CONTENT_TOP_SELECTORS = [
+  '.vf-stave',
+  '.vf-notehead',
+  '.vf-stem',
+  '.vf-flag',
+  '.vf-ledger-line',
+  '.vf-beam',
+  '.vf-tuplet',
+  '.measure-number',
+  'text',
+].join(', ');
+
+function getScoreContentTop(svg: SVGSVGElement): number {
+  let top = Infinity;
+
+  for (const element of svg.querySelectorAll<SVGGraphicsElement>(
+    SCORE_CONTENT_TOP_SELECTORS,
+  )) {
+    if (element.closest('[id^="cursorImg-"]')) {
+      continue;
+    }
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      continue;
+    }
+
+    top = Math.min(top, rect.top);
+  }
+
+  if (!Number.isFinite(top)) {
+    return svg.getBoundingClientRect().top;
+  }
+
+  return top;
+}
+
+/** Keep the topmost engraved content (stems, fingerings, measure numbers) inside view. */
+function ensureSheetTopClearance(container: HTMLElement): void {
+  const svg = container.querySelector('svg');
   if (!svg) {
     return;
   }
 
-  const firstStave =
-    container.querySelector(".vf-stave") ??
-    container.querySelector('[class*="stave"]');
+  svg.style.marginTop = '0';
 
-  const reference = firstStave ?? svg;
   const containerTop = container.getBoundingClientRect().top;
-  const referenceTop = reference.getBoundingClientRect().top;
-  const gap = referenceTop - containerTop;
+  const contentTop = getScoreContentTop(svg);
+  const gap = contentTop - containerTop;
 
-  if (gap > 24) {
-    svg.style.marginTop = `${-(gap - 20)}px`;
-  }
+  svg.style.marginTop = `${SHEET_TOP_CLEARANCE_PX - gap}px`;
 }
 
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
@@ -340,8 +375,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           osmd.render();
         }
 
-        trimTopWhitespace(container);
         normalizeMeasureNumberPositions(container);
+        ensureSheetTopClearance(container);
 
         if (rebuildIndex) {
           scheduleVisualIndexBuild();
@@ -410,7 +445,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     <div
       ref={containerRef}
       onPointerUp={handleSheetPointerSeek}
-      className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-5 [&_svg]:max-w-full [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-6 [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }
