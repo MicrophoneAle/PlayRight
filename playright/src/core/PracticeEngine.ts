@@ -145,7 +145,7 @@ export class PracticeEngine {
 
     this.playNotePreview(expected.midi);
 
-    if (!selectIsPracticeActive(useEngineStore.getState())) {
+    if (!this.ensureTwoHandPracticeStarted()) {
       return;
     }
 
@@ -157,6 +157,24 @@ export class PracticeEngine {
     }
 
     this.registerPracticeHitAtIndex(hitIndex);
+  }
+
+  /** Two-hand: begin practice on the first correct finger hit if Start was not pressed. */
+  private ensureTwoHandPracticeStarted(): boolean {
+    const state = useEngineStore.getState();
+
+    if (selectIsPracticeActive(state)) {
+      return true;
+    }
+
+    if (state.engineMode !== 'two-hand' || !state.script) {
+      return false;
+    }
+
+    state.actions.setHasPracticeStarted(true);
+    state.actions.setPracticeActive(true);
+    this.loadCurrentStep({ alignScope: false });
+    return true;
   }
 
   /** Re-register held keys after a step or scope change. */

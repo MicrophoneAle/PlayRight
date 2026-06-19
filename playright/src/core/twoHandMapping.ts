@@ -18,6 +18,26 @@ export const TWO_HAND_KEY_MAP: Readonly<Record<string, FingerMapping>> = {
   '[': { hand: 'R', finger: 5 },
 };
 
+/** Physical key codes for layouts where event.key is unreliable (e.g. BracketLeft). */
+export const TWO_HAND_CODE_MAP: Readonly<Record<string, FingerMapping>> = {
+  KeyQ: { hand: 'L', finger: 5 },
+  KeyW: { hand: 'L', finger: 4 },
+  KeyE: { hand: 'L', finger: 3 },
+  KeyR: { hand: 'L', finger: 2 },
+  KeyV: { hand: 'L', finger: 1 },
+  KeyN: { hand: 'R', finger: 1 },
+  KeyI: { hand: 'R', finger: 2 },
+  KeyO: { hand: 'R', finger: 3 },
+  KeyP: { hand: 'R', finger: 4 },
+  BracketLeft: { hand: 'R', finger: 5 },
+};
+
 export function getFingerMapping(key: string): FingerMapping | null {
   return TWO_HAND_KEY_MAP[key.toLowerCase()] ?? null;
+}
+
+export function getFingerMappingFromKeyboard(event: KeyboardEvent): FingerMapping | null {
+  return (
+    getFingerMapping(event.key) ?? TWO_HAND_CODE_MAP[event.code] ?? null
+  );
 }

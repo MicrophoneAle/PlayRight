@@ -136,6 +136,7 @@ export const CONTRACTION_BASE = 5.0;
 export const CONTRACTION_PER_SEMITONE = 0.5;
 export const WEAK_FINGER_PENALTY = 0.5;
 export const THUMB_ON_BLACK_PENALTY = 1.5;
+export const PHRASE_START_BIAS = 1.5;
 
 const FINGERS: Finger[] = [1, 2, 3, 4, 5];
 
@@ -227,6 +228,53 @@ export function localCost(finger: Finger, midi: number): number {
   return 0;
 }
 
+/** Bias the first note of a phrase toward a natural hand position (pinky on high RH, etc.). */
+export function phraseStartCost(
+  hand: Hand,
+  finger: Finger,
+  note: NoteEvent,
+  phraseNotes: NoteEvent[],
+): number {
+  if (note.authoredFinger !== null) {
+    return 0;
+  }
+
+  if (phraseNotes.length === 1) {
+    if (hand === 'R') {
+      return note.midi >= 72
+        ? (5 - finger) * PHRASE_START_BIAS
+        : (finger - 1) * PHRASE_START_BIAS;
+    }
+
+    return note.midi <= 48
+      ? (5 - finger) * PHRASE_START_BIAS
+      : (finger - 1) * PHRASE_START_BIAS;
+  }
+
+  const nextMidi = phraseNotes[1].midi;
+  const interval = signedInterval(hand, note.midi, nextMidi);
+
+  if (hand === 'R') {
+    if (interval < 0) {
+      return (5 - finger) * PHRASE_START_BIAS;
+    }
+
+    if (interval > 0) {
+      return (finger - 1) * PHRASE_START_BIAS;
+    }
+  } else {
+    if (interval > 0) {
+      return (5 - finger) * PHRASE_START_BIAS;
+    }
+
+    if (interval < 0) {
+      return (finger - 1) * PHRASE_START_BIAS;
+    }
+  }
+
+  return 0;
+}
+
 function argminFinger(
   candidates: Finger[],
   costs: Partial<Record<Finger, number>>,
@@ -269,7 +317,7 @@ export function fingerPhrase(
       const local = localCost(finger, note.midi);
 
       if (index === 0) {
-        row[finger] = local;
+        row[finger] = local + phraseStartCost(hand, finger, note, notes);
         backRow[finger] = null;
         continue;
       }

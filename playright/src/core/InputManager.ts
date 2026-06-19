@@ -2,7 +2,7 @@ import type { AudioEngine } from './AudioEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import {
-  getFingerMapping,
+  getFingerMappingFromKeyboard,
   type FingerMapping,
 } from './twoHandMapping.ts';
 
@@ -124,7 +124,7 @@ export class InputManager {
         return;
       }
 
-      const mapping = getFingerMapping(event.key);
+      const mapping = getFingerMappingFromKeyboard(event);
       if (mapping !== null) {
         if (this.activePhysicalKeys.has(event.code)) {
           return;
@@ -166,7 +166,7 @@ export class InputManager {
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
     if (useEngineStore.getState().engineMode === 'two-hand') {
-      const mapping = getFingerMapping(event.key);
+      const mapping = getFingerMappingFromKeyboard(event);
       if (mapping !== null) {
         if (this.activePhysicalKeys.has(event.code)) {
           this.activePhysicalKeys.delete(event.code);
