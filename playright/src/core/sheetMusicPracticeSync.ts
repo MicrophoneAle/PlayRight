@@ -548,6 +548,48 @@ function pointInRect(x: number, y: number, rect: DOMRect): boolean {
   );
 }
 
+function inflateRect(rect: DOMRect, padding: number): DOMRect {
+  return new DOMRect(
+    rect.left - padding,
+    rect.top - padding,
+    rect.width + padding * 2,
+    rect.height + padding * 2,
+  );
+}
+
+function distanceToRect(x: number, y: number, rect: DOMRect): number {
+  const dx = Math.max(rect.left - x, 0, x - rect.right);
+  const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+  return Math.hypot(dx, dy);
+}
+
+const NOTE_HIT_MIN_SIZE_PX = 20;
+const NOTE_HIT_PADDING_PX = 12;
+const NOTE_HIT_MAX_DISTANCE_PX = 56;
+
+function hitBoundsForGraphicalNote(gNote: GraphicalNote): DOMRect | null {
+  const bounds = getGraphicalNotesBounds([gNote]);
+  if (!bounds) {
+    return null;
+  }
+
+  let rect = bounds;
+  if (rect.width < NOTE_HIT_MIN_SIZE_PX || rect.height < NOTE_HIT_MIN_SIZE_PX) {
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const width = Math.max(rect.width, NOTE_HIT_MIN_SIZE_PX);
+    const height = Math.max(rect.height, NOTE_HIT_MIN_SIZE_PX);
+    rect = new DOMRect(
+      centerX - width / 2,
+      centerY - height / 2,
+      width,
+      height,
+    );
+  }
+
+  return inflateRect(rect, NOTE_HIT_PADDING_PX);
+}
+
 /** Resolve a sheet pointer position to a practice step using the visual index. */
 export function resolveStepIndexFromPointer(
   visualIndex: PracticeVisualIndex | null,
@@ -560,6 +602,8 @@ export function resolveStepIndexFromPointer(
 
   let matchedStep: number | null = null;
   let matchedArea = Infinity;
+  let nearestStep: number | null = null;
+  let nearestDistance = Infinity;
 
   for (
     let stepIndex = 0;
@@ -572,20 +616,37 @@ export function resolveStepIndexFromPointer(
     }
 
     for (const gNote of gNotes) {
-      const bounds = getGraphicalNotesBounds([gNote]);
-      if (!bounds || !pointInRect(clientX, clientY, bounds)) {
+      const hitBounds = hitBoundsForGraphicalNote(gNote);
+      if (!hitBounds) {
         continue;
       }
 
-      const area = bounds.width * bounds.height;
-      if (area < matchedArea) {
-        matchedArea = area;
-        matchedStep = stepIndex;
+      if (pointInRect(clientX, clientY, hitBounds)) {
+        const area = hitBounds.width * hitBounds.height;
+        if (area < matchedArea) {
+          matchedArea = area;
+          matchedStep = stepIndex;
+        }
+        continue;
+      }
+
+      const distance = distanceToRect(clientX, clientY, hitBounds);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestStep = stepIndex;
       }
     }
   }
 
-  return matchedStep;
+  if (matchedStep !== null) {
+    return matchedStep;
+  }
+
+  if (nearestStep !== null && nearestDistance <= NOTE_HIT_MAX_DISTANCE_PX) {
+    return nearestStep;
+  }
+
+  return null;
 }
 
 /** Hands whose notes contribute to line scroll extent for the current engine mode. */
