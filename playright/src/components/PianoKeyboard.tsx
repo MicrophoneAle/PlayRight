@@ -203,10 +203,13 @@ export function PianoKeyboard() {
     [expectedMidiNotes],
   );
 
-  const playingMidiSet = useMemo(
-    () => new Set(playingMidiNotes),
-    [playingMidiNotes],
-  );
+  const playingMidiCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const midi of playingMidiNotes) {
+      counts.set(midi, (counts.get(midi) ?? 0) + 1);
+    }
+    return counts;
+  }, [playingMidiNotes]);
 
   const showStepKeyHighlight =
     (!playMode && isPracticeActive) || (playMode && isPlaybackActive);
@@ -453,7 +456,9 @@ export function PianoKeyboard() {
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const isSounding =
-            playMode && isPlaybackActive && playingMidiSet.has(key.midi);
+            playMode &&
+            isPlaybackActive &&
+            (playingMidiCounts.get(key.midi) ?? 0) > 0;
           const isPressed = isSounding || isPhysicallyActive;
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
@@ -499,7 +504,9 @@ export function PianoKeyboard() {
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const isSounding =
-            playMode && isPlaybackActive && playingMidiSet.has(key.midi);
+            playMode &&
+            isPlaybackActive &&
+            (playingMidiCounts.get(key.midi) ?? 0) > 0;
           const isPressed = isSounding || isPhysicallyActive;
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)

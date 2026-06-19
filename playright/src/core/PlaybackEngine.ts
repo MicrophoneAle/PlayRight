@@ -7,6 +7,7 @@ import {
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 
 const transport = Tone.getTransport();
 const draw = Tone.getDraw();
@@ -20,7 +21,7 @@ function quartersToTransportPosition(quarterNotes: number): string {
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
-  private playingMidis = new Set<number>();
+  private playingPressTracker = new PlayingMidiPressTracker();
   private isPlaying = false;
   private isPaused = false;
   private storeSubscriptionInitialized = false;
@@ -194,21 +195,21 @@ export class PlaybackEngine {
   private syncPlayingMidis(): void {
     useEngineStore
       .getState()
-      .actions.setPlayingMidiNotes([...this.playingMidis].sort((a, b) => a - b));
+      .actions.setPlayingMidiNotes(this.playingPressTracker.activeMidis());
   }
 
-  private pressPlayingMidi(midi: number): void {
-    this.playingMidis.add(midi);
+  private pressPlayingMidi(midi: number, pressId: number): void {
+    this.playingPressTracker.press(midi, pressId);
     this.syncPlayingMidis();
   }
 
-  private releasePlayingMidi(midi: number): void {
-    this.playingMidis.delete(midi);
+  private releasePlayingMidi(pressId: number): void {
+    this.playingPressTracker.release(pressId);
     this.syncPlayingMidis();
   }
 
   private clearPlayingMidis(): void {
-    this.playingMidis.clear();
+    this.playingPressTracker.clear();
     useEngineStore.getState().actions.setPlayingMidiNotes([]);
   }
 
@@ -239,12 +240,13 @@ export class PlaybackEngine {
           );
           const toneDuration = quarterNotesToToneDuration(durationQuarters);
           const releaseTime = time + Tone.Time(toneDuration).toSeconds();
+          const pressId = this.playingPressTracker.allocatePressId();
 
           draw.schedule(() => {
-            this.pressPlayingMidi(note.midi);
+            this.pressPlayingMidi(note.midi, pressId);
           }, time);
           draw.schedule(() => {
-            this.releasePlayingMidi(note.midi);
+            this.releasePlayingMidi(pressId);
           }, releaseTime);
 
           engine.scheduleAttackRelease(note.midi, toneDuration, time);
