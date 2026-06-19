@@ -6,7 +6,9 @@ import {
   type FingerMapping,
 } from './twoHandMapping.ts';
 
-export const SCOPE_SIZE = 17;
+export const SCOPE_SIZE = 19;
+export const PIANO_START_MIDI = 21;
+export const PIANO_END_MIDI = 108;
 
 const isBlackKey = (midi: number): boolean =>
   [1, 3, 6, 8, 10].includes(midi % 12);
@@ -21,8 +23,38 @@ function findFirstBlackInScope(scopeStart: number): number | null {
   return null;
 }
 
+function findLastBlackInScope(scopeStart: number): number | null {
+  for (let midi = scopeStart + SCOPE_SIZE - 1; midi >= scopeStart; midi -= 1) {
+    if (isBlackKey(midi)) {
+      return midi;
+    }
+  }
+
+  return null;
+}
+
+function assignEndpointBlack(
+  map: Record<string, number>,
+  code: string,
+  midi: number,
+): void {
+  if (map[code] === midi) {
+    return;
+  }
+
+  delete map[code];
+  for (const [existingCode, existingMidi] of Object.entries(map)) {
+    if (existingMidi === midi) {
+      delete map[existingCode];
+    }
+  }
+
+  map[code] = midi;
+}
+
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   const map: Record<string, number> = {};
+  const scopeEnd = scopeStart + SCOPE_SIZE - 1;
 
   const whitePhysicals = [
     'KeyA',
@@ -50,11 +82,9 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     Semicolon: 'KeyP',
   };
 
-  const isBlack = (m: number) => isBlackKey(m);
-
   let whiteIndex = 0;
-  for (let midi = scopeStart; midi <= scopeStart + SCOPE_SIZE; midi += 1) {
-    if (!isBlack(midi)) {
+  for (let midi = scopeStart; midi < scopeStart + SCOPE_SIZE; midi += 1) {
+    if (!isBlackKey(midi)) {
       if (whiteIndex < whitePhysicals.length) {
         map[whitePhysicals[whiteIndex]] = midi;
       }
@@ -62,8 +92,8 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     }
   }
 
-  for (let midi = scopeStart; midi <= scopeStart + SCOPE_SIZE; midi += 1) {
-    if (isBlack(midi)) {
+  for (let midi = scopeStart; midi < scopeStart + SCOPE_SIZE; midi += 1) {
+    if (isBlackKey(midi)) {
       const rightWhiteMidi = midi + 1;
       const rightWhitePhysical = Object.keys(map).find(
         (key) => map[key] === rightWhiteMidi,
@@ -75,28 +105,42 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
   }
 
   const firstBlackInScope = findFirstBlackInScope(scopeStart);
-  if (firstBlackInScope !== null && map.KeyQ !== firstBlackInScope) {
-    delete map.KeyQ;
-    for (const [code, midi] of Object.entries(map)) {
-      if (midi === firstBlackInScope) {
-        delete map[code];
-      }
-    }
-    map.KeyQ = firstBlackInScope;
+  if (firstBlackInScope !== null) {
+    assignEndpointBlack(map, 'KeyQ', firstBlackInScope);
   }
 
-  const lastMidiInScope = scopeStart + SCOPE_SIZE - 1;
+  const lastBlackInScope = findLastBlackInScope(scopeStart);
+  if (lastBlackInScope !== null) {
+    assignEndpointBlack(map, 'BracketLeft', lastBlackInScope);
+  }
+
+  const lowExtensionMidi = scopeStart - 1;
   if (
-    isBlack(lastMidiInScope) &&
-    !Object.values(map).includes(lastMidiInScope)
+    lowExtensionMidi >= PIANO_START_MIDI &&
+    isBlackKey(lowExtensionMidi) &&
+    !Object.values(map).includes(lowExtensionMidi)
   ) {
-    map.BracketLeft = lastMidiInScope;
+    map.Tab = lowExtensionMidi;
+  }
+
+  const highExtensionMidi = scopeStart + SCOPE_SIZE;
+  if (
+    highExtensionMidi <= PIANO_END_MIDI &&
+    isBlackKey(highExtensionMidi) &&
+    !Object.values(map).includes(highExtensionMidi)
+  ) {
+    map.BracketRight = highExtensionMidi;
   }
 
   const finalMap: Record<string, number> = {};
   for (const key in map) {
-    if (map[key] >= scopeStart && map[key] < scopeStart + SCOPE_SIZE) {
-      finalMap[key] = map[key];
+    const midi = map[key];
+    const inScope = midi >= scopeStart && midi <= scopeEnd;
+    const isExtension =
+      midi === lowExtensionMidi || midi === highExtensionMidi;
+
+    if (inScope || isExtension) {
+      finalMap[key] = midi;
     }
   }
 
@@ -114,9 +158,34 @@ export function formatKeyCode(code: string): string {
     BracketLeft: '[',
     BracketRight: ']',
     Backslash: '\\',
+    Tab: 'tab',
   };
 
   return symbols[code] ?? code;
+}
+
+export function resolveNoteMidiFromKeyboard(
+  event: KeyboardEvent,
+  keyMap: Record<string, number>,
+): number | undefined {
+  const fromCode = keyMap[event.code];
+  if (fromCode !== undefined) {
+    return fromCode;
+  }
+
+  if (event.key === '[' || event.key === '{') {
+    return keyMap.BracketLeft;
+  }
+
+  if (event.key === ']' || event.key === '}') {
+    return keyMap.BracketRight;
+  }
+
+  if (event.key === 'Tab') {
+    return keyMap.Tab;
+  }
+
+  return undefined;
 }
 
 export interface InputManagerOptions {
@@ -130,6 +199,40 @@ export class InputManager {
   private readonly activePhysicalKeys = new Set<string>();
   private cachedScopeStart: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
+
+  constructor(
+    audioEngine: AudioEngine,
+    getScopeStart: () => number = () => 60,
+    options: InputManagerOptions = {},
+  ) {
+    this.audioEngine = audioEngine;
+    this.getScopeStart = getScopeStart;
+    this.onFingerPress = options.onFingerPress;
+    practiceEngine.attachAudioEngine(audioEngine);
+    window.addEventListener('keydown', this.handleKeyDown, { capture: true });
+    window.addEventListener('keyup', this.handleKeyUp, { capture: true });
+
+    useEngineStore.subscribe((state, prevState) => {
+      if (state.scopeStartMidi !== prevState.scopeStartMidi) {
+        this.activePhysicalKeys.clear();
+        this.cachedScopeStart = null;
+        return;
+      }
+
+      if (
+        state.currentStepIndex !== prevState.currentStepIndex &&
+        state.isPracticeActive &&
+        state.engineMode === 'one-hand'
+      ) {
+        for (const code of this.activePhysicalKeys) {
+          const midi = this.cachedKeyMap[code];
+          if (midi !== undefined) {
+            practiceEngine.handleNoteOn(midi);
+          }
+        }
+      }
+    });
+  }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
     return (
@@ -172,7 +275,7 @@ export class InputManager {
       }
     }
 
-    const midiPitch = this.resolveMidiPitch(event.code);
+    const midiPitch = this.resolveMidiPitch(event);
     if (midiPitch === undefined) {
       return;
     }
@@ -206,7 +309,7 @@ export class InputManager {
       }
     }
 
-    const midiPitch = this.resolveMidiPitch(event.code);
+    const midiPitch = this.resolveMidiPitch(event);
     if (midiPitch === undefined) {
       return;
     }
@@ -221,19 +324,6 @@ export class InputManager {
     this.audioEngine.noteOff(midiPitch);
   };
 
-  constructor(
-    audioEngine: AudioEngine,
-    getScopeStart: () => number = () => 60,
-    options: InputManagerOptions = {},
-  ) {
-    this.audioEngine = audioEngine;
-    this.getScopeStart = getScopeStart;
-    this.onFingerPress = options.onFingerPress;
-    practiceEngine.attachAudioEngine(audioEngine);
-    window.addEventListener('keydown', this.handleKeyDown, { capture: true });
-    window.addEventListener('keyup', this.handleKeyUp, { capture: true });
-  }
-
   destroy(): void {
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
     window.removeEventListener('keyup', this.handleKeyUp, { capture: true });
@@ -241,15 +331,16 @@ export class InputManager {
   }
 
   private isOneHandNoteKeyCode(keyCode: string): boolean {
-    return this.resolveMidiPitch(keyCode) !== undefined;
+    return this.cachedKeyMap[keyCode] !== undefined;
   }
 
-  private resolveMidiPitch(keyCode: string): number | undefined {
+  private resolveMidiPitch(event: KeyboardEvent): number | undefined {
     const scopeStart = this.getScopeStart();
     if (this.cachedScopeStart !== scopeStart) {
       this.cachedScopeStart = scopeStart;
       this.cachedKeyMap = getDynamicKeyMap(scopeStart);
     }
-    return this.cachedKeyMap[keyCode];
+
+    return resolveNoteMidiFromKeyboard(event, this.cachedKeyMap);
   }
 }

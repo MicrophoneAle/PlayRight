@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/react';
 import {
   formatKeyCode,
   getDynamicKeyMap,
+  resolveNoteMidiFromKeyboard,
   SCOPE_SIZE,
 } from '../core/InputManager.ts';
 import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
@@ -306,33 +307,44 @@ export function PianoKeyboard() {
         return;
       }
 
-      const midi = keyMap[event.code];
+      const midi = resolveNoteMidiFromKeyboard(event, keyMap);
       if (midi === undefined) {
         return;
       }
 
+      const physicalCode =
+        Object.entries(keyMap).find(([, mappedMidi]) => mappedMidi === midi)?.[0] ??
+        event.code;
+
       flushSync(() => {
         setActivePhysicalKeys((previous) => {
-          if (previous.has(event.code)) {
+          if (previous.has(physicalCode)) {
             return previous;
           }
 
           const next = new Set(previous);
-          next.add(event.code);
+          next.add(physicalCode);
           return next;
         });
       });
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      const midi = resolveNoteMidiFromKeyboard(event, keyMap);
+      const physicalCode =
+        midi === undefined
+          ? event.code
+          : (Object.entries(keyMap).find(([, mappedMidi]) => mappedMidi === midi)?.[0] ??
+            event.code);
+
       flushSync(() => {
         setActivePhysicalKeys((previous) => {
-          if (!previous.has(event.code)) {
+          if (!previous.has(physicalCode)) {
             return previous;
           }
 
           const next = new Set(previous);
-          next.delete(event.code);
+          next.delete(physicalCode);
           return next;
         });
       });
@@ -475,7 +487,7 @@ export function PianoKeyboard() {
               className={`${getWhiteKeyClasses(inScope, isExpected, isActive, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
             >
               {isTwoHand ? renderFingerLabel(key.midi, false) : null}
-              {mappedLetter && (isTwoHand || inScope) ? (
+              {mappedLetter ? (
                 <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
                   {mappedLetter}
                 </span>
@@ -522,7 +534,7 @@ export function PianoKeyboard() {
               }}
             >
               {isTwoHand ? renderFingerLabel(key.midi, true) : null}
-              {mappedLetter && (isTwoHand || inScope) ? (
+              {mappedLetter ? (
                 <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-200">
                   {mappedLetter}
                 </span>
