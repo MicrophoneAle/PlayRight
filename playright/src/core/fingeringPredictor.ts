@@ -138,6 +138,15 @@ export const WEAK_FINGER_PENALTY = 0.5;
 export const THUMB_ON_BLACK_PENALTY = 1.5;
 export const PHRASE_START_BIAS = 1.5;
 
+/** Resting midi per finger with thumb on middle C (C4). */
+export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
+  R: { 1: 60, 2: 62, 3: 64, 4: 65, 5: 67 },
+  L: { 1: 60, 2: 59, 3: 57, 4: 55, 5: 53 },
+};
+
+/** Cost per semitone between a finger's home key and the phrase-opening note. */
+export const HOME_START_WEIGHT = 0.4;
+
 const FINGERS: Finger[] = [1, 2, 3, 4, 5];
 
 const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
@@ -299,6 +308,7 @@ export function fingerPhrase(
   notes: NoteEvent[],
   hand: Hand,
   spanScale = 1,
+  startHome?: Record<Finger, number>,
 ): Finger[] {
   if (notes.length === 0) {
     return [];
@@ -317,7 +327,13 @@ export function fingerPhrase(
       const local = localCost(finger, note.midi);
 
       if (index === 0) {
-        row[finger] = local + phraseStartCost(hand, finger, note, notes);
+        let cost = local + phraseStartCost(hand, finger, note, notes);
+        if (startHome !== undefined) {
+          cost +=
+            HOME_START_WEIGHT *
+            Math.abs(startHome[finger] - notes[0].midi);
+        }
+        row[finger] = cost;
         backRow[finger] = null;
         continue;
       }
@@ -617,6 +633,7 @@ export function fingerPhraseWithChords(
   phrase: NoteEvent[],
   hand: Hand,
   spanScale = 1,
+  startHome?: Record<Finger, number>,
 ): (Finger | null)[] {
   if (phrase.length === 0) {
     return [];
@@ -651,7 +668,7 @@ export function fingerPhraseWithChords(
   }
 
   const solvedByStep = new Map<number, Finger>();
-  const solved = fingerPhrase(representatives, hand, spanScale);
+  const solved = fingerPhrase(representatives, hand, spanScale, startHome);
 
   representatives.forEach((representative, index) => {
     solvedByStep.set(representative.stepIndex, solved[index]);
@@ -686,8 +703,17 @@ function predictFingersForHand(
   const phrases = segmentIntoPhrases(timeline);
   const fingers: (Finger | null)[] = [];
 
-  for (const phrase of phrases) {
-    fingers.push(...fingerPhraseWithChords(phrase, hand, spanScale));
+  for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
+    const startHome =
+      phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
+    fingers.push(
+      ...fingerPhraseWithChords(
+        phrases[phraseIndex],
+        hand,
+        spanScale,
+        startHome,
+      ),
+    );
   }
 
   return fingers;
