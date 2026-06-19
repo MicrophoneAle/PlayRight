@@ -11,6 +11,7 @@ import {
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
+import type { Hand } from '../types/index.ts';
 
 const transport = Tone.getTransport();
 const draw = Tone.getDraw();
@@ -104,7 +105,7 @@ export class PlaybackEngine {
 
     transport.pause();
     this.isPaused = true;
-    this.clearPlayingMidis();
+    this.clearPlayingNotes();
     useEngineStore.getState().actions.setPlaybackPaused(true);
   }
 
@@ -159,6 +160,7 @@ export class PlaybackEngine {
     actions.setStepIndex(0);
     actions.setExpectedNotes([]);
     actions.setPlayingMidiNotes([]);
+    actions.setPlayingPlaybackNotes([]);
     transport.position = 0;
     this.audioEngine?.releaseAll();
   }
@@ -214,25 +216,33 @@ export class PlaybackEngine {
     transport.bpm.value = baseTempoBpm * tempoFactor;
   }
 
-  private syncPlayingMidis(): void {
-    useEngineStore
-      .getState()
-      .actions.setPlayingMidiNotes(this.playingPressTracker.activeMidis());
+  private syncPlayingNotes(): void {
+    const activeNotes = this.playingPressTracker.activeNotes();
+    const { actions } = useEngineStore.getState();
+    actions.setPlayingMidiNotes(this.playingPressTracker.activeMidis());
+    actions.setPlayingPlaybackNotes(activeNotes);
   }
 
-  private pressPlayingMidi(midi: number, pressId: number): void {
-    this.playingPressTracker.press(midi, pressId);
-    this.syncPlayingMidis();
+  private pressPlayingNote(
+    stepIndex: number,
+    midi: number,
+    hand: Hand,
+    pressId: number,
+  ): void {
+    this.playingPressTracker.press({ pressId, stepIndex, midi, hand });
+    this.syncPlayingNotes();
   }
 
-  private releasePlayingMidi(pressId: number): void {
+  private releasePlayingNote(pressId: number): void {
     this.playingPressTracker.release(pressId);
-    this.syncPlayingMidis();
+    this.syncPlayingNotes();
   }
 
-  private clearPlayingMidis(): void {
+  private clearPlayingNotes(): void {
     this.playingPressTracker.clear();
-    useEngineStore.getState().actions.setPlayingMidiNotes([]);
+    const { actions } = useEngineStore.getState();
+    actions.setPlayingMidiNotes([]);
+    actions.setPlayingPlaybackNotes([]);
   }
 
   private scheduleFromStep(fromStepIndex: number): void {
@@ -273,12 +283,12 @@ export class PlaybackEngine {
           const pressId = this.playingPressTracker.allocatePressId();
 
           draw.schedule(() => {
-            this.pressPlayingMidi(note.midi, pressId);
+            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
           }, time);
 
           const releaseEventId = transport.scheduleOnce((releaseTime) => {
             draw.schedule(() => {
-              this.releasePlayingMidi(pressId);
+              this.releasePlayingNote(pressId);
             }, releaseTime);
           }, quartersToTransportPosition(releaseQuarters));
           this.scheduledEventIds.push(releaseEventId);
@@ -307,7 +317,7 @@ export class PlaybackEngine {
     transport.pause();
     this.isPaused = true;
     this.hasFinishedPiece = true;
-    this.clearPlayingMidis();
+    this.clearPlayingNotes();
     const { actions } = useEngineStore.getState();
     actions.setPlaybackFinished(true);
     actions.setPlaybackPaused(true);
@@ -337,7 +347,7 @@ export class PlaybackEngine {
     }
 
     this.scheduledEventIds = [];
-    this.clearPlayingMidis();
+    this.clearPlayingNotes();
     transport.cancel(0);
   }
 }

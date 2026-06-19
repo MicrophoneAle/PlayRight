@@ -10,6 +10,7 @@ import type {
   Hand,
   ManualFingeringMap,
   PlaybackScript,
+  PlayingPlaybackNote,
   ScoreTiming,
 } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
@@ -177,6 +178,8 @@ interface EngineState {
   totalSteps: number;
   expectedMidiNotes: number[];
   playingMidiNotes: number[];
+  /** Notes currently sounding during play mode (includes step index for sheet sync). */
+  playingPlaybackNotes: PlayingPlaybackNote[];
   actions: {
     loadScript: (
       script: PlaybackScript,
@@ -219,6 +222,7 @@ interface EngineState {
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
     setPlayingMidiNotes: (notes: number[]) => void;
+    setPlayingPlaybackNotes: (notes: PlayingPlaybackNote[]) => void;
   };
 }
 
@@ -249,6 +253,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   totalSteps: 0,
   expectedMidiNotes: [],
   playingMidiNotes: [],
+  playingPlaybackNotes: [],
   actions: {
     loadScript: (script, rawXml, title, library, scoreTiming) => {
       set({
@@ -267,6 +272,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         isPlaybackPaused: false,
         expectedMidiNotes: [],
         playingMidiNotes: [],
+        playingPlaybackNotes: [],
       });
     },
     clearScript: () => {
@@ -283,6 +289,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         isPlaybackPaused: false,
         expectedMidiNotes: [],
         playingMidiNotes: [],
+        playingPlaybackNotes: [],
       });
     },
     setManualFinger: (stepIndex, hand, midi, finger, userId) => {
@@ -462,6 +469,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setPlayingMidiNotes: (notes) => {
       set({ playingMidiNotes: notes });
+    },
+    setPlayingPlaybackNotes: (notes) => {
+      set({ playingPlaybackNotes: notes });
     },
   },
 }));

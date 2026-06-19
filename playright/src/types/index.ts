@@ -35,6 +35,14 @@ export type PlaybackScript = StepOrder[];
 
 export type EngineMode = 'one-hand' | 'two-hand';
 
+/** A note currently sounding during play mode playback. */
+export interface PlayingPlaybackNote {
+  pressId: number;
+  stepIndex: number;
+  midi: number;
+  hand: Hand;
+}
+
 /** Stable key for a note in manual fingering overrides: stepIndex:hand:midi */
 export type ManualFingeringKey = `${number}:${Hand}:${number}`;
 

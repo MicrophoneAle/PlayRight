@@ -8,6 +8,7 @@ import {
   type PracticeScrollState,
   type PracticeVisualIndex,
   resolveStepIndexFromPointer,
+  syncSheetMusicPlaybackVisuals,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
 import type { GraphicalNote } from "opensheetmusicdisplay";
@@ -231,6 +232,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const activeHand = useEngineStore((state) => state.activeHand);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
+  const playingPlaybackNotes = useEngineStore((state) => state.playingPlaybackNotes);
+  const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
+  const isPlaybackPaused = useEngineStore((state) => state.isPlaybackPaused);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
 
   const syncPracticeVisuals = () => {
@@ -245,6 +249,23 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       state.playMode,
       state.engineMode,
     );
+
+    if (state.playMode && state.isPlaybackActive && !state.isPlaybackPaused) {
+      highlightedNotesRef.current = syncSheetMusicPlaybackVisuals(osmd, {
+        visualIndex: visualIndexRef.current,
+        scrollStepIndex: state.currentStepIndex,
+        activeNotes: state.playingPlaybackNotes,
+        container,
+        highlightedNotes: highlightedNotesRef.current,
+        cursorOffsetRef,
+        scrollStateRef,
+        scrollMode: state.sheetScrollMode,
+        activeHand: state.activeHand,
+        engineMode: displayEngineMode,
+      });
+      return;
+    }
+
     const practiceNotes =
       state.script && state.script[state.currentStepIndex]
         ? getDisplayNotesForStep(
@@ -448,7 +469,15 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     syncPracticeVisuals();
-  }, [currentStepIndex, expectedMidiNotes, sheetScrollMode]);
+  }, [
+    currentStepIndex,
+    expectedMidiNotes,
+    playingPlaybackNotes,
+    playMode,
+    isPlaybackActive,
+    isPlaybackPaused,
+    sheetScrollMode,
+  ]);
 
   if (!musicXml) {
     return null;

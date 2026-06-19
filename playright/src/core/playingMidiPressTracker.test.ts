@@ -6,15 +6,18 @@ describe('PlayingMidiPressTracker', () => {
     const tracker = new PlayingMidiPressTracker();
 
     const firstPress = tracker.allocatePressId();
-    tracker.press(60, firstPress);
+    tracker.press({ pressId: firstPress, stepIndex: 0, midi: 60, hand: 'R' });
     expect(tracker.activeMidis()).toEqual([60]);
 
     const secondPress = tracker.allocatePressId();
-    tracker.press(60, secondPress);
+    tracker.press({ pressId: secondPress, stepIndex: 1, midi: 60, hand: 'R' });
     expect(tracker.activeMidis()).toEqual([60, 60]);
 
     tracker.release(firstPress);
     expect(tracker.activeMidis()).toEqual([60]);
+    expect(tracker.activeNotes()).toEqual([
+      { pressId: secondPress, stepIndex: 1, midi: 60, hand: 'R' },
+    ]);
 
     tracker.release(secondPress);
     expect(tracker.activeMidis()).toEqual([]);
@@ -24,12 +27,13 @@ describe('PlayingMidiPressTracker', () => {
     const tracker = new PlayingMidiPressTracker();
 
     const firstPress = tracker.allocatePressId();
-    tracker.press(60, firstPress);
+    tracker.press({ pressId: firstPress, stepIndex: 0, midi: 60, hand: 'R' });
     tracker.release(firstPress);
-    expect(tracker.activeMidis()).toEqual([]);
 
     const secondPress = tracker.allocatePressId();
-    tracker.press(60, secondPress);
-    expect(tracker.activeMidis()).toEqual([60]);
+    tracker.press({ pressId: secondPress, stepIndex: 2, midi: 60, hand: 'R' });
+    expect(tracker.activeNotes()).toEqual([
+      { pressId: secondPress, stepIndex: 2, midi: 60, hand: 'R' },
+    ]);
   });
 });

@@ -4,7 +4,7 @@ import type {
   OpenSheetMusicDisplay,
 } from 'opensheetmusicdisplay';
 import { getPracticeNotes } from './practiceSteps.ts';
-import type { EngineMode, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type { EngineMode, Hand, PlaybackScript, PlayingPlaybackNote, ScriptNote } from '../types/index.ts';
 import type { SheetScrollMode } from '../store/useEngineStore.ts';
 
 const HIGHLIGHT_COLOR = '#10b981';
@@ -971,6 +971,93 @@ function scrollContainerForPractice(
   }
 
   animateScrollTop(container, target, scrollMode);
+}
+
+/** Highlight all notes currently sounding during play mode (matches keyboard duration). */
+export function syncSheetMusicPlaybackVisuals(
+  osmd: OpenSheetMusicDisplay,
+  options: {
+    visualIndex: PracticeVisualIndex | null;
+    scrollStepIndex: number;
+    activeNotes: PlayingPlaybackNote[];
+    container: HTMLElement;
+    highlightedNotes: GraphicalNote[];
+    cursorOffsetRef: { current: number };
+    scrollStateRef: { current: PracticeScrollState };
+    scrollMode: SheetScrollMode;
+    activeHand: Hand;
+    engineMode: EngineMode;
+  },
+): GraphicalNote[] {
+  const {
+    visualIndex,
+    scrollStepIndex,
+    activeNotes,
+    container,
+    highlightedNotes,
+    cursorOffsetRef,
+    scrollStateRef,
+    scrollMode,
+    activeHand,
+    engineMode,
+  } = options;
+
+  resetGraphicalNotes(highlightedNotes);
+
+  const cursor = osmd.cursor;
+  if (!cursor || !visualIndex) {
+    cursorOffsetRef.current = -1;
+    cursor?.hide();
+    return [];
+  }
+
+  const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
+  moveCursorToOffset(osmd, offset, cursorOffsetRef);
+  cursor.hide();
+
+  if (activeNotes.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<GraphicalNote>();
+  const toHighlight: GraphicalNote[] = [];
+
+  for (const press of activeNotes) {
+    const gNotes = visualIndex.stepGraphicalNotes[press.stepIndex] ?? [];
+    for (const gNote of gNotes) {
+      const source = gNote.sourceNote;
+      if (source.isRest()) {
+        continue;
+      }
+
+      const midi = osmdNoteMidi(source);
+      const hand = osmdNoteHand(source);
+      if (midi === press.midi && hand === press.hand && !seen.has(gNote)) {
+        seen.add(gNote);
+        toHighlight.push(gNote);
+      }
+    }
+  }
+
+  if (toHighlight.length === 0) {
+    return [];
+  }
+
+  highlightGraphicalNotes(toHighlight);
+
+  const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
+  const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
+  scrollContainerForPractice(
+    container,
+    scrollNotes,
+    scrollStateRef,
+    scrollMode,
+    visualIndex,
+    activeHand,
+    engineMode,
+  );
+
+  return toHighlight;
 }
 
 export function syncSheetMusicPracticeVisuals(
