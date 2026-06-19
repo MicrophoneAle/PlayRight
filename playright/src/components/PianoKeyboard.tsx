@@ -172,6 +172,7 @@ export function PianoKeyboard() {
   const scopeStartMidi = useEngineStore((state) => state.scopeStartMidi);
   const scopeTranspose = useEngineStore((state) => state.scopeTranspose);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
+  const playingMidiNotes = useEngineStore((state) => state.playingMidiNotes);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const playMode = useEngineStore((state) => state.playMode);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
@@ -200,6 +201,11 @@ export function PianoKeyboard() {
   const expectedMidiSet = useMemo(
     () => new Set(expectedMidiNotes),
     [expectedMidiNotes],
+  );
+
+  const playingMidiSet = useMemo(
+    () => new Set(playingMidiNotes),
+    [playingMidiNotes],
   );
 
   const showStepKeyHighlight =
@@ -443,14 +449,19 @@ export function PianoKeyboard() {
       >
         {whiteKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isActive = isTwoHand
+          const isPhysicallyActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+          const isPressed =
+            playMode && isPlaybackActive
+              ? playingMidiSet.has(key.midi)
+              : isPhysicallyActive;
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
             : showStepKeyHighlight &&
               expectedMidiSet.has(key.midi) &&
               (playMode || isKeyInDisplayRange(key.midi));
+          const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, false);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
@@ -471,7 +482,7 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getWhiteKeyClasses(inScope, isExpected, isActive, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
             >
               {isTwoHand ? renderFingerLabel(key.midi, false) : null}
               {mappedLetter ? (
@@ -484,14 +495,19 @@ export function PianoKeyboard() {
         })}
         {blackKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isActive = isTwoHand
+          const isPhysicallyActive = isTwoHand
             ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+          const isPressed =
+            playMode && isPlaybackActive
+              ? playingMidiSet.has(key.midi)
+              : isPhysicallyActive;
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
             : showStepKeyHighlight &&
               expectedMidiSet.has(key.midi) &&
               (playMode || isKeyInDisplayRange(key.midi));
+          const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
@@ -512,7 +528,7 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getBlackKeyClasses(inScope, isExpected, isActive, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getBlackKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
               style={{
                 left: `calc(${(key.offsetIndex / 52) * 100}%)`,
                 transform: 'translateX(-50%)',

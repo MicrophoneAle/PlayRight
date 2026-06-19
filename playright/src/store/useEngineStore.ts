@@ -178,6 +178,7 @@ interface EngineState {
   currentStepIndex: number;
   totalSteps: number;
   expectedMidiNotes: number[];
+  playingMidiNotes: number[];
   actions: {
     loadScript: (
       script: PlaybackScript,
@@ -218,6 +219,7 @@ interface EngineState {
     toggleHeaderCollapsed: () => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
+    setPlayingMidiNotes: (notes: number[]) => void;
   };
 }
 
@@ -246,6 +248,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   currentStepIndex: 0,
   totalSteps: 0,
   expectedMidiNotes: [],
+  playingMidiNotes: [],
   actions: {
     loadScript: (script, rawXml, title, library, scoreTiming) => {
       set({
@@ -262,6 +265,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         isPlaybackActive: false,
         isPlaybackPaused: false,
         expectedMidiNotes: [],
+        playingMidiNotes: [],
       });
     },
     clearScript: () => {
@@ -276,6 +280,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         isPlaybackActive: false,
         isPlaybackPaused: false,
         expectedMidiNotes: [],
+        playingMidiNotes: [],
       });
     },
     setManualFinger: (stepIndex, hand, midi, finger, userId) => {
@@ -449,6 +454,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setExpectedNotes: (notes) => {
       set({ expectedMidiNotes: notes });
+    },
+    setPlayingMidiNotes: (notes) => {
+      set({ playingMidiNotes: notes });
     },
   },
 }));

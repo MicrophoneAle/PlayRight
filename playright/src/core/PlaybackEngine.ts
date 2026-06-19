@@ -3,7 +3,7 @@ import type { AudioEngine } from './AudioEngine.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
 import {
   noteDurationQuarterNotes,
-  quarterNotesToSeconds,
+  quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -20,6 +20,7 @@ function quartersToTransportPosition(quarterNotes: number): string {
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
+  private playingMidis = new Set<number>();
   private isPlaying = false;
   private isPaused = false;
   private storeSubscriptionInitialized = false;
@@ -122,6 +123,7 @@ export class PlaybackEngine {
 
     actions.setStepIndex(0);
     actions.setExpectedNotes([]);
+    actions.setPlayingMidiNotes([]);
     transport.position = 0;
     this.audioEngine?.releaseAll();
   }
@@ -176,9 +178,25 @@ export class PlaybackEngine {
     transport.bpm.value = baseTempoBpm * tempoFactor;
   }
 
-  private getEffectiveBpm(): number {
-    const { scoreTiming, tempoFactor } = useEngineStore.getState();
-    return (scoreTiming?.tempoBpm ?? 100) * tempoFactor;
+  private syncPlayingMidis(): void {
+    useEngineStore
+      .getState()
+      .actions.setPlayingMidiNotes([...this.playingMidis].sort((a, b) => a - b));
+  }
+
+  private pressPlayingMidi(midi: number): void {
+    this.playingMidis.add(midi);
+    this.syncPlayingMidis();
+  }
+
+  private releasePlayingMidi(midi: number): void {
+    this.playingMidis.delete(midi);
+    this.syncPlayingMidis();
+  }
+
+  private clearPlayingMidis(): void {
+    this.playingMidis.clear();
+    useEngineStore.getState().actions.setPlayingMidiNotes([]);
   }
 
   private scheduleFromStep(fromStepIndex: number): void {
@@ -206,11 +224,17 @@ export class PlaybackEngine {
             durationDivisions,
             divisionsPerQuarter,
           );
-          const durationSeconds = quarterNotesToSeconds(
-            durationQuarters,
-            this.getEffectiveBpm(),
-          );
-          engine.scheduleAttackRelease(note.midi, durationSeconds, time);
+          const toneDuration = quarterNotesToToneDuration(durationQuarters);
+          const releaseTime = time + Tone.Time(toneDuration).toSeconds();
+
+          draw.schedule(() => {
+            this.pressPlayingMidi(note.midi);
+          }, time);
+          draw.schedule(() => {
+            this.releasePlayingMidi(note.midi);
+          }, releaseTime);
+
+          engine.scheduleAttackRelease(note.midi, toneDuration, time);
         }
       }, transportTime);
 
@@ -242,6 +266,7 @@ export class PlaybackEngine {
     }
 
     this.scheduledEventIds = [];
+    this.clearPlayingMidis();
     transport.cancel(0);
   }
 }

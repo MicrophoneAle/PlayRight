@@ -18,3 +18,12 @@ export function noteDurationQuarterNotes(
 export function quarterNotesToSeconds(quarterNotes: number, bpm: number): number {
   return quarterNotes * (60 / bpm);
 }
+
+/** Tone.js duration string for a span of quarter-note beats (scales with Transport BPM). */
+export function quarterNotesToToneDuration(quarterNotes: number): string {
+  if (quarterNotes <= 0) {
+    return '4n';
+  }
+
+  return `${4 / quarterNotes}n`;
+}

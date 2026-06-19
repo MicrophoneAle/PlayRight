@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   noteDurationQuarterNotes,
   quarterNotesToSeconds,
+  quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 
@@ -17,8 +18,15 @@ describe('playbackTiming', () => {
     expect(noteDurationQuarterNotes(240, 480)).toBe(0.5);
   });
 
-  it('converts quarter notes to seconds at a given BPM', () => {
+  it('converts quarter notes to wall-clock seconds at a given BPM', () => {
     expect(quarterNotesToSeconds(1, 120)).toBe(0.5);
-    expect(quarterNotesToSeconds(2, 100)).toBe(1.2);
+    expect(quarterNotesToSeconds(2, 60)).toBe(2);
+  });
+
+  it('converts quarter notes to Tone duration strings', () => {
+    expect(quarterNotesToToneDuration(1)).toBe('4n');
+    expect(quarterNotesToToneDuration(2)).toBe('2n');
+    expect(quarterNotesToToneDuration(0.5)).toBe('8n');
+    expect(quarterNotesToToneDuration(4)).toBe('1n');
   });
 });
