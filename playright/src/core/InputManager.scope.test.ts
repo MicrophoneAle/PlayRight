@@ -5,7 +5,6 @@ import {
   getDynamicKeyMap,
   getEffectiveKeyMap,
   getScopeKeyMap,
-  isBlackRowCode,
   isMidiInDisplayScope,
   isWhiteRowCode,
   SCOPE_SIZE,
