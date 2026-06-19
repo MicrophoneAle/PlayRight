@@ -3,8 +3,11 @@ import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/react'
 import './index.css'
 import App from './App.tsx'
+import { practiceEngine } from './core/PracticeEngine.ts'
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? ''
+
+practiceEngine.ensureStoreSubscription()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

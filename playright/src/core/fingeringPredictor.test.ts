@@ -279,4 +279,19 @@ describe('predictFingering', () => {
     expect(rightLater?.finger).not.toBeNull();
     expect(rightLater?.fingerSource).toBe('predicted');
   });
+
+  it('prefers the home-aligned opening finger through predictFingering', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(64, 'R', null), scriptNote(62, 'R', null)]),
+      step(1, 960, [scriptNote(48, 'R', null), scriptNote(47, 'R', null)]),
+    ];
+
+    const predicted = predictFingering(script);
+    const firstPhraseFinger = predicted[0].notes.find(
+      (note) => note.midi === 64,
+    )?.finger;
+
+    expect(firstPhraseFinger).toBe(3);
+    expect(firstPhraseFinger).not.toBe(1);
+  });
 });

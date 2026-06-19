@@ -32,4 +32,12 @@ describe('shiftScopeStart', () => {
       PIANO_START_MIDI,
     );
   });
+
+  it('does not shift by the 17-semitone core size in full-range mode', () => {
+    const scopeSize = 17;
+    const afterStart = shiftScopeStart(60, 'up', 'full-range');
+
+    expect(afterStart - 60).not.toBe(scopeSize);
+    expect(afterStart - 60).toBe(FULL_SCOPE_SIZE);
+  });
 });

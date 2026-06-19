@@ -15,8 +15,16 @@ export class PracticeEngine {
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
   private completionFrame: number | null = null;
+  private storeSubscriptionInitialized = false;
 
-  constructor() {
+  /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
+  ensureStoreSubscription(): void {
+    if (this.storeSubscriptionInitialized) {
+      return;
+    }
+
+    this.storeSubscriptionInitialized = true;
+
     useEngineStore.subscribe((state, prevState) => {
       if (state.script !== prevState.script) {
         this.syncAfterScriptChange();

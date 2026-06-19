@@ -30,4 +30,12 @@ describe('alignScopeToMidis', () => {
     expect(values.length).toBeGreaterThan(0);
     expect(Math.min(...values)).toBeLessThanOrEqual(58);
   });
+
+  it('moves the scope when practice notes sit above the current Semicolon anchor', () => {
+    alignScopeToMidis([88]);
+
+    const map = getDynamicKeyMap(useEngineStore.getState().scopeStartMidi);
+    expect(map.KeyA).toBeLessThanOrEqual(88);
+    expect(map.Semicolon).toBeGreaterThanOrEqual(88);
+  });
 });

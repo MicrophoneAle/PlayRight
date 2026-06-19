@@ -46,6 +46,7 @@ describe('PracticeEngine two-hand finger press', () => {
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
     engine = new PracticeEngine();
+    engine.ensureStoreSubscription();
     audio = createMockAudio();
     engine.attachAudioEngine(audio);
   });

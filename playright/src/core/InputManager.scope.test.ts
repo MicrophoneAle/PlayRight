@@ -207,16 +207,27 @@ describe('getDynamicKeyMap fixed keyboard rows', () => {
     }
   });
 
-  it('keeps row codes on the correct keyboard row', () => {
-    for (const code of CORE_WHITE_CODES) {
-      expect(isWhiteRowCode(code)).toBe(true);
-      expect(isBlackRowCode(code)).toBe(false);
+  it('filters scope key map labels to the 22-note Shift through ] display window', () => {
+    const map = getDynamicKeyMap(60);
+    const scoped = getScopeKeyMap(60);
+    const bounds = getDisplayScopeMidiBounds(60);
+
+    for (const midi of Object.values(scoped)) {
+      expect(midi).toBeGreaterThanOrEqual(bounds.min);
+      expect(midi).toBeLessThanOrEqual(bounds.max);
     }
 
-    for (const code of CORE_BLACK_CODES) {
-      expect(isBlackRowCode(code)).toBe(true);
-      expect(isWhiteRowCode(code)).toBe(false);
-    }
+    expect(scoped.ShiftLeft).toBe(map.ShiftLeft);
+    expect(scoped.BracketRight).toBe(map.BracketRight);
+    expect(Object.keys(scoped).length).toBeGreaterThan(0);
+  });
+
+  it('omits Q but keeps Tab when Caps Lock is directly left of A at scope 60', () => {
+    const scoped = getScopeKeyMap(60);
+
+    expect(scoped.Tab).toBe(58);
+    expect(scoped.CapsLock).toBe(59);
+    expect(scoped.KeyQ).toBeUndefined();
   });
 });
 
