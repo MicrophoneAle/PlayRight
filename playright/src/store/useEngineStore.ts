@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
+import { applyFingeringSettings, prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
@@ -271,11 +271,35 @@ export const useEngineStore = create<EngineState>((set) => ({
         AUTO_FINGERING_STORAGE_KEY,
         enabled ? 'true' : 'false',
       );
-      set({ autoFingering: enabled });
+      set((state) => {
+        const autoFingering = enabled;
+        const script = state.script
+          ? applyFingeringSettings(
+              state.script,
+              autoFingering,
+              state.handSpan,
+            )
+          : null;
+
+        return script
+          ? { autoFingering, script }
+          : { autoFingering };
+      });
     },
     setHandSpan: (span) => {
       window.localStorage.setItem(HAND_SPAN_STORAGE_KEY, String(span));
-      set({ handSpan: span });
+      set((state) => {
+        const handSpan = span;
+        const script = state.script
+          ? applyFingeringSettings(
+              state.script,
+              state.autoFingering,
+              handSpan,
+            )
+          : null;
+
+        return script ? { handSpan, script } : { handSpan };
+      });
     },
     cycleShiftMode: (direction) => {
       set((state) => ({

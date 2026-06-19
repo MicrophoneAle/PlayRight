@@ -816,6 +816,34 @@ export function extractManualFingerings(
   return overrides;
 }
 
+export function stripPredictedFingers(script: PlaybackScript): PlaybackScript {
+  return script.map((step) => ({
+    ...step,
+    notes: step.notes.map((note) => {
+      if (note.fingerSource !== 'predicted') {
+        return note;
+      }
+
+      return {
+        pitch: note.pitch,
+        midi: note.midi,
+        hand: note.hand,
+        finger: null,
+      };
+    }),
+  }));
+}
+
+export function applyFingeringSettings(
+  script: PlaybackScript,
+  autoFingering: boolean,
+  spanScale: number,
+): PlaybackScript {
+  return autoFingering
+    ? predictFingering(script, { spanScale })
+    : stripPredictedFingers(script);
+}
+
 export function prepareScriptWithFingering(
   script: PlaybackScript,
   manualFingerings: ManualFingeringMap,
@@ -824,7 +852,5 @@ export function prepareScriptWithFingering(
 ): PlaybackScript {
   const withManual = applyManualFingerings(script, manualFingerings);
 
-  return autoFingering
-    ? predictFingering(withManual, { spanScale })
-    : withManual;
+  return applyFingeringSettings(withManual, autoFingering, spanScale);
 }
