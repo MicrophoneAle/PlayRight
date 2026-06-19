@@ -35,11 +35,11 @@ describe('getDynamicKeyMap scope endpoints', () => {
     expect(map.Tab).toBe(39);
   });
 
-  it("adds ' for the low white extension when in range", () => {
+  it("adds ' for the high white extension when in range", () => {
     const scopeStart = 40;
     const map = getDynamicKeyMap(scopeStart);
 
-    expect(map.Quote).toBe(38);
+    expect(map.Quote).toBe(59);
   });
 
   it('adds ] for the high black extension when in range', () => {

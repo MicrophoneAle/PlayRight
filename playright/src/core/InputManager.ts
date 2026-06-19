@@ -33,8 +33,8 @@ function findLastBlackInScope(scopeStart: number): number | null {
   return null;
 }
 
-function findLowWhiteExtension(scopeStart: number): number | null {
-  for (let midi = scopeStart - 1; midi >= PIANO_START_MIDI; midi -= 1) {
+function findHighWhiteExtension(scopeStart: number): number | null {
+  for (let midi = scopeStart + SCOPE_SIZE; midi <= PIANO_END_MIDI; midi += 1) {
     if (!isBlackKey(midi)) {
       return midi;
     }
@@ -133,12 +133,12 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     map.Tab = lowExtensionMidi;
   }
 
-  const lowWhiteExtensionMidi = findLowWhiteExtension(scopeStart);
+  const highWhiteExtensionMidi = findHighWhiteExtension(scopeStart);
   if (
-    lowWhiteExtensionMidi !== null &&
-    !Object.values(map).includes(lowWhiteExtensionMidi)
+    highWhiteExtensionMidi !== null &&
+    !Object.values(map).includes(highWhiteExtensionMidi)
   ) {
-    map.Quote = lowWhiteExtensionMidi;
+    map.Quote = highWhiteExtensionMidi;
   }
 
   const highExtensionMidi = scopeStart + SCOPE_SIZE;
@@ -157,7 +157,7 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     const isExtension =
       midi === lowExtensionMidi ||
       midi === highExtensionMidi ||
-      midi === lowWhiteExtensionMidi;
+      midi === highWhiteExtensionMidi;
 
     if (inScope || isExtension) {
       finalMap[key] = midi;
