@@ -6,14 +6,11 @@ import {
   type FingerMapping,
 } from './twoHandMapping.ts';
 
-export const SCOPE_SIZE = 18;
+export const SCOPE_SIZE = 17;
 export const PIANO_START_MIDI = 21;
 export const PIANO_END_MIDI = 108;
 
-const isBlackKey = (midi: number): boolean =>
-  [1, 3, 6, 8, 10].includes(midi % 12);
-
-const CORE_WHITE_PHYSICALS = [
+export const CORE_WHITE_PHYSICALS = [
   'KeyA',
   'KeyS',
   'KeyD',
@@ -26,7 +23,7 @@ const CORE_WHITE_PHYSICALS = [
   'Semicolon',
 ] as const;
 
-const CORE_BLACK_PHYSICALS = [
+export const CORE_BLACK_PHYSICALS = [
   'KeyQ',
   'KeyW',
   'KeyE',
@@ -39,6 +36,29 @@ const CORE_BLACK_PHYSICALS = [
   'KeyP',
   'BracketLeft',
 ] as const;
+
+const isBlackKey = (midi: number): boolean =>
+  [1, 3, 6, 8, 10].includes(midi % 12);
+
+export function isBlackKeyMidi(midi: number): boolean {
+  return isBlackKey(midi);
+}
+
+export function isWhiteRowCode(code: string): boolean {
+  return (
+    (CORE_WHITE_PHYSICALS as readonly string[]).includes(code) ||
+    code === 'CapsLock' ||
+    code === 'Quote'
+  );
+}
+
+export function isBlackRowCode(code: string): boolean {
+  return (
+    (CORE_BLACK_PHYSICALS as readonly string[]).includes(code) ||
+    code === 'Tab' ||
+    code === 'BracketRight'
+  );
+}
 
 function findNextWhiteAbove(midi: number): number | null {
   for (let next = midi + 1; next <= PIANO_END_MIDI; next += 1) {
@@ -60,27 +80,48 @@ function findNextBlackAbove(midi: number): number | null {
   return null;
 }
 
-function findLowExtensionsBeforeAnchor(
-  scopeStart: number,
-  anchorMidi: number,
-): { lowWhite: number | null; lowBlack: number | null } {
-  let lowWhite: number | null = null;
-  let lowBlack: number | null = null;
-
-  for (let midi = scopeStart; midi < anchorMidi; midi += 1) {
-    if (isBlackKey(midi)) {
-      if (lowBlack === null) {
-        lowBlack = midi;
-      }
-      continue;
-    }
-
-    if (lowWhite === null) {
-      lowWhite = midi;
+function findPreviousWhiteBelow(midi: number): number | null {
+  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
+    if (!isBlackKey(prev)) {
+      return prev;
     }
   }
 
-  return { lowWhite, lowBlack };
+  return null;
+}
+
+function findPreviousBlackBelow(midi: number): number | null {
+  for (let prev = midi - 1; prev >= PIANO_START_MIDI; prev -= 1) {
+    if (isBlackKey(prev)) {
+      return prev;
+    }
+  }
+
+  return null;
+}
+
+function shiftAlongRow(midi: number, steps: number, wantBlack: boolean): number | null {
+  if (steps === 0) {
+    return midi;
+  }
+
+  const direction = steps > 0 ? 1 : -1;
+  let remaining = Math.abs(steps);
+  let current = midi;
+
+  while (remaining > 0) {
+    current += direction;
+
+    if (current < PIANO_START_MIDI || current > PIANO_END_MIDI) {
+      return null;
+    }
+
+    if (isBlackKey(current) === wantBlack) {
+      remaining -= 1;
+    }
+  }
+
+  return current;
 }
 
 export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
@@ -110,52 +151,33 @@ export function getDynamicKeyMap(scopeStart: number): Record<string, number> {
     }
   });
 
-  const firstCoreWhite = whitesInScope[0];
-  const firstCoreBlack = blacksInScope[0];
   const lastCoreBlack = blacksInScope[blacksInScope.length - 1];
 
-  if (firstCoreWhite !== undefined) {
-    const { lowWhite, lowBlack } = findLowExtensionsBeforeAnchor(
-      scopeStart,
-      firstCoreWhite,
-    );
+  if (map.KeyA !== undefined) {
+    const lowWhite = findPreviousWhiteBelow(map.KeyA);
+    const lowBlack = findPreviousBlackBelow(map.KeyA);
 
-    if (lowWhite !== null && map.CapsLock === undefined) {
+    if (lowWhite !== null) {
       map.CapsLock = lowWhite;
     }
 
-    if (lowBlack !== null && map.Tab === undefined) {
-      map.Tab = lowBlack;
-    }
-  } else if (firstCoreBlack !== undefined) {
-    const { lowWhite, lowBlack } = findLowExtensionsBeforeAnchor(
-      scopeStart,
-      firstCoreBlack,
-    );
-
-    if (lowWhite !== null && map.CapsLock === undefined) {
-      map.CapsLock = lowWhite;
-    }
-
-    if (lowBlack !== null && map.Tab === undefined) {
+    if (lowBlack !== null) {
       map.Tab = lowBlack;
     }
   }
 
-  if (map.Quote === undefined && map.Semicolon !== undefined) {
+  if (map.Semicolon !== undefined) {
     const highWhite = findNextWhiteAbove(map.Semicolon);
-    if (highWhite !== null && highWhite > scopeEnd) {
+    if (highWhite !== null && highWhite <= PIANO_END_MIDI) {
       map.Quote = highWhite;
     }
   }
 
-  if (map.BracketRight === undefined) {
-    const highBlackAnchor = map.BracketLeft ?? lastCoreBlack;
-    if (highBlackAnchor !== undefined) {
-      const highBlack = findNextBlackAbove(highBlackAnchor);
-      if (highBlack !== null && highBlack > scopeEnd) {
-        map.BracketRight = highBlack;
-      }
+  const highBlackAnchor = map.BracketLeft ?? lastCoreBlack;
+  if (highBlackAnchor !== undefined) {
+    const highBlack = findNextBlackAbove(highBlackAnchor);
+    if (highBlack !== null && highBlack <= PIANO_END_MIDI) {
+      map.BracketRight = highBlack;
     }
   }
 
@@ -173,8 +195,12 @@ export function getEffectiveKeyMap(
 
   const effective: Record<string, number> = {};
   for (const [code, midi] of Object.entries(base)) {
-    const shiftedMidi = midi + transpose;
+    const shiftedMidi = isWhiteRowCode(code)
+      ? shiftAlongRow(midi, transpose, false)
+      : shiftAlongRow(midi, transpose, true);
+
     if (
+      shiftedMidi !== null &&
       shiftedMidi >= PIANO_START_MIDI &&
       shiftedMidi <= PIANO_END_MIDI
     ) {
@@ -240,6 +266,28 @@ export function formatKeyCode(code: string): string {
   };
 
   return symbols[code] ?? code;
+}
+
+export function getLabelForKeyMapMidi(
+  midi: number,
+  onBlackPianoKey: boolean,
+  keyMap: Record<string, number>,
+): string | undefined {
+  for (const [code, mappedMidi] of Object.entries(keyMap)) {
+    if (mappedMidi !== midi) {
+      continue;
+    }
+
+    if (onBlackPianoKey && isBlackRowCode(code)) {
+      return formatKeyCode(code);
+    }
+
+    if (!onBlackPianoKey && isWhiteRowCode(code)) {
+      return formatKeyCode(code);
+    }
+  }
+
+  return undefined;
 }
 
 export function resolveNoteMidiFromKeyboard(

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import {
-  formatKeyCode,
   getEffectiveKeyMap,
+  getLabelForKeyMapMidi,
   resolveNoteMidiFromKeyboard,
 } from '../core/InputManager.ts';
 import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
@@ -229,16 +229,10 @@ export function PianoKeyboard() {
     return Object.prototype.hasOwnProperty.call(manualFingerings, key);
   }, [manualFingerings, selectedNote]);
 
-  const midiToPhysical = useMemo(() => {
-    const currentMap = getEffectiveKeyMap(scopeStartMidi, scopeTranspose);
-    return Object.entries(currentMap).reduce<Record<number, string>>(
-      (acc, [code, midi]) => {
-        acc[midi] = formatKeyCode(code);
-        return acc;
-      },
-      {},
-    );
-  }, [scopeStartMidi, scopeTranspose]);
+  const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) =>
+    isTwoHand
+      ? twoHandMidiLabels?.get(midi)
+      : getLabelForKeyMapMidi(midi, onBlackPianoKey, keyMap);
 
   const { whiteKeys, blackKeys } = useMemo(() => {
     const whiteKeys: KeyLayout[] = [];
@@ -441,9 +435,7 @@ export function PianoKeyboard() {
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
             : isPracticeActive && expectedMidiSet.has(key.midi);
-          const mappedLetter = isTwoHand
-            ? twoHandMidiLabels?.get(key.midi)
-            : midiToPhysical[key.midi];
+          const mappedLetter = mappedLabelForMidi(key.midi, false);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
 
@@ -482,9 +474,7 @@ export function PianoKeyboard() {
           const isExpected = isTwoHand
             ? (twoHandMidiLabels?.has(key.midi) ?? false)
             : isPracticeActive && expectedMidiSet.has(key.midi);
-          const mappedLetter = isTwoHand
-            ? twoHandMidiLabels?.get(key.midi)
-            : midiToPhysical[key.midi];
+          const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
 
