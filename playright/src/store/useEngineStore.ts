@@ -121,6 +121,8 @@ interface EngineState {
   isPracticeActive: boolean;
   /** True after Start is pressed for the current piece (enables Restart). */
   hasPracticeStarted: boolean;
+  /** True while a playback session is active (playing or paused). */
+  isPlaybackActive: boolean;
   headerCollapsed: boolean;
   currentStepIndex: number;
   totalSteps: number;
@@ -158,6 +160,7 @@ interface EngineState {
     setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
     setHasPracticeStarted: (started: boolean) => void;
+    setPlaybackActive: (active: boolean) => void;
     toggleHeaderCollapsed: () => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
@@ -181,6 +184,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   activeHand: 'R',
   isPracticeActive: false,
   hasPracticeStarted: false,
+  isPlaybackActive: false,
   headerCollapsed: false,
   currentStepIndex: 0,
   totalSteps: 0,
@@ -198,6 +202,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         totalSteps: script.length,
         isPracticeActive: false,
         hasPracticeStarted: false,
+        isPlaybackActive: false,
         expectedMidiNotes: [],
       });
     },
@@ -210,6 +215,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         scoreTiming: null,
         manualFingerings: {},
         hasPracticeStarted: false,
+        isPlaybackActive: false,
         expectedMidiNotes: [],
       });
     },
@@ -347,6 +353,9 @@ export const useEngineStore = create<EngineState>((set) => ({
     },
     setHasPracticeStarted: (started) => {
       set({ hasPracticeStarted: started });
+    },
+    setPlaybackActive: (active) => {
+      set({ isPlaybackActive: active });
     },
     toggleHeaderCollapsed: () => {
       set((state) => ({ headerCollapsed: !state.headerCollapsed }));

@@ -80,6 +80,7 @@ export class PlaybackEngine {
     transport.start();
     this.isPlaying = true;
     this.isPaused = false;
+    useEngineStore.getState().actions.setPlaybackActive(true);
   }
 
   pause(): void {
@@ -112,6 +113,7 @@ export class PlaybackEngine {
     transport.stop();
     this.isPlaying = false;
     this.isPaused = false;
+    useEngineStore.getState().actions.setPlaybackActive(false);
 
     const { actions } = useEngineStore.getState();
     actions.setStepIndex(0);

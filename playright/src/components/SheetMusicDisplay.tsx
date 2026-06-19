@@ -12,6 +12,7 @@ import {
 } from "../core/sheetMusicPracticeSync.ts";
 import type { GraphicalNote } from "opensheetmusicdisplay";
 import { practiceEngine } from "../core/PracticeEngine.ts";
+import { playbackEngine } from "../core/PlaybackEngine.ts";
 import { getPracticeNotes } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
@@ -322,6 +323,12 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+
+    if (state.isPlaybackActive) {
+      playbackEngine.seekToStep(stepIndex);
+      return;
+    }
+
     practiceEngine.seekToStep(stepIndex);
   };
 
