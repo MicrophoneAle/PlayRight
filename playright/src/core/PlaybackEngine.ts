@@ -281,7 +281,10 @@ export class PlaybackEngine {
           const isFinalNote = finalNoteKeys.has(
             `${stepIndex}:${note.hand}:${note.midi}`,
           );
-          const durationOptions = { isFinalNote };
+          const durationOptions = {
+            isFinalNote,
+            hasFermata: note.hasFermata ?? false,
+          };
           const playedQuarters = playbackDurationQuarterNotes(
             writtenQuarters,
             note.tiedToNext ?? false,

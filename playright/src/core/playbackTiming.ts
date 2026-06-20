@@ -33,9 +33,25 @@ export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
 
+/** Play-mode multiplier applied to a fermata note's held duration. */
+export const PLAYBACK_FERMATA_HOLD_FACTOR = 1.75;
+
 export interface PlaybackDurationOptions {
   /** Play through the full written length (no pre-release gap). */
   isFinalNote?: boolean;
+  /** Play mode only: extend held duration for fermata-marked notes. */
+  hasFermata?: boolean;
+}
+
+function applyFermataHoldFactor(
+  playedQuarterNotes: number,
+  hasFermata: boolean | undefined,
+): number {
+  if (!hasFermata || playedQuarterNotes <= 0) {
+    return playedQuarterNotes;
+  }
+
+  return playedQuarterNotes * PLAYBACK_FERMATA_HOLD_FACTOR;
 }
 
 /** Gap before the next attack, scaled by note length with min/max clamps. */
@@ -58,16 +74,17 @@ export function playbackDurationQuarterNotes(
   options: PlaybackDurationOptions = {},
 ): number {
   if (tiedToNext || writtenQuarterNotes <= 0) {
-    return writtenQuarterNotes;
+    return applyFermataHoldFactor(writtenQuarterNotes, options.hasFermata);
   }
 
   if (options.isFinalNote) {
-    return writtenQuarterNotes;
+    return applyFermataHoldFactor(writtenQuarterNotes, options.hasFermata);
   }
 
   const gap = articulationGapQuarterNotes(writtenQuarterNotes);
   const minPlayDuration = writtenQuarterNotes * 0.25;
-  return Math.max(writtenQuarterNotes - gap, minPlayDuration);
+  const playedQuarterNotes = Math.max(writtenQuarterNotes - gap, minPlayDuration);
+  return applyFermataHoldFactor(playedQuarterNotes, options.hasFermata);
 }
 
 /** Release onset for a note, leaving a short gap before the next attack at the written duration. */
@@ -189,7 +206,10 @@ export function pieceEndQuarterNotes(
       const playedQuarters = playbackDurationQuarterNotes(
         writtenQuarters,
         note.tiedToNext ?? false,
-        { isFinalNote },
+        {
+          isFinalNote,
+          hasFermata: note.hasFermata ?? false,
+        },
       );
       endQuarters = Math.max(endQuarters, onsetQuarters + playedQuarters);
     }

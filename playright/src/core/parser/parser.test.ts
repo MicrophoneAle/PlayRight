@@ -150,6 +150,9 @@ describe('parseMusicXmlToScript', () => {
       'D#5',
       'F#5',
     ]);
+    expect(script[0].notes.find((note) => note.pitch === 'B4')?.hasFermata).toBe(true);
+    expect(script[0].notes.find((note) => note.pitch === 'B2')?.hasFermata).toBe(true);
+    expect(script[0].notes.find((note) => note.pitch === 'D#5')?.hasFermata).toBeFalsy();
 
     const eighthPair = script.filter(
       (step) =>

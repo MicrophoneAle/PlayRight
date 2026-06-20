@@ -12,6 +12,8 @@ export interface ScriptNote {
   durationDivisions?: number;
   /** True when this note ties into the next note of the same pitch (no release gap). */
   tiedToNext?: boolean;
+  /** True when the score marks a fermata over this note. */
+  hasFermata?: boolean;
 }
 
 export interface ScoreTiming {

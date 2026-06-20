@@ -118,6 +118,7 @@ function createScriptNote(element: NormalizedNote): ScriptNote {
     finger,
     durationDivisions: element.duration,
     ...(element.isTieStart ? { tiedToNext: true } : {}),
+    ...(element.hasFermata ? { hasFermata: true } : {}),
     ...(finger !== null ? { fingerSource: 'score' as const } : {}),
   };
 }

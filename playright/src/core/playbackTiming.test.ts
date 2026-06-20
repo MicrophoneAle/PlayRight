@@ -10,6 +10,7 @@ import {
   pieceEndQuarterNotes,
   PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
+  PLAYBACK_FERMATA_HOLD_FACTOR,
   quarterNotesToSeconds,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
@@ -141,5 +142,30 @@ describe('playbackTiming', () => {
     );
 
     expect(end).toBeCloseTo(17, 5);
+  });
+
+  it('extends fermata playback duration in play mode without changing practice timing', () => {
+    const writtenQuarters = 4;
+    const divisionsPerQuarter = 480;
+
+    const practiceDuration = noteDurationQuarterNotes(
+      writtenQuarters * divisionsPerQuarter,
+      divisionsPerQuarter,
+    );
+    expect(practiceDuration).toBe(writtenQuarters);
+
+    const normalPlayback = playbackDurationQuarterNotes(writtenQuarters);
+    const fermataPlayback = playbackDurationQuarterNotes(writtenQuarters, false, {
+      hasFermata: true,
+    });
+
+    expect(normalPlayback).toBeCloseTo(3.95, 2);
+    expect(fermataPlayback).toBeCloseTo(
+      normalPlayback * PLAYBACK_FERMATA_HOLD_FACTOR,
+      5,
+    );
+    expect(playbackReleaseOnsetQuarterNotes(0, writtenQuarters, false, {
+      hasFermata: true,
+    })).toBeCloseTo(fermataPlayback, 5);
   });
 });

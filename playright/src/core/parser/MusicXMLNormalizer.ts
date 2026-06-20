@@ -26,6 +26,7 @@ export interface NormalizedNote {
   timeBeatType: number;
   divisionsAtNote: number;
   measureNumber: number;
+  hasFermata: boolean;
 }
 
 export interface NormalizedControl {
@@ -231,6 +232,11 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
       continue;
     }
 
+    if (tag === 'fermata') {
+      record.fermata = true;
+      continue;
+    }
+
     if (tag !== 'technical' || !Array.isArray(child.technical)) {
       continue;
     }
@@ -299,6 +305,15 @@ function hasTieStop(note: RawRecord): boolean {
 
 function hasTieStart(note: RawRecord): boolean {
   return getTieTypes(note).includes('start');
+}
+
+function hasFermataNotation(note: RawRecord): boolean {
+  const notations = note.notations;
+  if (!isRecord(notations)) {
+    return false;
+  }
+
+  return notations.fermata != null;
 }
 
 function extractTimeSignature(
@@ -436,6 +451,7 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     timeBeatType: measureContext.beatType,
     divisionsAtNote: measureContext.divisions,
     measureNumber: measureContext.measureNumber,
+    hasFermata: hasFermataNotation(note),
   };
 }
 
