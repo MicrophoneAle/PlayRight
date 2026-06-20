@@ -11,6 +11,7 @@ export interface NormalizedNote {
   alter: number;
   duration: number;
   staff: number;
+  voice: number;
   fingering: number;
   isRest: boolean;
   isGrace: boolean;
@@ -420,6 +421,7 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     alter: resolveEffectiveAlter(step, octave, pitch, note, measureContext),
     duration: toNumber(note.duration, 0),
     staff: toNumber(note.staff, 1),
+    voice: toNumber(note.voice, 1),
     fingering: extractFingering(note),
     isRest,
     isGrace: note.grace != null,

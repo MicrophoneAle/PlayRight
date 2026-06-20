@@ -281,6 +281,130 @@ describe('parseMusicXmlToScript', () => {
       tiedToNext: false,
     });
   });
+
+  it('ignores orphan tie stops instead of creating an extra practice step', () => {
+    const ORPHAN_TIE_STOP = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(ORPHAN_TIE_STOP);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].notes).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({
+      pitch: 'C4',
+      durationDivisions: 480,
+      tiedToNext: false,
+    });
+  });
+
+  it('clears tiedToNext when a tie stop has no matching start', () => {
+    const DANGLING_STOP = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(DANGLING_STOP);
+
+    expect(script.every((step) => step.notes.every((note) => !note.tiedToNext))).toBe(
+      true,
+    );
+  });
+
+  it('keeps same-pitch ties in different voices on one staff separate', () => {
+    const TWO_VOICE_TIE = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <voice>1</voice>
+        <staff>1</staff>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <voice>2</voice>
+        <staff>1</staff>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <voice>1</voice>
+        <staff>1</staff>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <voice>2</voice>
+        <staff>1</staff>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(TWO_VOICE_TIE);
+
+    expect(script).toHaveLength(2);
+    expect(script[0].onset).toBe(0);
+    expect(script[1].onset).toBe(480);
+    for (const step of script) {
+      expect(step.notes[0]).toMatchObject({
+        pitch: 'C4',
+        durationDivisions: 960,
+        tiedToNext: false,
+      });
+    }
+  });
 });
 
 describe('accidental resolution', () => {

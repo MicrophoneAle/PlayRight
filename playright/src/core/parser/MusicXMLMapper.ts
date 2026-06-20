@@ -14,8 +14,8 @@ function mapScoreFingering(fingering: number): Finger | null {
   return null;
 }
 
-function pitchStaffKey(element: NormalizedNote): string {
-  return `${element.staff}:${element.step}:${element.octave}`;
+function tieKeyForElement(element: NormalizedNote): string {
+  return `${element.staff}:${element.voice}:${element.step}:${element.octave}:${element.alter}`;
 }
 
 function mergeOpenTie(
@@ -39,6 +39,31 @@ function mergeOpenTie(
   }
 
   return true;
+}
+
+function clearDanglingOpenTies(
+  openTies: Map<string, number>,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
+): void {
+  for (const tiedNoteIndex of openTies.values()) {
+    absoluteNotes[tiedNoteIndex].note.tiedToNext = false;
+  }
+
+  openTies.clear();
+}
+
+function registerOpenTie(
+  openTies: Map<string, number>,
+  tieKey: string,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
+  noteIndex: number,
+): void {
+  const existingIndex = openTies.get(tieKey);
+  if (existingIndex !== undefined) {
+    absoluteNotes[existingIndex].note.tiedToNext = false;
+  }
+
+  openTies.set(tieKey, noteIndex);
 }
 
 function fullMeasureDurationDivisions(element: NormalizedNote): number {
@@ -134,22 +159,28 @@ export class MusicXMLMapper {
         continue;
       }
 
-      const tieKey = pitchStaffKey(element);
+      const tieKey = tieKeyForElement(element);
       const isTieEnd = element.isTieStop && !element.isTieStart;
       const isTieMiddle = element.isTieStop && element.isTieStart;
       const isImplicitTieContinue =
         element.isTieStart && !element.isTieStop && openTies.has(tieKey);
 
-      if (isTieEnd || isTieMiddle || isImplicitTieContinue) {
-        const merged = mergeOpenTie(
-          openTies,
-          tieKey,
-          absoluteNotes,
-          element.duration,
-          isTieEnd,
-        );
+      if (isTieEnd) {
+        if (
+          mergeOpenTie(openTies, tieKey, absoluteNotes, element.duration, true)
+        ) {
+          currentTime += element.duration;
+          continue;
+        }
 
-        if (merged) {
+        currentTime += element.duration;
+        continue;
+      }
+
+      if (isTieMiddle || isImplicitTieContinue) {
+        if (
+          mergeOpenTie(openTies, tieKey, absoluteNotes, element.duration, false)
+        ) {
           currentTime += element.duration;
           continue;
         }
@@ -164,6 +195,9 @@ export class MusicXMLMapper {
           onset: chordOnset,
           measureNumber: element.measureNumber,
         });
+        if (element.isTieStart) {
+          registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
+        }
       } else {
         absoluteNotes.push({
           note: scriptNote,
@@ -171,11 +205,13 @@ export class MusicXMLMapper {
           measureNumber: element.measureNumber,
         });
         if (element.isTieStart) {
-          openTies.set(tieKey, absoluteNotes.length - 1);
+          registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }
         currentTime += element.duration;
       }
     }
+
+    clearDanglingOpenTies(openTies, absoluteNotes);
 
     return groupByOnset(absoluteNotes);
   }
