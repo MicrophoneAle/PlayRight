@@ -1,6 +1,7 @@
 import * as Tone from 'tone';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
+  buildFinalNoteKeySet,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
@@ -261,6 +262,7 @@ export class PlaybackEngine {
     }
 
     const { divisionsPerQuarter } = scoreTiming;
+    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
@@ -276,15 +278,21 @@ export class PlaybackEngine {
             durationDivisions,
             divisionsPerQuarter,
           );
+          const isFinalNote = finalNoteKeys.has(
+            `${stepIndex}:${note.hand}:${note.midi}`,
+          );
+          const durationOptions = { isFinalNote };
           const playedQuarters = playbackDurationQuarterNotes(
             writtenQuarters,
             note.tiedToNext ?? false,
+            durationOptions,
           );
           const playedDuration = quarterNotesToToneDuration(playedQuarters);
           const releaseQuarters = playbackReleaseOnsetQuarterNotes(
             onsetQuarters,
             writtenQuarters,
             note.tiedToNext ?? false,
+            durationOptions,
           );
           const pressId = this.playingPressTracker.allocatePressId();
 

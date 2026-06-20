@@ -15,7 +15,30 @@ function mapScoreFingering(fingering: number): Finger | null {
 }
 
 function pitchStaffKey(element: NormalizedNote): string {
-  return `${element.staff}:${element.step}:${element.octave}:${element.alter}`;
+  return `${element.staff}:${element.step}:${element.octave}`;
+}
+
+function mergeOpenTie(
+  openTies: Map<string, number>,
+  tieKey: string,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
+  addedDuration: number,
+  closeTie: boolean,
+): boolean {
+  const tiedNoteIndex = openTies.get(tieKey);
+  if (tiedNoteIndex === undefined) {
+    return false;
+  }
+
+  const tiedNote = absoluteNotes[tiedNoteIndex].note;
+  tiedNote.durationDivisions = (tiedNote.durationDivisions ?? 0) + addedDuration;
+
+  if (closeTie) {
+    tiedNote.tiedToNext = false;
+    openTies.delete(tieKey);
+  }
+
+  return true;
 }
 
 function fullMeasureDurationDivisions(element: NormalizedNote): number {
@@ -111,24 +134,24 @@ export class MusicXMLMapper {
       }
 
       const tieKey = pitchStaffKey(element);
-      const isTieContinuation = element.isTieStop && !element.isTieStart;
+      const isTieEnd = element.isTieStop && !element.isTieStart;
       const isTieMiddle = element.isTieStop && element.isTieStart;
+      const isImplicitTieContinue =
+        element.isTieStart && !element.isTieStop && openTies.has(tieKey);
 
-      if (isTieContinuation || isTieMiddle) {
-        const tiedNoteIndex = openTies.get(tieKey);
-        if (tiedNoteIndex !== undefined) {
-          const tiedNote = absoluteNotes[tiedNoteIndex].note;
-          tiedNote.durationDivisions =
-            (tiedNote.durationDivisions ?? 0) + element.duration;
+      if (isTieEnd || isTieMiddle || isImplicitTieContinue) {
+        const merged = mergeOpenTie(
+          openTies,
+          tieKey,
+          absoluteNotes,
+          element.duration,
+          isTieEnd,
+        );
 
-          if (isTieContinuation) {
-            tiedNote.tiedToNext = false;
-            openTies.delete(tieKey);
-          }
+        if (merged) {
+          currentTime += element.duration;
+          continue;
         }
-
-        currentTime += element.duration;
-        continue;
       }
 
       const scriptNote = createScriptNote(element);

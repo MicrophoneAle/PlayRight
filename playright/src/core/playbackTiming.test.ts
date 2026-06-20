@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+  articulationGapQuarterNotes,
+  buildFinalNoteKeySet,
+  latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   playbackSilenceBeforeNextAttackQuarters,
   pieceEndQuarterNotes,
-  PLAYBACK_ARTICULATION_GAP_QUARTERS,
+  PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
+  PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   quarterNotesToSeconds,
   quarterNotesToToneDuration,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
+import type { PlaybackScript } from '../types/index.ts';
 
 describe('playbackTiming', () => {
   it('converts step onset from divisions to quarter notes', () => {
@@ -35,19 +40,30 @@ describe('playbackTiming', () => {
     expect(quarterNotesToToneDuration(4)).toBe('1n');
   });
 
-  it('shortens non-tied playback durations by a small articulation gap', () => {
-    expect(playbackDurationQuarterNotes(1)).toBeCloseTo(0.94, 5);
-    expect(playbackDurationQuarterNotes(2)).toBeCloseTo(1.94, 5);
-    expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.44, 5);
+  it('scales articulation gaps by note length with min and max clamps', () => {
+    expect(articulationGapQuarterNotes(0.25)).toBe(
+      PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
+    );
+    expect(articulationGapQuarterNotes(1)).toBeCloseTo(0.035, 5);
+    expect(articulationGapQuarterNotes(4)).toBe(
+      PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
+    );
   });
 
-  it('keeps tied playback durations at the written length', () => {
+  it('shortens non-tied playback durations by a duration-aware articulation gap', () => {
+    expect(playbackDurationQuarterNotes(1)).toBeCloseTo(0.965, 5);
+    expect(playbackDurationQuarterNotes(2)).toBeCloseTo(1.95, 5);
+    expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.48, 5);
+  });
+
+  it('keeps tied and final playback durations at the written length', () => {
     expect(playbackDurationQuarterNotes(1, true)).toBe(1);
     expect(playbackDurationQuarterNotes(2, true)).toBe(2);
+    expect(playbackDurationQuarterNotes(4, false, { isFinalNote: true })).toBe(4);
   });
 
-  it('leaves the same silence before the next attack for repeated and changing pitches', () => {
-    for (const written of [1, 0.5, 2]) {
+  it('leaves proportional silence before the next attack for common note lengths', () => {
+    for (const written of [0.25, 0.5, 1, 2, 4]) {
       const release = playbackReleaseOnsetQuarterNotes(0, written);
       const nextAttack = written;
       const silenceGap = nextAttack - release;
@@ -56,25 +72,68 @@ describe('playbackTiming', () => {
         playbackSilenceBeforeNextAttackQuarters(written),
         5,
       );
-      expect(silenceGap).toBeCloseTo(PLAYBACK_ARTICULATION_GAP_QUARTERS, 5);
+      expect(silenceGap).toBeCloseTo(articulationGapQuarterNotes(written), 5);
     }
+  });
+
+  it('identifies notes that end the written timeline', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: null, durationDivisions: 1920 }],
+      },
+    ];
+
+    expect(latestWrittenEndQuarterNotes(script, 480)).toBeCloseTo(5, 5);
+    expect(buildFinalNoteKeySet(script, 480)).toEqual(new Set(['1:R:62']));
   });
 
   it('finds the latest note release across a script', () => {
     const end = pieceEndQuarterNotes(
       [
         {
+          order: 0,
           onset: 0,
-          notes: [{ durationDivisions: 480 }],
+          notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null, durationDivisions: 480 }],
         },
         {
+          order: 1,
           onset: 480,
-          notes: [{ durationDivisions: 240 }, { durationDivisions: 480 }],
+          notes: [
+            { pitch: 'E4', midi: 64, hand: 'R', finger: null, durationDivisions: 240 },
+            { pitch: 'G4', midi: 67, hand: 'R', finger: null, durationDivisions: 480 },
+          ],
         },
       ],
       480,
     );
 
-    expect(end).toBeCloseTo(1.94, 5);
+    expect(end).toBeCloseTo(2, 5);
+  });
+
+  it('holds the final note through its full written duration', () => {
+    const end = pieceEndQuarterNotes(
+      [
+        {
+          order: 0,
+          onset: 0,
+          notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null, durationDivisions: 480 }],
+        },
+        {
+          order: 1,
+          onset: 480,
+          notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: null, durationDivisions: 7680 }],
+        },
+      ],
+      480,
+    );
+
+    expect(end).toBeCloseTo(17, 5);
   });
 });

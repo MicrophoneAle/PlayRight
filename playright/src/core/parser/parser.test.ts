@@ -135,6 +135,99 @@ describe('parseMusicXmlToScript', () => {
     ]);
     expect(chordStep.notes.every((note) => note.durationDivisions === 480)).toBe(true);
   });
+
+  it('merges a multi-measure tie into one long note at the first onset', () => {
+    const MULTI_MEASURE_TIE = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>E</step><octave>5</octave></pitch>
+        <duration>1920</duration>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>E</step><octave>5</octave></pitch>
+        <duration>1920</duration>
+        <tie type="stop"/>
+        <tie type="start"/>
+        <notations>
+          <tied type="stop"/>
+          <tied type="start"/>
+        </notations>
+      </note>
+    </measure>
+    <measure number="3">
+      <note>
+        <pitch><step>E</step><octave>5</octave></pitch>
+        <duration>1920</duration>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(MULTI_MEASURE_TIE);
+    const tiedE5 = script[0].notes.find((note) => note.pitch === 'E5');
+
+    expect(script).toHaveLength(1);
+    expect(tiedE5).toMatchObject({
+      midi: 76,
+      durationDivisions: 5760,
+      tiedToNext: false,
+    });
+  });
+
+  it('merges tie continuations that only mark tie start on later bars', () => {
+    const IMPLICIT_CONTINUE_TIE = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>1920</duration>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>1920</duration>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+    </measure>
+    <measure number="3">
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>1920</duration>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(IMPLICIT_CONTINUE_TIE);
+    const tiedC4 = script[0].notes.find((note) => note.pitch === 'C4');
+
+    expect(script).toHaveLength(1);
+    expect(tiedC4).toMatchObject({
+      durationDivisions: 5760,
+      tiedToNext: false,
+    });
+  });
 });
 
 describe('parseMusicXmlToScript defensive fixes', () => {
