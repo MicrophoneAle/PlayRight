@@ -107,22 +107,23 @@ function formatTwoHandKeyLabel(physicalKey: string): string {
   return physicalKey.toUpperCase();
 }
 
-function twoHandHintClass(
+function oneHandKeyLabelClass(onBlackKey: boolean): string {
+  return `text-xs font-bold ${onBlackKey ? 'text-zinc-200' : 'text-zinc-800'}`;
+}
+
+function twoHandFingerLabelClass(
   source: ScriptNote['fingerSource'] | undefined,
   onBlackKey: boolean,
 ): string {
-  const base =
-    'absolute bottom-1.5 w-full px-0.5 text-center text-sm font-semibold leading-tight';
-
   if (source === 'predicted') {
-    return `${base} font-normal italic ${onBlackKey ? 'text-zinc-300' : 'text-zinc-600'}`;
+    return `text-xs font-normal italic ${onBlackKey ? 'text-zinc-300' : 'text-zinc-600'}`;
   }
 
   if (source === 'manual') {
-    return `${base} font-bold ${onBlackKey ? 'text-violet-200' : 'text-violet-700'}`;
+    return `text-xs font-bold ${onBlackKey ? 'text-violet-300' : 'text-violet-700'}`;
   }
 
-  return `${base} font-bold ${onBlackKey ? 'text-zinc-100' : 'text-zinc-900'}`;
+  return oneHandKeyLabelClass(onBlackKey);
 }
 
 function getWhiteKeyClasses(
@@ -459,18 +460,19 @@ export function PianoKeyboard() {
       return null;
     }
 
-    const hintParts: string[] = [];
-    if (note?.finger !== null && note?.finger !== undefined) {
-      hintParts.push(String(note.finger));
-    }
-    if (keyLabel) {
-      hintParts.push(formatTwoHandKeyLabel(keyLabel));
-    }
-
     return (
-      <span className={twoHandHintClass(note?.fingerSource, onBlack)}>
-        {hintParts.join(' ')}
-      </span>
+      <div className="absolute bottom-2 flex w-full flex-col items-center gap-px leading-none">
+        {note?.finger !== null && note?.finger !== undefined ? (
+          <span className={twoHandFingerLabelClass(note.fingerSource, onBlack)}>
+            {note.finger}
+          </span>
+        ) : null}
+        {keyLabel ? (
+          <span className={oneHandKeyLabelClass(onBlack)}>
+            {formatTwoHandKeyLabel(keyLabel)}
+          </span>
+        ) : null}
+      </div>
     );
   };
 
@@ -559,7 +561,9 @@ export function PianoKeyboard() {
             >
               {isTwoHand ? renderTwoHandHint(key.midi, false) : null}
               {!isTwoHand && mappedLetter ? (
-                <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
+                <span
+                  className={`absolute bottom-2 w-full text-center ${oneHandKeyLabelClass(false)}`}
+                >
                   {mappedLetter}
                 </span>
               ) : null}
@@ -606,7 +610,9 @@ export function PianoKeyboard() {
             >
               {isTwoHand ? renderTwoHandHint(key.midi, true) : null}
               {!isTwoHand && mappedLetter ? (
-                <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-200">
+                <span
+                  className={`absolute bottom-2 w-full text-center ${oneHandKeyLabelClass(true)}`}
+                >
                   {mappedLetter}
                 </span>
               ) : null}

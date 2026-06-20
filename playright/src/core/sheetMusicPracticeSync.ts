@@ -105,6 +105,131 @@ function stepMatchesKeys(expected: Set<string>, atCursor: Set<string>): boolean 
   return true;
 }
 
+function practiceKeysFromNotes(notes: ScriptNote[]): Set<string> {
+  const keys = new Set<string>();
+  for (const note of notes) {
+    keys.add(noteKey(note.midi, note.hand));
+  }
+  return keys;
+}
+
+function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): GraphicalNote[] {
+  if (!cursor) {
+    return [];
+  }
+
+  return cursor.GNotesUnderCursor().filter(
+    (gNote) =>
+      !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
+  );
+}
+
+/** Find the next cursor snapshot whose attack keys contain every expected practice note. */
+export function findCursorOffsetForStep(
+  snapshots: CursorSnapshot[],
+  searchStart: number,
+  expected: Set<string>,
+): number {
+  for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
+    if (stepMatchesKeys(expected, snapshots[cursorIdx].attackKeys)) {
+      return cursorIdx;
+    }
+  }
+
+  return -1;
+}
+
+function findFallbackCursorOffsetForStep(
+  osmd: OpenSheetMusicDisplay,
+  snapshots: CursorSnapshot[],
+  searchStart: number,
+  practiceNotes: ScriptNote[],
+): { offset: number; notes: GraphicalNote[] } | null {
+  for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
+    const collected = collectGraphicalNotesWithTies(
+      osmd,
+      snapshots[cursorIdx].attackGNotes,
+      practiceNotes,
+    );
+
+    if (collected.length === practiceNotes.length) {
+      return { offset: cursorIdx, notes: collected };
+    }
+  }
+
+  return null;
+}
+
+function resolveStepGraphicalNotes(
+  osmd: OpenSheetMusicDisplay,
+  visualIndex: PracticeVisualIndex,
+  stepIndex: number,
+  practiceNotes: ScriptNote[],
+  cursorOffsetRef: { current: number },
+): GraphicalNote[] {
+  const indexed = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
+  if (indexed.length > 0) {
+    return indexed;
+  }
+
+  if (practiceNotes.length === 0) {
+    return [];
+  }
+
+  const expected = practiceKeysFromNotes(practiceNotes);
+  const startOffset = Math.max(0, visualIndex.stepCursorOffsets[stepIndex] ?? 0);
+  const cursor = osmd.cursor;
+  if (!cursor) {
+    return [];
+  }
+
+  cursor.reset();
+  for (let i = 0; i < startOffset; i += 1) {
+    cursor.next();
+  }
+
+  const maxScan = 512;
+  for (let scanned = 0; scanned < maxScan; scanned += 1) {
+    const attackGNotes = attackGNotesUnderCursor(cursor);
+    const attackKeys = keysFromAttackGNotes(cursor.GNotesUnderCursor());
+
+    if (stepMatchesKeys(expected, attackKeys)) {
+      const offset = startOffset + scanned;
+      cursorOffsetRef.current = offset;
+      return collectGraphicalNotesWithTies(osmd, attackGNotes, practiceNotes);
+    }
+
+    const partial = collectGraphicalNotesWithTies(
+      osmd,
+      attackGNotes,
+      practiceNotes,
+    );
+    if (partial.length === practiceNotes.length) {
+      const offset = startOffset + scanned;
+      cursorOffsetRef.current = offset;
+      return partial;
+    }
+
+    if (cursor.Iterator?.EndReached) {
+      break;
+    }
+
+    cursor.next();
+  }
+
+  cursor.reset();
+  for (let i = 0; i < startOffset; i += 1) {
+    cursor.next();
+  }
+  cursorOffsetRef.current = startOffset;
+
+  return collectGraphicalNotesWithTies(
+    osmd,
+    attackGNotesUnderCursor(cursor),
+    practiceNotes,
+  );
+}
+
 function graphicalNoteFromSource(
   osmd: OpenSheetMusicDisplay,
   note: Note,
@@ -208,8 +333,8 @@ export function buildPracticeVisualIndex(
   const stepCursorOffsets = new Array<number>(script.length).fill(0);
   const stepGraphicalNotes: GraphicalNote[][] = script.map(() => []);
 
-  let snapshotIndex = 0;
-  let lastCursorOffset = 0;
+  let searchStart = 0;
+  let lastMatchedOffset = 0;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
     const expected = practiceKeysForStep(
@@ -225,34 +350,44 @@ export function buildPracticeVisualIndex(
     );
 
     if (expected.size === 0) {
-      stepCursorOffsets[stepIndex] = lastCursorOffset;
+      stepCursorOffsets[stepIndex] = lastMatchedOffset;
       continue;
     }
 
-    let matched = false;
+    const exactMatch = findCursorOffsetForStep(
+      snapshots,
+      searchStart,
+      expected,
+    );
 
-    while (snapshotIndex < snapshots.length) {
-      const snapshot = snapshots[snapshotIndex];
-      snapshotIndex += 1;
-
-      if (!stepMatchesKeys(expected, snapshot.attackKeys)) {
-        continue;
-      }
-
-      stepCursorOffsets[stepIndex] = snapshot.cursorIndex;
-      lastCursorOffset = snapshot.cursorIndex;
+    if (exactMatch >= 0) {
+      stepCursorOffsets[stepIndex] = exactMatch;
+      lastMatchedOffset = exactMatch;
+      searchStart = exactMatch + 1;
       stepGraphicalNotes[stepIndex] = collectGraphicalNotesWithTies(
         osmd,
-        snapshot.attackGNotes,
+        snapshots[exactMatch].attackGNotes,
         practiceNotes,
       );
-      matched = true;
-      break;
+      continue;
     }
 
-    if (!matched) {
-      stepCursorOffsets[stepIndex] = lastCursorOffset;
+    const fallback = findFallbackCursorOffsetForStep(
+      osmd,
+      snapshots,
+      searchStart,
+      practiceNotes,
+    );
+
+    if (fallback) {
+      stepCursorOffsets[stepIndex] = fallback.offset;
+      lastMatchedOffset = fallback.offset;
+      searchStart = fallback.offset + 1;
+      stepGraphicalNotes[stepIndex] = fallback.notes;
+      continue;
     }
+
+    stepCursorOffsets[stepIndex] = lastMatchedOffset;
   }
 
   osmd.cursor.reset();
@@ -1099,25 +1234,17 @@ export function syncSheetMusicPracticeVisuals(
     return [];
   }
 
-  const toHighlightFromIndex = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
   const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
   moveCursorToOffset(osmd, offset, cursorOffsetRef);
   cursor.hide();
 
-  let toHighlight = toHighlightFromIndex;
-  if (toHighlight.length === 0 && practiceNotes.length > 0) {
-    const attackGNotes = cursor
-      .GNotesUnderCursor()
-      .filter(
-        (gNote) =>
-          !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
-      );
-    toHighlight = collectGraphicalNotesWithTies(
-      osmd,
-      attackGNotes,
-      practiceNotes,
-    );
-  }
+  const toHighlight = resolveStepGraphicalNotes(
+    osmd,
+    visualIndex,
+    stepIndex,
+    practiceNotes,
+    cursorOffsetRef,
+  );
 
   if (toHighlight.length === 0) {
     cursor.hide();
