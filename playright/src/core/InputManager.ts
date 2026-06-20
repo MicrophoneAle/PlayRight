@@ -579,7 +579,6 @@ export class InputManager {
     this.getScopeTranspose = options.getScopeTranspose ?? (() => 0);
     this.onFingerPress = options.onFingerPress;
     practiceEngine.attachAudioEngine(audioEngine);
-    practiceEngine.setHeldMidisProvider(() => this.getActiveMidis());
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
 

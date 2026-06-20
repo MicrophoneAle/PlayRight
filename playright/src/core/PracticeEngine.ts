@@ -15,7 +15,6 @@ export class PracticeEngine {
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
   private soundingMidis = new Set<number>();
-  private getHeldMidis: (() => readonly number[]) | null = null;
   private completionFrame: number | null = null;
   private storeSubscriptionInitialized = false;
 
@@ -44,11 +43,6 @@ export class PracticeEngine {
 
   attachAudioEngine(audioEngine: AudioEngine): void {
     this.audioEngine = audioEngine;
-  }
-
-  /** Supplies midis for keys still held after a step or scope change. */
-  setHeldMidisProvider(provider: () => readonly number[]): void {
-    this.getHeldMidis = provider;
   }
 
   start(): void {
@@ -206,7 +200,6 @@ export class PracticeEngine {
     return true;
   }
 
-  /** Re-register held keys after a step or scope change. */
   registerPracticeHit(midi: number): void {
     if (!useEngineStore.getState().isPracticeActive) {
       return;
@@ -248,17 +241,6 @@ export class PracticeEngine {
 
     this.hitNoteIndices.add(index);
     this.scheduleCompletionCheck();
-  }
-
-  /** Re-register held keys after a step change without re-attacking their sound. */
-  private registerHeldPracticeHits(): void {
-    if (!this.getHeldMidis || !useEngineStore.getState().isPracticeActive) {
-      return;
-    }
-
-    for (const midi of this.getHeldMidis()) {
-      this.registerPracticeHit(midi);
-    }
   }
 
   private releaseAllSoundingNotes(): void {
@@ -357,8 +339,6 @@ export class PracticeEngine {
     if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
     }
-
-    this.registerHeldPracticeHits();
   }
 
   seekToStep(stepIndex: number): void {

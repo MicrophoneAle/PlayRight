@@ -283,4 +283,31 @@ describe('PracticeEngine one-hand progression', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
   });
+
+  it('does not advance repeated steps while the same key stays held', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        notes: [{ pitch: 'E6', midi: 88, hand: 'R', finger: 3 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        notes: [{ pitch: 'E6', midi: 88, hand: 'R', finger: 3 }],
+      },
+      {
+        order: 2,
+        onset: 960,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 3 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleNoteOn(88);
+    flushAdvance();
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().expectedMidiNotes).toEqual([88]);
+  });
 });
