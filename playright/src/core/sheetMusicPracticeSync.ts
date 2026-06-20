@@ -39,6 +39,10 @@ interface CursorSnapshot {
   attackGNotes: GraphicalNote[];
 }
 
+interface CursorKeySnapshot {
+  attackKeys: Set<string>;
+}
+
 function osmdNoteMidi(note: Note): number {
   return note.Pitch.getHalfTone() + 12;
 }
@@ -126,7 +130,7 @@ function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): Graph
 
 /** Find the next cursor snapshot whose attack keys contain every expected practice note. */
 export function findCursorOffsetForStep(
-  snapshots: CursorSnapshot[],
+  snapshots: readonly CursorKeySnapshot[],
   searchStart: number,
   expected: Set<string>,
 ): number {
