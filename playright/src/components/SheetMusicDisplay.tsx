@@ -227,7 +227,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     lineScrollTop: null,
   });
   const script = useEngineStore((state) => state.script);
-  const scoreTiming = useEngineStore((state) => state.scoreTiming);
   const playMode = useEngineStore((state) => state.playMode);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -279,8 +278,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
     highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
-      script: state.script ?? [],
-      divisionsPerQuarter: state.scoreTiming?.divisionsPerQuarter ?? 480,
       visualIndex: visualIndexRef.current,
       expectedMidiNotes: state.expectedMidiNotes,
       practiceNotes,
@@ -306,7 +303,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
       const osmd = osmdRef.current;
       const state = useEngineStore.getState();
-      if (!osmd || !osmdReadyRef.current || !state.script || !state.scoreTiming) {
+      if (!osmd || !osmdReadyRef.current || !state.script) {
         visualIndexRef.current = null;
         return;
       }
@@ -317,7 +314,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           state.script,
           getDisplayEngineMode(state.playMode, state.engineMode),
           state.activeHand,
-          state.scoreTiming.divisionsPerQuarter,
         );
 
         if (generation !== visualIndexGenerationRef.current) {
@@ -486,7 +482,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     scheduleVisualIndexBuild();
-  }, [script, engineMode, playMode, musicXml, scoreTiming]);
+  }, [script, engineMode, playMode, musicXml]);
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
