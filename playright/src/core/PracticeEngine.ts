@@ -15,6 +15,7 @@ export class PracticeEngine {
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
   private soundingMidis = new Set<number>();
+  private activeFingerSounds = new Map<string, number>();
   private completionFrame: number | null = null;
   private storeSubscriptionInitialized = false;
 
@@ -166,9 +167,22 @@ export class PracticeEngine {
       return;
     }
 
-    this.playNotePreview(expected.midi);
+    const isTwoHand = useEngineStore.getState().engineMode === 'two-hand';
 
     if (!this.ensureTwoHandPracticeStarted()) {
+      if (!isTwoHand) {
+        this.playNotePreview(expected.midi);
+      }
+      return;
+    }
+
+    if (isTwoHand) {
+      this.sustainNote(expected.midi, mapping);
+    } else {
+      this.playNotePreview(expected.midi);
+    }
+
+    if (!useEngineStore.getState().isPracticeActive) {
       return;
     }
 
@@ -180,6 +194,17 @@ export class PracticeEngine {
     }
 
     this.registerPracticeHitAtIndex(hitIndex);
+  }
+
+  handleFingerRelease(mapping: FingerMapping): void {
+    const fingerKey = `${mapping.hand}:${mapping.finger}`;
+    const midi = this.activeFingerSounds.get(fingerKey);
+    if (midi === undefined) {
+      return;
+    }
+
+    this.handleNoteOff(midi);
+    this.activeFingerSounds.delete(fingerKey);
   }
 
   /** Two-hand: begin practice on the first correct finger hit if Start was not pressed. */
@@ -255,6 +280,21 @@ export class PracticeEngine {
     }
 
     this.soundingMidis.clear();
+    this.activeFingerSounds.clear();
+  }
+
+  private sustainNote(midi: number, mapping: FingerMapping): void {
+    const engine = this.audioEngine;
+    if (!engine) {
+      return;
+    }
+
+    if (!this.soundingMidis.has(midi)) {
+      engine.noteOn(midi);
+      this.soundingMidis.add(midi);
+    }
+
+    this.activeFingerSounds.set(`${mapping.hand}:${mapping.finger}`, midi);
   }
 
   private playNotePreview(midi: number): void {

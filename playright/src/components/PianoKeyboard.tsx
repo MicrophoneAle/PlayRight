@@ -99,21 +99,30 @@ function buildTwoHandStepNotesByMidi(
   return byMidi;
 }
 
-function fingerLabelClass(
+function formatTwoHandKeyLabel(physicalKey: string): string {
+  if (physicalKey === '[') {
+    return '[';
+  }
+
+  return physicalKey.toUpperCase();
+}
+
+function twoHandHintClass(
   source: ScriptNote['fingerSource'] | undefined,
   onBlackKey: boolean,
 ): string {
-  const base = 'absolute top-1 w-full text-center text-[10px] leading-none';
+  const base =
+    'absolute bottom-1.5 w-full px-0.5 text-center text-sm font-semibold leading-tight';
 
   if (source === 'predicted') {
-    return `${base} font-normal italic ${onBlackKey ? 'text-zinc-400' : 'text-zinc-500'}`;
+    return `${base} font-normal italic ${onBlackKey ? 'text-zinc-300' : 'text-zinc-600'}`;
   }
 
   if (source === 'manual') {
-    return `${base} font-bold ${onBlackKey ? 'text-violet-300' : 'text-violet-700'}`;
+    return `${base} font-bold ${onBlackKey ? 'text-violet-200' : 'text-violet-700'}`;
   }
 
-  return `${base} font-bold ${onBlackKey ? 'text-zinc-200' : 'text-zinc-800'}`;
+  return `${base} font-bold ${onBlackKey ? 'text-zinc-100' : 'text-zinc-900'}`;
 }
 
 function getWhiteKeyClasses(
@@ -441,17 +450,26 @@ export function PianoKeyboard() {
     );
   };
 
-  const renderFingerLabel = (midi: number, onBlack: boolean) => {
+  const renderTwoHandHint = (midi: number, onBlack: boolean) => {
     const stepNotes = twoHandStepNotesByMidi?.get(midi);
     const note = stepNotes?.[0];
+    const keyLabel = twoHandMidiLabels?.get(midi);
 
-    if (!note || note.finger === null) {
+    if (!note?.finger && !keyLabel) {
       return null;
     }
 
+    const hintParts: string[] = [];
+    if (note?.finger !== null && note?.finger !== undefined) {
+      hintParts.push(String(note.finger));
+    }
+    if (keyLabel) {
+      hintParts.push(formatTwoHandKeyLabel(keyLabel));
+    }
+
     return (
-      <span className={fingerLabelClass(note.fingerSource, onBlack)}>
-        {note.finger}
+      <span className={twoHandHintClass(note?.fingerSource, onBlack)}>
+        {hintParts.join(' ')}
       </span>
     );
   };
@@ -539,8 +557,8 @@ export function PianoKeyboard() {
               }
               className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
             >
-              {isTwoHand ? renderFingerLabel(key.midi, false) : null}
-              {mappedLetter ? (
+              {isTwoHand ? renderTwoHandHint(key.midi, false) : null}
+              {!isTwoHand && mappedLetter ? (
                 <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-800">
                   {mappedLetter}
                 </span>
@@ -586,8 +604,8 @@ export function PianoKeyboard() {
                 height: '65%',
               }}
             >
-              {isTwoHand ? renderFingerLabel(key.midi, true) : null}
-              {mappedLetter ? (
+              {isTwoHand ? renderTwoHandHint(key.midi, true) : null}
+              {!isTwoHand && mappedLetter ? (
                 <span className="absolute bottom-2 w-full text-center text-xs font-bold text-zinc-200">
                   {mappedLetter}
                 </span>

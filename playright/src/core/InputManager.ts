@@ -702,6 +702,7 @@ export class InputManager {
           this.activePhysicalKeys.delete(event.code);
         }
 
+        practiceEngine.handleFingerRelease(mapping);
         event.preventDefault();
         return;
       }

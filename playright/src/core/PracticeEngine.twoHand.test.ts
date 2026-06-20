@@ -120,7 +120,7 @@ describe('PracticeEngine two-hand finger press', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
-  it('expected note with practice active previews, registers hit, and advances on a single-note step', () => {
+  it('expected note with practice active sustains sound until finger release', () => {
     makeScript([
       {
         order: 0,
@@ -139,8 +139,11 @@ describe('PracticeEngine two-hand finger press', () => {
     flushAdvance();
 
     expect(audio.noteOn).toHaveBeenCalledWith(60);
-    expect(audio.noteOff).toHaveBeenCalledWith(60);
+    expect(audio.noteOff).not.toHaveBeenCalled();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
+
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(audio.noteOff).toHaveBeenCalledWith(60);
   });
 
   it('does not advance after the first hand in a two-note step until the second hand is hit', () => {
@@ -218,6 +221,6 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
-    expect(audio.noteOn).toHaveBeenCalledTimes(3);
+    expect(audio.noteOn).toHaveBeenCalledTimes(2);
   });
 });
