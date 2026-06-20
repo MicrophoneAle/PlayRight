@@ -163,7 +163,7 @@ function matchStepAtSnapshot(
     practiceNotes,
   );
 
-  if (collected.length !== practiceNotes.length) {
+  if (!practiceNotesFullyMatched(practiceNotes, collected)) {
     return null;
   }
 
@@ -250,11 +250,13 @@ function resolveStepGraphicalNotes(
   }
   cursorOffsetRef.current = startOffset;
 
-  return collectGraphicalNotesWithTies(
+  const fallback = collectGraphicalNotesWithTies(
     osmd,
     attackGNotesUnderCursor(cursor),
     practiceNotes,
   );
+
+  return practiceNotesFullyMatched(practiceNotes, fallback) ? fallback : [];
 }
 
 function graphicalNoteFromSource(
@@ -268,18 +270,35 @@ function graphicalNoteFromSource(
   }
 }
 
-function noteMatchesPractice(
-  note: Note,
-  practiceNotes: ScriptNote[],
-): boolean {
+function noteMatchesPracticeNote(note: Note, practiceNote: ScriptNote): boolean {
   if (note.isRest()) {
     return false;
   }
 
-  const midi = osmdNoteMidi(note);
-  const hand = osmdNoteHand(note);
-  return practiceNotes.some(
-    (practiceNote) => practiceNote.midi === midi && practiceNote.hand === hand,
+  return (
+    osmdNoteMidi(note) === practiceNote.midi &&
+    osmdNoteHand(note) === practiceNote.hand
+  );
+}
+
+/** True when every script note is represented in the collected engraving (ties may add extra segments). */
+export function practiceNotesFullyMatched(
+  practiceNotes: ScriptNote[],
+  collected: GraphicalNote[],
+): boolean {
+  return practiceNotes.every((practiceNote) =>
+    collected.some((gNote) =>
+      noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
+    ),
+  );
+}
+
+function noteMatchesPractice(
+  note: Note,
+  practiceNotes: ScriptNote[],
+): boolean {
+  return practiceNotes.some((practiceNote) =>
+    noteMatchesPracticeNote(note, practiceNote),
   );
 }
 

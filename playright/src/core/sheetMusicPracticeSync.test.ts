@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   findCursorOffsetForStep,
+  practiceNotesFullyMatched,
   type CursorKeySnapshot,
 } from './sheetMusicPracticeSync.ts';
+import type { ScriptNote } from '../types/index.ts';
 
 function snapshot(
   keys: Array<[number, 'L' | 'R']>,
@@ -94,5 +96,45 @@ describe('findCursorOffsetForStep', () => {
         new Set(['63:L', '70:R']),
       ),
     ).toBe(1);
+  });
+});
+
+describe('practiceNotesFullyMatched', () => {
+  const tiedScriptNote: ScriptNote = {
+    pitch: 'C4',
+    midi: 60,
+    hand: 'R',
+    finger: null,
+  };
+
+  function mockGraphicalNote(midi: number, staffId: number) {
+    return {
+      sourceNote: {
+        isRest: () => false,
+        Pitch: { getHalfTone: () => midi - 12 },
+        ParentStaff: { Id: staffId },
+      },
+    } as import('opensheetmusicdisplay').GraphicalNote;
+  }
+
+  it('accepts multiple graphical tie segments for one merged script note', () => {
+    const collected = [mockGraphicalNote(60, 1), mockGraphicalNote(60, 1)];
+
+    expect(collected.length).not.toBe(1);
+    expect(practiceNotesFullyMatched([tiedScriptNote], collected)).toBe(true);
+  });
+
+  it('rejects when a script note is missing from the collected engraving', () => {
+    const collected = [mockGraphicalNote(60, 1)];
+
+    expect(
+      practiceNotesFullyMatched(
+        [
+          tiedScriptNote,
+          { pitch: 'E4', midi: 64, hand: 'R', finger: null },
+        ],
+        collected,
+      ),
+    ).toBe(false);
   });
 });
