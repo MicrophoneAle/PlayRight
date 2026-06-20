@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countMatchedPracticeNotes,
   findCursorOffsetForStep,
   measureIndexMatchesStep,
   practiceNotesFullyMatched,
@@ -146,5 +147,35 @@ describe('practiceNotesFullyMatched', () => {
         collected,
       ),
     ).toBe(false);
+  });
+});
+
+describe('partial highlight selection', () => {
+  const c4: ScriptNote = { pitch: 'C4', midi: 60, hand: 'R', finger: null };
+  const e4: ScriptNote = { pitch: 'E4', midi: 64, hand: 'R', finger: null };
+
+  function mockGraphicalNote(midi: number, staffId: number) {
+    return {
+      sourceNote: {
+        isRest: () => false,
+        Pitch: { getHalfTone: () => midi - 12 },
+        ParentStaff: { Id: staffId },
+      },
+    } as import('opensheetmusicdisplay').GraphicalNote;
+  }
+
+  it('counts matched notes without requiring a full step match', () => {
+    const collected = [mockGraphicalNote(60, 1)];
+
+    expect(countMatchedPracticeNotes([c4, e4], collected)).toBe(1);
+    expect(practiceNotesFullyMatched([c4, e4], collected)).toBe(false);
+  });
+
+  it('keeps a partial engraving highlightable instead of blanking the whole step', () => {
+    const collected = [mockGraphicalNote(60, 1), mockGraphicalNote(60, 1)];
+
+    expect(countMatchedPracticeNotes([c4, e4], collected)).toBe(1);
+    expect(collected.length).toBeGreaterThan(0);
+    expect(practiceNotesFullyMatched([c4, e4], collected)).toBe(false);
   });
 });

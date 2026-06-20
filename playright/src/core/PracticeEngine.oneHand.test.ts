@@ -300,6 +300,50 @@ describe('PracticeEngine one-hand progression', () => {
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
   });
 
+  it('visits every right-hand step in script order while skipping LH-only steps', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'C3', midi: 48, hand: 'L', finger: 1 }],
+      },
+      {
+        order: 2,
+        onset: 960,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
+      },
+      {
+        order: 3,
+        onset: 1440,
+        measureNumber: 1,
+        notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: 3 }],
+      },
+    ]);
+    engine.start();
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleNoteOn(60);
+    flushAdvance();
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+
+    engine.handleNoteOn(62);
+    flushAdvance();
+    expect(useEngineStore.getState().currentStepIndex).toBe(3);
+
+    engine.handleNoteOn(64);
+    flushAdvance();
+    expect(useEngineStore.getState().isPracticeActive).toBe(false);
+  });
+
   it('does not advance repeated steps while the same key stays held', () => {
     makeScript([
       {

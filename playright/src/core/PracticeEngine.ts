@@ -396,6 +396,10 @@ export class PracticeEngine {
   }
 
   private checkStepCompletion(): void {
+    if (this.practiceNotesForStep.length === 0) {
+      return;
+    }
+
     if (this.hitNoteIndices.size !== this.practiceNotesForStep.length) {
       return;
     }

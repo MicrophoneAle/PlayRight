@@ -336,7 +336,8 @@ function resolveStepGraphicalNotes(
   }
 
   const maxScan = 512;
-  let runtimeFallback: GraphicalNote[] | null = null;
+  let runtimeFallback: GraphicalNote[] = [];
+  let runtimeFallbackScore = 0;
 
   for (let scanned = 0; scanned < maxScan; scanned += 1) {
     const attackGNotes = attackGNotesUnderCursor(cursor);
@@ -356,17 +357,24 @@ function resolveStepGraphicalNotes(
       break;
     }
 
-    const notes = matchStepAtSnapshot(osmd, snapshot, practiceNotes);
+    const collected = collectHighlightNotesAtSnapshot(
+      osmd,
+      snapshot,
+      practiceNotes,
+    );
+    const score = countMatchedPracticeNotes(practiceNotes, collected);
 
-    if (notes) {
-      if (measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)) {
-        cursorOffsetRef.current = startOffset + scanned;
-        return notes;
-      }
+    if (score > runtimeFallbackScore) {
+      runtimeFallbackScore = score;
+      runtimeFallback = collected;
+    }
 
-      if (!runtimeFallback) {
-        runtimeFallback = notes;
-      }
+    if (
+      score === practiceNotes.length &&
+      measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)
+    ) {
+      cursorOffsetRef.current = startOffset + scanned;
+      return collected;
     }
 
     if (cursor.Iterator?.EndReached) {
@@ -376,7 +384,7 @@ function resolveStepGraphicalNotes(
     cursor.next();
   }
 
-  if (runtimeFallback) {
+  if (runtimeFallback.length > 0) {
     return runtimeFallback;
   }
 
@@ -386,14 +394,17 @@ function resolveStepGraphicalNotes(
   }
   cursorOffsetRef.current = startOffset;
 
-  const fallback = collectGraphicalNotesForStep(
+  return collectHighlightNotesAtSnapshot(
     osmd,
-    attackGNotesUnderCursor(cursor),
-    cursor.GNotesUnderCursor(),
+    {
+      cursorIndex: startOffset,
+      attackKeys: keysFromAttackGNotes(cursor.GNotesUnderCursor()),
+      attackGNotes: attackGNotesUnderCursor(cursor),
+      allGNotes: cursor.GNotesUnderCursor(),
+      measureIndex: cursor.Iterator?.CurrentMeasureIndex ?? 0,
+    },
     practiceNotes,
   );
-
-  return practiceNotesFullyMatched(practiceNotes, fallback) ? fallback : [];
 }
 
 function graphicalNoteFromSource(
@@ -418,16 +429,83 @@ function noteMatchesPracticeNote(note: Note, practiceNote: ScriptNote): boolean 
   );
 }
 
+/** Count how many script notes appear in the collected engraving. */
+export function countMatchedPracticeNotes(
+  practiceNotes: ScriptNote[],
+  collected: GraphicalNote[],
+): number {
+  return practiceNotes.filter((practiceNote) =>
+    collected.some((gNote) =>
+      noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
+    ),
+  ).length;
+}
+
 /** True when every script note is represented in the collected engraving (ties may add extra segments). */
 export function practiceNotesFullyMatched(
   practiceNotes: ScriptNote[],
   collected: GraphicalNote[],
 ): boolean {
-  return practiceNotes.every((practiceNote) =>
-    collected.some((gNote) =>
-      noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
-    ),
+  return countMatchedPracticeNotes(practiceNotes, collected) === practiceNotes.length;
+}
+
+function collectHighlightNotesAtSnapshot(
+  osmd: OpenSheetMusicDisplay,
+  snapshot: CursorSnapshot,
+  practiceNotes: ScriptNote[],
+): GraphicalNote[] {
+  if (practiceNotes.length === 0) {
+    return [];
+  }
+
+  const collected = collectGraphicalNotesForStep(
+    osmd,
+    snapshot.attackGNotes,
+    snapshot.allGNotes,
+    practiceNotes,
   );
+
+  return countMatchedPracticeNotes(practiceNotes, collected) > 0 ? collected : [];
+}
+
+function findBestPartialHighlightInSnapshots(
+  osmd: OpenSheetMusicDisplay,
+  snapshots: CursorSnapshot[],
+  searchStart: number,
+  practiceNotes: ScriptNote[],
+  stepMeasureNumber: number,
+): GraphicalNote[] {
+  let best: GraphicalNote[] = [];
+  let bestScore = 0;
+
+  for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
+    const snapshot = snapshots[cursorIdx];
+
+    if (
+      stepMeasureNumber > 1 &&
+      snapshot.measureIndex > stepMeasureNumber - 1
+    ) {
+      break;
+    }
+
+    const collected = collectHighlightNotesAtSnapshot(
+      osmd,
+      snapshot,
+      practiceNotes,
+    );
+    const score = countMatchedPracticeNotes(practiceNotes, collected);
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = collected;
+    }
+
+    if (score === practiceNotes.length) {
+      break;
+    }
+  }
+
+  return best;
 }
 
 function noteMatchesPractice(
@@ -585,6 +663,13 @@ export function buildPracticeVisualIndex(
     }
 
     stepCursorOffsets[stepIndex] = lastMatchedOffset;
+    stepGraphicalNotes[stepIndex] = findBestPartialHighlightInSnapshots(
+      osmd,
+      snapshots,
+      searchStart,
+      practiceNotes,
+      script[stepIndex].measureNumber,
+    );
   }
 
   osmd.cursor.reset();
