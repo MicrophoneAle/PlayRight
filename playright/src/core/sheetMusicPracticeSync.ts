@@ -3,7 +3,7 @@ import type {
   Note,
   OpenSheetMusicDisplay,
 } from 'opensheetmusicdisplay';
-import { getPracticeNotes } from './practiceSteps.ts';
+import { getPracticeNotes, stepHasPracticeNotes } from './practiceSteps.ts';
 import type { EngineMode, Hand, PlaybackScript, PlayingPlaybackNote, ScriptNote } from '../types/index.ts';
 import type { SheetScrollMode } from '../store/useEngineStore.ts';
 
@@ -37,10 +37,49 @@ interface CursorSnapshot {
   cursorIndex: number;
   attackKeys: Set<string>;
   attackGNotes: GraphicalNote[];
+  sourceTimestamp: number;
 }
 
-interface CursorKeySnapshot {
+export interface CursorKeySnapshot {
   attackKeys: Set<string>;
+  sourceTimestamp?: number;
+}
+
+export interface StepMatchTimingOptions {
+  targetOnsetQuarterNotes: number;
+  lastMatchedOnsetQuarterNotes: number;
+  onsetToleranceQuarterNotes: number;
+  maxLookaheadQuarterNotes?: number;
+}
+
+export function practiceStepOnsetQuarterNotes(
+  onsetDivisions: number,
+  divisionsPerQuarter: number,
+): number {
+  return onsetDivisions / divisionsPerQuarter;
+}
+
+export function onsetToleranceQuarterNotes(divisionsPerQuarter: number): number {
+  return Math.max(1 / divisionsPerQuarter, 0.001);
+}
+
+function lastPracticeOnsetQuarterNotesBeforeStep(
+  script: PlaybackScript,
+  stepIndex: number,
+  engineMode: EngineMode,
+  activeHand: Hand,
+  divisionsPerQuarter: number,
+): number {
+  for (let index = stepIndex - 1; index >= 0; index -= 1) {
+    if (stepHasPracticeNotes(script[index], engineMode, activeHand)) {
+      return practiceStepOnsetQuarterNotes(
+        script[index].onset,
+        divisionsPerQuarter,
+      );
+    }
+  }
+
+  return 0;
 }
 
 function osmdNoteMidi(note: Note): number {
@@ -128,19 +167,66 @@ function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): Graph
   );
 }
 
-/** Find the next cursor snapshot whose attack keys contain every expected practice note. */
+/** Find the cursor snapshot whose attack keys and score time best match a practice step. */
 export function findCursorOffsetForStep(
   snapshots: readonly CursorKeySnapshot[],
   searchStart: number,
   expected: Set<string>,
+  timing?: StepMatchTimingOptions,
 ): number {
+  if (expected.size === 0) {
+    return -1;
+  }
+
+  if (!timing) {
+    for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
+      if (stepMatchesKeys(expected, snapshots[cursorIdx].attackKeys)) {
+        return cursorIdx;
+      }
+    }
+
+    return -1;
+  }
+
+  const {
+    targetOnsetQuarterNotes,
+    lastMatchedOnsetQuarterNotes,
+    onsetToleranceQuarterNotes: tolerance,
+    maxLookaheadQuarterNotes = 4,
+  } = timing;
+
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+
   for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
-    if (stepMatchesKeys(expected, snapshots[cursorIdx].attackKeys)) {
-      return cursorIdx;
+    const snapshot = snapshots[cursorIdx];
+    const timestamp = snapshot.sourceTimestamp ?? 0;
+
+    if (timestamp > targetOnsetQuarterNotes + maxLookaheadQuarterNotes) {
+      break;
+    }
+
+    if (timestamp < lastMatchedOnsetQuarterNotes - tolerance) {
+      continue;
+    }
+
+    if (!stepMatchesKeys(expected, snapshot.attackKeys)) {
+      continue;
+    }
+
+    const distance = Math.abs(timestamp - targetOnsetQuarterNotes);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = cursorIdx;
     }
   }
 
-  return -1;
+  if (bestIndex < 0) {
+    return -1;
+  }
+
+  const relaxedTolerance = Math.max(tolerance * 4, 0.125);
+  return bestDistance <= relaxedTolerance ? bestIndex : -1;
 }
 
 function findFallbackCursorOffsetForStep(
@@ -148,20 +234,54 @@ function findFallbackCursorOffsetForStep(
   snapshots: CursorSnapshot[],
   searchStart: number,
   practiceNotes: ScriptNote[],
+  timing: StepMatchTimingOptions,
 ): { offset: number; notes: GraphicalNote[] } | null {
+  const {
+    targetOnsetQuarterNotes,
+    lastMatchedOnsetQuarterNotes,
+    onsetToleranceQuarterNotes: tolerance,
+    maxLookaheadQuarterNotes = 4,
+  } = timing;
+
+  let bestMatch: { offset: number; notes: GraphicalNote[]; distance: number } | null =
+    null;
+
   for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
+    const snapshot = snapshots[cursorIdx];
+    const timestamp = snapshot.sourceTimestamp;
+
+    if (timestamp > targetOnsetQuarterNotes + maxLookaheadQuarterNotes) {
+      break;
+    }
+
+    if (timestamp < lastMatchedOnsetQuarterNotes - tolerance) {
+      continue;
+    }
+
     const collected = collectGraphicalNotesWithTies(
       osmd,
-      snapshots[cursorIdx].attackGNotes,
+      snapshot.attackGNotes,
       practiceNotes,
     );
 
-    if (collected.length === practiceNotes.length) {
-      return { offset: cursorIdx, notes: collected };
+    if (collected.length !== practiceNotes.length) {
+      continue;
+    }
+
+    const distance = Math.abs(timestamp - targetOnsetQuarterNotes);
+    if (!bestMatch || distance < bestMatch.distance) {
+      bestMatch = { offset: cursorIdx, notes: collected, distance };
     }
   }
 
-  return null;
+  if (!bestMatch) {
+    return null;
+  }
+
+  const relaxedTolerance = Math.max(tolerance * 4, 0.125);
+  return bestMatch.distance <= relaxedTolerance
+    ? { offset: bestMatch.offset, notes: bestMatch.notes }
+    : null;
 }
 
 function resolveStepGraphicalNotes(
@@ -170,6 +290,7 @@ function resolveStepGraphicalNotes(
   stepIndex: number,
   practiceNotes: ScriptNote[],
   cursorOffsetRef: { current: number },
+  timing: StepMatchTimingOptions,
 ): GraphicalNote[] {
   const indexed = visualIndex.stepGraphicalNotes[stepIndex] ?? [];
   if (indexed.length > 0) {
@@ -192,33 +313,41 @@ function resolveStepGraphicalNotes(
     cursor.next();
   }
 
+  const snapshotsFromCursor: CursorKeySnapshot[] = [];
   const maxScan = 512;
+
   for (let scanned = 0; scanned < maxScan; scanned += 1) {
-    const attackGNotes = attackGNotesUnderCursor(cursor);
-    const attackKeys = keysFromAttackGNotes(cursor.GNotesUnderCursor());
-
-    if (stepMatchesKeys(expected, attackKeys)) {
-      const offset = startOffset + scanned;
-      cursorOffsetRef.current = offset;
-      return collectGraphicalNotesWithTies(osmd, attackGNotes, practiceNotes);
-    }
-
-    const partial = collectGraphicalNotesWithTies(
-      osmd,
-      attackGNotes,
-      practiceNotes,
-    );
-    if (partial.length === practiceNotes.length) {
-      const offset = startOffset + scanned;
-      cursorOffsetRef.current = offset;
-      return partial;
-    }
+    snapshotsFromCursor.push({
+      attackKeys: keysFromAttackGNotes(cursor.GNotesUnderCursor()),
+      sourceTimestamp: cursor.Iterator?.CurrentSourceTimestamp?.RealValue ?? 0,
+    });
 
     if (cursor.Iterator?.EndReached) {
       break;
     }
 
     cursor.next();
+  }
+
+  const matchIndex = findCursorOffsetForStep(
+    snapshotsFromCursor,
+    0,
+    expected,
+    timing,
+  );
+
+  if (matchIndex >= 0) {
+    cursor.reset();
+    const matchedOffset = startOffset + matchIndex;
+    for (let i = 0; i < matchedOffset; i += 1) {
+      cursor.next();
+    }
+    cursorOffsetRef.current = matchedOffset;
+    return collectGraphicalNotesWithTies(
+      osmd,
+      attackGNotesUnderCursor(cursor),
+      practiceNotes,
+    );
   }
 
   cursor.reset();
@@ -312,6 +441,7 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
       cursorIndex,
       attackKeys: keysFromAttackGNotes(gNotes),
       attackGNotes,
+      sourceTimestamp: cursor.Iterator?.CurrentSourceTimestamp?.RealValue ?? 0,
     });
 
     const iterator = cursor.Iterator;
@@ -332,13 +462,16 @@ export function buildPracticeVisualIndex(
   script: PlaybackScript,
   engineMode: EngineMode,
   activeHand: Hand,
+  divisionsPerQuarter: number,
 ): PracticeVisualIndex {
   const snapshots = walkCursorSnapshots(osmd);
   const stepCursorOffsets = new Array<number>(script.length).fill(0);
   const stepGraphicalNotes: GraphicalNote[][] = script.map(() => []);
+  const onsetTolerance = onsetToleranceQuarterNotes(divisionsPerQuarter);
 
   let searchStart = 0;
   let lastMatchedOffset = 0;
+  let lastMatchedOnsetQuarterNotes = 0;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
     const expected = practiceKeysForStep(
@@ -358,15 +491,28 @@ export function buildPracticeVisualIndex(
       continue;
     }
 
+    const targetOnsetQuarterNotes = practiceStepOnsetQuarterNotes(
+      script[stepIndex].onset,
+      divisionsPerQuarter,
+    );
+    const timing: StepMatchTimingOptions = {
+      targetOnsetQuarterNotes,
+      lastMatchedOnsetQuarterNotes,
+      onsetToleranceQuarterNotes: onsetTolerance,
+    };
+
     const exactMatch = findCursorOffsetForStep(
       snapshots,
       searchStart,
       expected,
+      timing,
     );
 
     if (exactMatch >= 0) {
       stepCursorOffsets[stepIndex] = exactMatch;
       lastMatchedOffset = exactMatch;
+      lastMatchedOnsetQuarterNotes =
+        snapshots[exactMatch].sourceTimestamp ?? targetOnsetQuarterNotes;
       searchStart = exactMatch + 1;
       stepGraphicalNotes[stepIndex] = collectGraphicalNotesWithTies(
         osmd,
@@ -381,11 +527,14 @@ export function buildPracticeVisualIndex(
       snapshots,
       searchStart,
       practiceNotes,
+      timing,
     );
 
     if (fallback) {
       stepCursorOffsets[stepIndex] = fallback.offset;
       lastMatchedOffset = fallback.offset;
+      lastMatchedOnsetQuarterNotes =
+        snapshots[fallback.offset].sourceTimestamp ?? targetOnsetQuarterNotes;
       searchStart = fallback.offset + 1;
       stepGraphicalNotes[stepIndex] = fallback.notes;
       continue;
@@ -1203,6 +1352,8 @@ export function syncSheetMusicPracticeVisuals(
   osmd: OpenSheetMusicDisplay,
   options: {
     stepIndex: number;
+    script: PlaybackScript;
+    divisionsPerQuarter: number;
     visualIndex: PracticeVisualIndex | null;
     expectedMidiNotes: number[];
     practiceNotes: ScriptNote[];
@@ -1217,6 +1368,8 @@ export function syncSheetMusicPracticeVisuals(
 ): GraphicalNote[] {
   const {
     stepIndex,
+    script,
+    divisionsPerQuarter,
     visualIndex,
     expectedMidiNotes,
     practiceNotes,
@@ -1238,6 +1391,12 @@ export function syncSheetMusicPracticeVisuals(
     return [];
   }
 
+  const step = script[stepIndex];
+  if (!step) {
+    cursor.hide();
+    return [];
+  }
+
   const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
   moveCursorToOffset(osmd, offset, cursorOffsetRef);
   cursor.hide();
@@ -1248,6 +1407,20 @@ export function syncSheetMusicPracticeVisuals(
     stepIndex,
     practiceNotes,
     cursorOffsetRef,
+    {
+      targetOnsetQuarterNotes: practiceStepOnsetQuarterNotes(
+        step.onset,
+        divisionsPerQuarter,
+      ),
+      lastMatchedOnsetQuarterNotes: lastPracticeOnsetQuarterNotesBeforeStep(
+        script,
+        stepIndex,
+        engineMode,
+        activeHand,
+        divisionsPerQuarter,
+      ),
+      onsetToleranceQuarterNotes: onsetToleranceQuarterNotes(divisionsPerQuarter),
+    },
   );
 
   if (toHighlight.length === 0) {

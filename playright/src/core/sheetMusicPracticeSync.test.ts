@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { findCursorOffsetForStep } from './sheetMusicPracticeSync.ts';
-
-interface TestSnapshot {
-  cursorIndex: number;
-  attackKeys: Set<string>;
-}
+import {
+  findCursorOffsetForStep,
+  type CursorKeySnapshot,
+} from './sheetMusicPracticeSync.ts';
 
 function snapshot(
-  cursorIndex: number,
+  sourceTimestamp: number,
   keys: Array<[number, 'L' | 'R']>,
-): TestSnapshot {
+): CursorKeySnapshot {
   return {
-    cursorIndex,
+    sourceTimestamp,
     attackKeys: new Set(keys.map(([midi, hand]) => `${midi}:${hand}`)),
   };
 }
@@ -20,8 +18,8 @@ describe('findCursorOffsetForStep', () => {
   it('finds the first matching cursor snapshot from searchStart', () => {
     const snapshots = [
       snapshot(0, [[60, 'R']]),
-      snapshot(1, [[62, 'R']]),
-      snapshot(2, [[64, 'R']]),
+      snapshot(0.5, [[62, 'R']]),
+      snapshot(1, [[64, 'R']]),
     ];
 
     expect(
@@ -35,7 +33,7 @@ describe('findCursorOffsetForStep', () => {
   it('returns -1 when no later snapshot contains every expected key', () => {
     const snapshots = [
       snapshot(0, [[60, 'R']]),
-      snapshot(1, [[62, 'R']]),
+      snapshot(0.5, [[62, 'R']]),
     ];
 
     expect(
@@ -46,9 +44,9 @@ describe('findCursorOffsetForStep', () => {
   it('does not exhaust later steps when an intermediate step has no match', () => {
     const snapshots = [
       snapshot(0, [[60, 'R']]),
-      snapshot(1, [[62, 'R']]),
-      snapshot(2, [[64, 'R']]),
-      snapshot(3, [[65, 'R']]),
+      snapshot(0.5, [[62, 'R']]),
+      snapshot(1, [[64, 'R']]),
+      snapshot(1.5, [[65, 'R']]),
     ];
 
     let searchStart = 0;
@@ -74,5 +72,24 @@ describe('findCursorOffsetForStep', () => {
       new Set(['64:R']),
     );
     expect(step2).toBe(2);
+  });
+
+  it('prefers the match closest to the step onset when duplicate keys repeat later', () => {
+    const snapshots = [
+      snapshot(1, [[63, 'L'], [70, 'R']]),
+      snapshot(2, [[63, 'L'], [70, 'R']]),
+      snapshot(40, [[63, 'L'], [70, 'R']]),
+    ];
+
+    const expected = new Set(['63:L', '70:R']);
+    const timing = {
+      targetOnsetQuarterNotes: 2,
+      lastMatchedOnsetQuarterNotes: 1,
+      onsetToleranceQuarterNotes: 0.02,
+    };
+
+    expect(
+      findCursorOffsetForStep(snapshots, 0, expected, timing),
+    ).toBe(1);
   });
 });
