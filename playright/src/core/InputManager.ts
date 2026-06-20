@@ -565,6 +565,8 @@ export class InputManager {
   private readonly getScopeTranspose: () => number;
   private readonly onFingerPress?: (mapping: FingerMapping) => void;
   private readonly activePhysicalKeys = new Set<string>();
+  /** One-hand: physical key code → MIDI attacked on keydown (persists across scope shifts). */
+  private readonly heldNoteMidis = new Map<string, number>();
   private cachedScopeStart: number | null = null;
   private cachedTranspose: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
@@ -587,74 +589,26 @@ export class InputManager {
         state.scopeStartMidi !== prevState.scopeStartMidi ||
         state.scopeTranspose !== prevState.scopeTranspose
       ) {
-        this.remapHeldKeysAfterScopeChange(
-          prevState.scopeStartMidi,
-          prevState.scopeTranspose,
-        );
+        this.refreshScopeKeyMap();
       }
     });
   }
 
-  private getActiveMidis(): number[] {
-    const midis: number[] = [];
-
-    for (const code of this.activePhysicalKeys) {
-      const midi = this.cachedKeyMap[code];
-      if (midi !== undefined) {
-        midis.push(midi);
-      }
-    }
-
-    return midis;
+  private refreshScopeKeyMap(): void {
+    const scopeStart = useEngineStore.getState().scopeStartMidi;
+    const transpose = useEngineStore.getState().scopeTranspose;
+    this.cachedScopeStart = scopeStart;
+    this.cachedTranspose = transpose;
+    this.cachedKeyMap = getScopeKeyMap(scopeStart, transpose);
   }
 
   private releaseHeldKeys(): void {
-    for (const midi of this.getActiveMidis()) {
+    for (const midi of this.heldNoteMidis.values()) {
       practiceEngine.handleNoteOff(midi);
     }
 
+    this.heldNoteMidis.clear();
     this.activePhysicalKeys.clear();
-  }
-
-  /** Remap held keys to the new scope without cutting sustained notes when pitch is unchanged. */
-  private remapHeldKeysAfterScopeChange(
-    prevScopeStart: number,
-    prevTranspose: number,
-  ): void {
-    const newScopeStart = useEngineStore.getState().scopeStartMidi;
-    const newTranspose = useEngineStore.getState().scopeTranspose;
-
-    if (this.activePhysicalKeys.size === 0) {
-      this.cachedScopeStart = newScopeStart;
-      this.cachedTranspose = newTranspose;
-      this.cachedKeyMap = getScopeKeyMap(newScopeStart, newTranspose);
-      return;
-    }
-
-    const prevMap = getScopeKeyMap(prevScopeStart, prevTranspose);
-    const newMap = getScopeKeyMap(newScopeStart, newTranspose);
-
-    for (const code of this.activePhysicalKeys) {
-      const oldMidi = prevMap[code];
-      if (oldMidi === undefined) {
-        continue;
-      }
-
-      const newMidi = newMap[code];
-      if (newMidi === undefined) {
-        practiceEngine.handleNoteOff(oldMidi);
-        continue;
-      }
-
-      if (oldMidi !== newMidi) {
-        practiceEngine.handleNoteOff(oldMidi);
-        practiceEngine.handleNoteOn(newMidi);
-      }
-    }
-
-    this.cachedScopeStart = newScopeStart;
-    this.cachedTranspose = newTranspose;
-    this.cachedKeyMap = newMap;
   }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
@@ -721,6 +675,7 @@ export class InputManager {
     }
 
     this.activePhysicalKeys.add(event.code);
+    this.heldNoteMidis.set(event.code, midiPitch);
     void this.audioEngine.warm();
     practiceEngine.handleNoteOn(midiPitch);
 
@@ -755,19 +710,19 @@ export class InputManager {
       }
     }
 
-    const midiPitch = this.resolveMidiPitch(event);
-    if (midiPitch === undefined) {
+    if (!this.activePhysicalKeys.has(event.code)) {
       return;
     }
 
     event.preventDefault();
 
-    if (!this.activePhysicalKeys.has(event.code)) {
-      return;
-    }
-
+    const attackedMidi = this.heldNoteMidis.get(event.code);
     this.activePhysicalKeys.delete(event.code);
-    practiceEngine.handleNoteOff(midiPitch);
+    this.heldNoteMidis.delete(event.code);
+
+    if (attackedMidi !== undefined) {
+      practiceEngine.handleNoteOff(attackedMidi);
+    }
   };
 
   private isBlockedPracticeKey(event: KeyboardEvent): boolean {
