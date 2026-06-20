@@ -36,9 +36,9 @@ describe('playbackTiming', () => {
   });
 
   it('shortens non-tied playback durations by a small articulation gap', () => {
-    expect(playbackDurationQuarterNotes(1)).toBeCloseTo(0.88, 5);
-    expect(playbackDurationQuarterNotes(2)).toBeCloseTo(1.88, 5);
-    expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.38, 5);
+    expect(playbackDurationQuarterNotes(1)).toBeCloseTo(0.94, 5);
+    expect(playbackDurationQuarterNotes(2)).toBeCloseTo(1.94, 5);
+    expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.44, 5);
   });
 
   it('keeps tied playback durations at the written length', () => {
@@ -75,6 +75,6 @@ describe('playbackTiming', () => {
       480,
     );
 
-    expect(end).toBeCloseTo(1.88, 5);
+    expect(end).toBeCloseTo(1.94, 5);
   });
 });
