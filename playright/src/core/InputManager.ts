@@ -579,6 +579,7 @@ export class InputManager {
     this.getScopeTranspose = options.getScopeTranspose ?? (() => 0);
     this.onFingerPress = options.onFingerPress;
     practiceEngine.attachAudioEngine(audioEngine);
+    practiceEngine.setHeldMidisProvider(() => this.getActiveMidis());
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
 
@@ -587,26 +588,32 @@ export class InputManager {
         state.scopeStartMidi !== prevState.scopeStartMidi ||
         state.scopeTranspose !== prevState.scopeTranspose
       ) {
-        this.activePhysicalKeys.clear();
+        this.releaseHeldKeys();
         this.cachedScopeStart = null;
         this.cachedTranspose = null;
-        return;
-      }
-
-      if (
-        state.currentStepIndex !== prevState.currentStepIndex &&
-        state.isPracticeActive &&
-        !state.playMode &&
-        state.engineMode === 'one-hand'
-      ) {
-        for (const code of this.activePhysicalKeys) {
-          const midi = this.cachedKeyMap[code];
-          if (midi !== undefined) {
-            practiceEngine.handleNoteOn(midi);
-          }
-        }
       }
     });
+  }
+
+  private getActiveMidis(): number[] {
+    const midis: number[] = [];
+
+    for (const code of this.activePhysicalKeys) {
+      const midi = this.cachedKeyMap[code];
+      if (midi !== undefined) {
+        midis.push(midi);
+      }
+    }
+
+    return midis;
+  }
+
+  private releaseHeldKeys(): void {
+    for (const midi of this.getActiveMidis()) {
+      practiceEngine.handleNoteOff(midi);
+    }
+
+    this.activePhysicalKeys.clear();
   }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
@@ -718,7 +725,7 @@ export class InputManager {
     }
 
     this.activePhysicalKeys.delete(event.code);
-    this.audioEngine.noteOff(midiPitch);
+    practiceEngine.handleNoteOff(midiPitch);
   };
 
   private isBlockedPracticeKey(event: KeyboardEvent): boolean {
@@ -737,9 +744,9 @@ export class InputManager {
   }
 
   destroy(): void {
+    this.releaseHeldKeys();
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
     window.removeEventListener('keyup', this.handleKeyUp, { capture: true });
-    this.activePhysicalKeys.clear();
   }
 
   private isOneHandNoteKeyCode(keyCode: string): boolean {

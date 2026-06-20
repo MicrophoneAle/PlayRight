@@ -38,13 +38,14 @@ describe('PracticeEngine one-hand progression', () => {
   let rafCallback: FrameRequestCallback | null = null;
 
   beforeEach(() => {
-    resetStore();
     rafCallback = null;
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       rafCallback = cb;
       return 1;
     });
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    resetStore();
 
     engine = new PracticeEngine();
     engine.ensureStoreSubscription();
@@ -230,5 +231,56 @@ describe('PracticeEngine one-hand progression', () => {
     expect(map.KeyA).toBeLessThanOrEqual(highMidi);
     expect(map.Semicolon).toBeGreaterThanOrEqual(highMidi);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([highMidi]);
+  });
+
+  it('attacks each midi only once until it is released', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+      },
+      {
+        order: 1,
+        onset: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleNoteOn(60);
+    engine.handleNoteOn(60);
+    expect(audio.noteOn).toHaveBeenCalledTimes(1);
+
+    engine.handleNoteOff(60);
+    engine.handleNoteOn(60);
+    expect(audio.noteOn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not re-attack held notes when advancing to the next step', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        notes: [
+          { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
+          { pitch: 'E4', midi: 64, hand: 'R', finger: 3 },
+        ],
+      },
+      {
+        order: 1,
+        onset: 1,
+        notes: [{ pitch: 'G4', midi: 67, hand: 'R', finger: 5 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleNoteOn(60);
+    engine.handleNoteOn(64);
+    expect(audio.noteOn).toHaveBeenCalledTimes(2);
+
+    flushAdvance();
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(audio.noteOn).toHaveBeenCalledTimes(2);
   });
 });

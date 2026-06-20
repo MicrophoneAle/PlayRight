@@ -14,6 +14,8 @@ export class PracticeEngine {
   private expectedNotes: Set<number> = new Set();
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
+  private soundingMidis = new Set<number>();
+  private getHeldMidis: (() => readonly number[]) | null = null;
   private completionFrame: number | null = null;
   private storeSubscriptionInitialized = false;
 
@@ -42,6 +44,11 @@ export class PracticeEngine {
 
   attachAudioEngine(audioEngine: AudioEngine): void {
     this.audioEngine = audioEngine;
+  }
+
+  /** Supplies midis for keys still held after a step or scope change. */
+  setHeldMidisProvider(provider: () => readonly number[]): void {
+    this.getHeldMidis = provider;
   }
 
   start(): void {
@@ -90,6 +97,7 @@ export class PracticeEngine {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
+    this.releaseAllSoundingNotes();
     actions.setStepIndex(0);
     actions.setPracticeActive(false);
     actions.setHasPracticeStarted(false);
@@ -126,13 +134,26 @@ export class PracticeEngine {
       return;
     }
 
-    engine.noteOn(midi);
+    if (!this.soundingMidis.has(midi)) {
+      engine.noteOn(midi);
+      this.soundingMidis.add(midi);
+    }
 
     if (!useEngineStore.getState().isPracticeActive) {
       return;
     }
 
     this.registerPracticeHit(midi);
+  }
+
+  handleNoteOff(midi: number): void {
+    const engine = this.audioEngine;
+    if (!engine || !this.soundingMidis.has(midi)) {
+      return;
+    }
+
+    engine.noteOff(midi);
+    this.soundingMidis.delete(midi);
   }
 
   handleFingerPress(mapping: FingerMapping): void {
@@ -229,6 +250,31 @@ export class PracticeEngine {
     this.scheduleCompletionCheck();
   }
 
+  /** Re-register held keys after a step change without re-attacking their sound. */
+  private registerHeldPracticeHits(): void {
+    if (!this.getHeldMidis || !useEngineStore.getState().isPracticeActive) {
+      return;
+    }
+
+    for (const midi of this.getHeldMidis()) {
+      this.registerPracticeHit(midi);
+    }
+  }
+
+  private releaseAllSoundingNotes(): void {
+    const engine = this.audioEngine;
+    if (!engine) {
+      this.soundingMidis.clear();
+      return;
+    }
+
+    for (const midi of this.soundingMidis) {
+      engine.noteOff(midi);
+    }
+
+    this.soundingMidis.clear();
+  }
+
   private playNotePreview(midi: number): void {
     const engine = this.audioEngine;
     if (!engine) {
@@ -311,6 +357,8 @@ export class PracticeEngine {
     if (alignScope || useEngineStore.getState().isPracticeActive) {
       alignScopeToMidis(this.expectedNotes);
     }
+
+    this.registerHeldPracticeHits();
   }
 
   seekToStep(stepIndex: number): void {
