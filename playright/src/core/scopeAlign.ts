@@ -60,6 +60,10 @@ export function alignScopeToMidis(midis: Iterable<number>): void {
 
   const currentScopeStart = useEngineStore.getState().scopeStartMidi;
 
+  if (midisFitDisplayScope(midiList, currentScopeStart)) {
+    return;
+  }
+
   if (midisFitCoreAnchors(midiList, currentScopeStart)) {
     return;
   }

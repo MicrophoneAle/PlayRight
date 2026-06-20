@@ -151,16 +151,6 @@ function matchStepAtSnapshot(
   snapshot: CursorSnapshot,
   practiceNotes: ScriptNote[],
 ): GraphicalNote[] | null {
-  const hasAttack = snapshot.attackGNotes.some((gNote) =>
-    practiceNotes.some((practiceNote) =>
-      noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
-    ),
-  );
-
-  if (!hasAttack) {
-    return null;
-  }
-
   const collected = collectGraphicalNotesForStep(
     osmd,
     snapshot.attackGNotes,
@@ -172,7 +162,85 @@ function matchStepAtSnapshot(
     return null;
   }
 
+  const hasAttackInStep = collected.some(
+    (gNote) =>
+      !isTieContinuation(gNote.sourceNote) &&
+      practiceNotes.some((practiceNote) =>
+        noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
+      ),
+  );
+
+  if (!hasAttackInStep) {
+    return null;
+  }
+
   return collected;
+}
+
+function matchStepAtSnapshotWithLookahead(
+  osmd: OpenSheetMusicDisplay,
+  snapshots: CursorSnapshot[],
+  startIdx: number,
+  practiceNotes: ScriptNote[],
+  maxSpan: number,
+): { notes: GraphicalNote[]; endIdx: number } | null {
+  if (practiceNotes.length <= 1 || startIdx >= snapshots.length) {
+    return null;
+  }
+
+  const baseMeasure = snapshots[startIdx].measureIndex;
+  const attackGNotes: GraphicalNote[] = [];
+  const allGNotes: GraphicalNote[] = [];
+  const seenAttack = new Set<Note>();
+  const seenAll = new Set<Note>();
+
+  for (let span = 0; span <= maxSpan; span += 1) {
+    const idx = startIdx + span;
+    if (idx >= snapshots.length) {
+      break;
+    }
+
+    if (span > 0 && snapshots[idx].measureIndex !== baseMeasure) {
+      break;
+    }
+
+    for (const gNote of snapshots[idx].attackGNotes) {
+      if (!seenAttack.has(gNote.sourceNote)) {
+        seenAttack.add(gNote.sourceNote);
+        attackGNotes.push(gNote);
+      }
+    }
+
+    for (const gNote of snapshots[idx].allGNotes) {
+      if (!seenAll.has(gNote.sourceNote)) {
+        seenAll.add(gNote.sourceNote);
+        allGNotes.push(gNote);
+      }
+    }
+
+    const collected = collectGraphicalNotesForStep(
+      osmd,
+      attackGNotes,
+      allGNotes,
+      practiceNotes,
+    );
+
+    if (!practiceNotesFullyMatched(practiceNotes, collected)) {
+      continue;
+    }
+
+    const hasAttack = attackGNotes.some((gNote) =>
+      practiceNotes.some((practiceNote) =>
+        noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
+      ),
+    );
+
+    if (hasAttack) {
+      return { notes: collected, endIdx: idx };
+    }
+  }
+
+  return null;
 }
 
 /** OSMD measure indices are 0-based; MusicXML measure numbers are 1-based. */
@@ -189,8 +257,12 @@ function findSequentialStepMatch(
   searchStart: number,
   practiceNotes: ScriptNote[],
   stepMeasureNumber: number,
-): { offset: number; notes: GraphicalNote[] } | null {
-  let fallbackMatch: { offset: number; notes: GraphicalNote[] } | null = null;
+): { offset: number; endIdx: number; notes: GraphicalNote[] } | null {
+  let fallbackMatch: {
+    offset: number;
+    endIdx: number;
+    notes: GraphicalNote[];
+  } | null = null;
 
   for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
     const snapshot = snapshots[cursorIdx];
@@ -202,18 +274,33 @@ function findSequentialStepMatch(
       break;
     }
 
-    const notes = matchStepAtSnapshot(osmd, snapshot, practiceNotes);
+    const directMatch = matchStepAtSnapshot(osmd, snapshot, practiceNotes);
+    const lookaheadMatch =
+      directMatch === null && practiceNotes.length > 1
+        ? matchStepAtSnapshotWithLookahead(
+            osmd,
+            snapshots,
+            cursorIdx,
+            practiceNotes,
+            3,
+          )
+        : null;
+
+    const notes = directMatch ?? lookaheadMatch?.notes ?? null;
+    const endIdx = lookaheadMatch?.endIdx ?? cursorIdx;
 
     if (!notes) {
       continue;
     }
 
+    const match = { offset: cursorIdx, endIdx, notes };
+
     if (measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)) {
-      return { offset: cursorIdx, notes };
+      return match;
     }
 
     if (!fallbackMatch) {
-      fallbackMatch = { offset: cursorIdx, notes };
+      fallbackMatch = match;
     }
   }
 
@@ -401,6 +488,17 @@ function collectGraphicalNotesForStep(
     addGraphicalNote(source, gNote);
   }
 
+  for (const gNote of allGNotes) {
+    const source = gNote.sourceNote;
+    if (source.isRest() || seen.has(source)) {
+      continue;
+    }
+
+    if (noteMatchesPractice(source, practiceNotes)) {
+      addGraphicalNote(source, gNote);
+    }
+  }
+
   return results;
 }
 
@@ -481,7 +579,7 @@ export function buildPracticeVisualIndex(
     if (match) {
       stepCursorOffsets[stepIndex] = match.offset;
       lastMatchedOffset = match.offset;
-      searchStart = match.offset + 1;
+      searchStart = match.endIdx + 1;
       stepGraphicalNotes[stepIndex] = match.notes;
       continue;
     }

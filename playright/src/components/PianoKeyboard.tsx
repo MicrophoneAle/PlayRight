@@ -200,7 +200,6 @@ function getKeyHighlightState(
     playingMidiCounts,
     expectedMidiSet,
     showStepKeyHighlight,
-    isKeyInDisplayRange,
     twoHandMidiLabels,
     isPhysicallyActive,
   } = options;
@@ -215,10 +214,7 @@ function getKeyHighlightState(
     return { isExpected, isPressed: isPhysicallyActive };
   }
 
-  const isExpected =
-    showStepKeyHighlight &&
-    expectedMidiSet.has(midi) &&
-    isKeyInDisplayRange(midi);
+  const isExpected = showStepKeyHighlight && expectedMidiSet.has(midi);
 
   return { isExpected, isPressed: isPhysicallyActive };
 }

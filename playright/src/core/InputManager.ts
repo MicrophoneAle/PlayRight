@@ -587,9 +587,10 @@ export class InputManager {
         state.scopeStartMidi !== prevState.scopeStartMidi ||
         state.scopeTranspose !== prevState.scopeTranspose
       ) {
-        this.releaseHeldKeys();
-        this.cachedScopeStart = null;
-        this.cachedTranspose = null;
+        this.remapHeldKeysAfterScopeChange(
+          prevState.scopeStartMidi,
+          prevState.scopeTranspose,
+        );
       }
     });
   }
@@ -613,6 +614,47 @@ export class InputManager {
     }
 
     this.activePhysicalKeys.clear();
+  }
+
+  /** Remap held keys to the new scope without cutting sustained notes when pitch is unchanged. */
+  private remapHeldKeysAfterScopeChange(
+    prevScopeStart: number,
+    prevTranspose: number,
+  ): void {
+    const newScopeStart = useEngineStore.getState().scopeStartMidi;
+    const newTranspose = useEngineStore.getState().scopeTranspose;
+
+    if (this.activePhysicalKeys.size === 0) {
+      this.cachedScopeStart = newScopeStart;
+      this.cachedTranspose = newTranspose;
+      this.cachedKeyMap = getScopeKeyMap(newScopeStart, newTranspose);
+      return;
+    }
+
+    const prevMap = getScopeKeyMap(prevScopeStart, prevTranspose);
+    const newMap = getScopeKeyMap(newScopeStart, newTranspose);
+
+    for (const code of this.activePhysicalKeys) {
+      const oldMidi = prevMap[code];
+      if (oldMidi === undefined) {
+        continue;
+      }
+
+      const newMidi = newMap[code];
+      if (newMidi === undefined) {
+        practiceEngine.handleNoteOff(oldMidi);
+        continue;
+      }
+
+      if (oldMidi !== newMidi) {
+        practiceEngine.handleNoteOff(oldMidi);
+        practiceEngine.handleNoteOn(newMidi);
+      }
+    }
+
+    this.cachedScopeStart = newScopeStart;
+    this.cachedTranspose = newTranspose;
+    this.cachedKeyMap = newMap;
   }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {

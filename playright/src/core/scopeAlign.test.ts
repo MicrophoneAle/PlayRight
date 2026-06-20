@@ -31,6 +31,12 @@ describe('alignScopeToMidis', () => {
     expect(Math.min(...values)).toBeLessThanOrEqual(58);
   });
 
+  it('keeps scope when notes fit the display window even outside A through ;', () => {
+    alignScopeToMidis([60, 78]);
+
+    expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+  });
+
   it('moves the scope when practice notes sit above the current Semicolon anchor', () => {
     alignScopeToMidis([88]);
 

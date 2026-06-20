@@ -370,14 +370,15 @@ export class PracticeEngine {
 
     const practiceNotes = getPracticeNotes(script[index], engineMode, activeHand);
     this.practiceNotesForStep = practiceNotes;
-    for (const note of practiceNotes) {
-      this.expectedNotes.add(note.midi);
+    const stepMidis = practiceNotes.map((note) => note.midi);
+    for (const midi of stepMidis) {
+      this.expectedNotes.add(midi);
     }
 
-    actions.setExpectedNotes(Array.from(this.expectedNotes));
+    actions.setExpectedNotes(stepMidis);
 
     if (alignScope || useEngineStore.getState().isPracticeActive) {
-      alignScopeToMidis(this.expectedNotes);
+      alignScopeToMidis(stepMidis);
     }
   }
 
