@@ -58,7 +58,7 @@ function timeAdvanceForSkippedNote(element: NormalizedNote): number {
 }
 
 function groupByOnset(
-  absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
 ): PlaybackScript {
   const sorted = [...absoluteNotes].sort((left, right) => left.onset - right.onset);
 
@@ -67,6 +67,7 @@ function groupByOnset(
 
   for (let index = 0; index < sorted.length; ) {
     const onset = sorted[index].onset;
+    const measureNumber = sorted[index].measureNumber;
     const notes: ScriptNote[] = [];
 
     while (index < sorted.length && sorted[index].onset === onset) {
@@ -74,7 +75,7 @@ function groupByOnset(
       index += 1;
     }
 
-    const step: StepOrder = { order, onset, notes };
+    const step: StepOrder = { order, onset, measureNumber, notes };
     script.push(step);
     order += 1;
   }
@@ -101,7 +102,7 @@ export { getMidiNumber, formatPitch } from './pitch.ts';
 export class MusicXMLMapper {
   static mapToDomain(elements: NormalizedElement[]): PlaybackScript {
     let currentTime = 0;
-    const absoluteNotes: Array<{ note: ScriptNote; onset: number }> = [];
+    const absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }> = [];
     const openTies = new Map<string, number>();
 
     for (const element of elements) {
@@ -158,9 +159,17 @@ export class MusicXMLMapper {
 
       if (element.isChord && absoluteNotes.length > 0) {
         const chordOnset = absoluteNotes[absoluteNotes.length - 1].onset;
-        absoluteNotes.push({ note: scriptNote, onset: chordOnset });
+        absoluteNotes.push({
+          note: scriptNote,
+          onset: chordOnset,
+          measureNumber: element.measureNumber,
+        });
       } else {
-        absoluteNotes.push({ note: scriptNote, onset: currentTime });
+        absoluteNotes.push({
+          note: scriptNote,
+          onset: currentTime,
+          measureNumber: element.measureNumber,
+        });
         if (element.isTieStart) {
           openTies.set(tieKey, absoluteNotes.length - 1);
         }

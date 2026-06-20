@@ -31,12 +31,15 @@ export interface PracticeScrollState {
 export interface PracticeVisualIndex {
   stepCursorOffsets: number[];
   stepGraphicalNotes: GraphicalNote[][];
+  stepMeasureNumbers: number[];
 }
 
 interface CursorSnapshot {
   cursorIndex: number;
   attackKeys: Set<string>;
   attackGNotes: GraphicalNote[];
+  allGNotes: GraphicalNote[];
+  measureIndex: number;
 }
 
 export interface CursorKeySnapshot {
@@ -44,7 +47,11 @@ export interface CursorKeySnapshot {
 }
 
 function osmdNoteMidi(note: Note): number {
-  return note.Pitch.getHalfTone() + 12;
+  const halfTone =
+    typeof (note as Note & { halfTone?: number }).halfTone === 'number'
+      ? (note as Note & { halfTone: number }).halfTone
+      : note.Pitch.getHalfTone();
+  return halfTone + 12;
 }
 
 function osmdNoteHand(note: Note): Hand {
@@ -109,14 +116,6 @@ function stepMatchesKeys(expected: Set<string>, atCursor: Set<string>): boolean 
   return true;
 }
 
-function practiceKeysFromNotes(notes: ScriptNote[]): Set<string> {
-  const keys = new Set<string>();
-  for (const note of notes) {
-    keys.add(noteKey(note.midi, note.hand));
-  }
-  return keys;
-}
-
 function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): GraphicalNote[] {
   if (!cursor) {
     return [];
@@ -151,15 +150,21 @@ function matchStepAtSnapshot(
   osmd: OpenSheetMusicDisplay,
   snapshot: CursorSnapshot,
   practiceNotes: ScriptNote[],
-  expected: Set<string>,
 ): GraphicalNote[] | null {
-  if (!stepMatchesKeys(expected, snapshot.attackKeys)) {
+  const hasAttack = snapshot.attackGNotes.some((gNote) =>
+    practiceNotes.some((practiceNote) =>
+      noteMatchesPracticeNote(gNote.sourceNote, practiceNote),
+    ),
+  );
+
+  if (!hasAttack) {
     return null;
   }
 
-  const collected = collectGraphicalNotesWithTies(
+  const collected = collectGraphicalNotesForStep(
     osmd,
     snapshot.attackGNotes,
+    snapshot.allGNotes,
     practiceNotes,
   );
 
@@ -170,27 +175,49 @@ function matchStepAtSnapshot(
   return collected;
 }
 
+/** OSMD measure indices are 0-based; MusicXML measure numbers are 1-based. */
+export function measureIndexMatchesStep(
+  measureIndex: number,
+  stepMeasureNumber: number,
+): boolean {
+  return measureIndex === stepMeasureNumber - 1;
+}
+
 function findSequentialStepMatch(
   osmd: OpenSheetMusicDisplay,
   snapshots: CursorSnapshot[],
   searchStart: number,
   practiceNotes: ScriptNote[],
-  expected: Set<string>,
+  stepMeasureNumber: number,
 ): { offset: number; notes: GraphicalNote[] } | null {
-  for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
-    const notes = matchStepAtSnapshot(
-      osmd,
-      snapshots[cursorIdx],
-      practiceNotes,
-      expected,
-    );
+  let fallbackMatch: { offset: number; notes: GraphicalNote[] } | null = null;
 
-    if (notes) {
+  for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
+    const snapshot = snapshots[cursorIdx];
+
+    if (
+      stepMeasureNumber > 1 &&
+      snapshot.measureIndex > stepMeasureNumber - 1
+    ) {
+      break;
+    }
+
+    const notes = matchStepAtSnapshot(osmd, snapshot, practiceNotes);
+
+    if (!notes) {
+      continue;
+    }
+
+    if (measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)) {
       return { offset: cursorIdx, notes };
+    }
+
+    if (!fallbackMatch) {
+      fallbackMatch = { offset: cursorIdx, notes };
     }
   }
 
-  return null;
+  return fallbackMatch;
 }
 
 function resolveStepGraphicalNotes(
@@ -209,8 +236,8 @@ function resolveStepGraphicalNotes(
     return [];
   }
 
-  const expected = practiceKeysFromNotes(practiceNotes);
   const startOffset = Math.max(0, visualIndex.stepCursorOffsets[stepIndex] ?? 0);
+  const stepMeasureNumber = visualIndex.stepMeasureNumbers[stepIndex] ?? 1;
   const cursor = osmd.cursor;
   if (!cursor) {
     return [];
@@ -222,19 +249,37 @@ function resolveStepGraphicalNotes(
   }
 
   const maxScan = 512;
+  let runtimeFallback: GraphicalNote[] | null = null;
+
   for (let scanned = 0; scanned < maxScan; scanned += 1) {
     const attackGNotes = attackGNotesUnderCursor(cursor);
+    const allGNotes = cursor.GNotesUnderCursor();
     const snapshot: CursorSnapshot = {
       cursorIndex: startOffset + scanned,
-      attackKeys: keysFromAttackGNotes(cursor.GNotesUnderCursor()),
+      attackKeys: keysFromAttackGNotes(allGNotes),
       attackGNotes,
+      allGNotes,
+      measureIndex: cursor.Iterator?.CurrentMeasureIndex ?? 0,
     };
-    const notes = matchStepAtSnapshot(osmd, snapshot, practiceNotes, expected);
+
+    if (
+      stepMeasureNumber > 1 &&
+      snapshot.measureIndex > stepMeasureNumber - 1
+    ) {
+      break;
+    }
+
+    const notes = matchStepAtSnapshot(osmd, snapshot, practiceNotes);
 
     if (notes) {
-      const matchedOffset = startOffset + scanned;
-      cursorOffsetRef.current = matchedOffset;
-      return notes;
+      if (measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)) {
+        cursorOffsetRef.current = startOffset + scanned;
+        return notes;
+      }
+
+      if (!runtimeFallback) {
+        runtimeFallback = notes;
+      }
     }
 
     if (cursor.Iterator?.EndReached) {
@@ -244,15 +289,20 @@ function resolveStepGraphicalNotes(
     cursor.next();
   }
 
+  if (runtimeFallback) {
+    return runtimeFallback;
+  }
+
   cursor.reset();
   for (let i = 0; i < startOffset; i += 1) {
     cursor.next();
   }
   cursorOffsetRef.current = startOffset;
 
-  const fallback = collectGraphicalNotesWithTies(
+  const fallback = collectGraphicalNotesForStep(
     osmd,
     attackGNotesUnderCursor(cursor),
+    cursor.GNotesUnderCursor(),
     practiceNotes,
   );
 
@@ -302,36 +352,53 @@ function noteMatchesPractice(
   );
 }
 
-function collectGraphicalNotesWithTies(
+function collectGraphicalNotesForStep(
   osmd: OpenSheetMusicDisplay,
   attackGNotes: GraphicalNote[],
+  allGNotes: GraphicalNote[],
   practiceNotes: ScriptNote[],
 ): GraphicalNote[] {
   const results: GraphicalNote[] = [];
   const seen = new Set<Note>();
 
-  for (const attackGNote of attackGNotes) {
-    const source = attackGNote.sourceNote;
-    if (!noteMatchesPractice(source, practiceNotes)) {
-      continue;
+  const addGraphicalNote = (source: Note, preferred?: GraphicalNote): void => {
+    if (seen.has(source) || !noteMatchesPractice(source, practiceNotes)) {
+      return;
     }
 
+    const gNote =
+      (preferred?.sourceNote === source
+        ? preferred
+        : graphicalNoteFromSource(osmd, source)) ?? preferred;
+
+    if (!gNote) {
+      return;
+    }
+
+    seen.add(source);
+    results.push(gNote);
+  };
+
+  for (const attackGNote of attackGNotes) {
+    const source = attackGNote.sourceNote;
     const tie = source.NoteTie;
     const tiedSources = tie ? tie.Notes : [source];
 
     for (const tiedNote of tiedSources) {
-      if (seen.has(tiedNote) || !noteMatchesPractice(tiedNote, practiceNotes)) {
-        continue;
-      }
-
-      const gNote = graphicalNoteFromSource(osmd, tiedNote);
-      if (!gNote) {
-        continue;
-      }
-
-      seen.add(tiedNote);
-      results.push(gNote);
+      addGraphicalNote(
+        tiedNote,
+        tiedNote === source ? attackGNote : undefined,
+      );
     }
+  }
+
+  for (const gNote of allGNotes) {
+    const source = gNote.sourceNote;
+    if (source.isRest() || !isTieContinuation(source)) {
+      continue;
+    }
+
+    addGraphicalNote(source, gNote);
   }
 
   return results;
@@ -354,6 +421,8 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
       cursorIndex,
       attackKeys: keysFromAttackGNotes(gNotes),
       attackGNotes,
+      allGNotes: gNotes,
+      measureIndex: cursor.Iterator?.CurrentMeasureIndex ?? 0,
     });
 
     const iterator = cursor.Iterator;
@@ -378,6 +447,7 @@ export function buildPracticeVisualIndex(
   const snapshots = walkCursorSnapshots(osmd);
   const stepCursorOffsets = new Array<number>(script.length).fill(0);
   const stepGraphicalNotes: GraphicalNote[][] = script.map(() => []);
+  const stepMeasureNumbers = script.map((step) => step.measureNumber);
 
   let searchStart = 0;
   let lastMatchedOffset = 0;
@@ -405,7 +475,7 @@ export function buildPracticeVisualIndex(
       snapshots,
       searchStart,
       practiceNotes,
-      expected,
+      script[stepIndex].measureNumber,
     );
 
     if (match) {
@@ -420,7 +490,7 @@ export function buildPracticeVisualIndex(
   }
 
   osmd.cursor.reset();
-  return { stepCursorOffsets, stepGraphicalNotes };
+  return { stepCursorOffsets, stepGraphicalNotes, stepMeasureNumbers };
 }
 
 function moveCursorToOffset(

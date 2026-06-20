@@ -81,11 +81,13 @@ describe('playbackTiming', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null, durationDivisions: 480 }],
       },
       {
         order: 1,
         onset: 480,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: null, durationDivisions: 1920 }],
       },
     ];
@@ -100,11 +102,13 @@ describe('playbackTiming', () => {
         {
           order: 0,
           onset: 0,
+        measureNumber: 1,
           notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null, durationDivisions: 480 }],
         },
         {
           order: 1,
           onset: 480,
+        measureNumber: 1,
           notes: [
             { pitch: 'E4', midi: 64, hand: 'R', finger: null, durationDivisions: 240 },
             { pitch: 'G4', midi: 67, hand: 'R', finger: null, durationDivisions: 480 },
@@ -123,11 +127,13 @@ describe('playbackTiming', () => {
         {
           order: 0,
           onset: 0,
+        measureNumber: 1,
           notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null, durationDivisions: 480 }],
         },
         {
           order: 1,
           onset: 480,
+        measureNumber: 1,
           notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: null, durationDivisions: 7680 }],
         },
       ],

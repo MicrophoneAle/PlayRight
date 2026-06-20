@@ -67,11 +67,13 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -89,6 +91,7 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [
           { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
           { pitch: 'E4', midi: 64, hand: 'R', finger: 3 },
@@ -97,6 +100,7 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'G4', midi: 67, hand: 'R', finger: 5 }],
       },
     ]);
@@ -116,6 +120,7 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [
           { pitch: 'C3', midi: 48, hand: 'L', finger: 1 },
           { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
@@ -138,11 +143,13 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -163,11 +170,13 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -190,11 +199,13 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -218,6 +229,7 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'E6', midi: highMidi, hand: 'R', finger: 3 }],
       },
     ]);
@@ -238,11 +250,13 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -262,6 +276,7 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [
           { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
           { pitch: 'E4', midi: 64, hand: 'R', finger: 3 },
@@ -270,6 +285,7 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'G4', midi: 67, hand: 'R', finger: 5 }],
       },
     ]);
@@ -289,16 +305,19 @@ describe('PracticeEngine one-hand progression', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'E6', midi: 88, hand: 'R', finger: 3 }],
       },
       {
         order: 1,
         onset: 480,
+        measureNumber: 1,
         notes: [{ pitch: 'E6', midi: 88, hand: 'R', finger: 3 }],
       },
       {
         order: 2,
         onset: 960,
+        measureNumber: 1,
         notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 3 }],
       },
     ]);

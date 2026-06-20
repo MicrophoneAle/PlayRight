@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findCursorOffsetForStep,
+  measureIndexMatchesStep,
   practiceNotesFullyMatched,
   type CursorKeySnapshot,
 } from './sheetMusicPracticeSync.ts';
@@ -96,6 +97,15 @@ describe('findCursorOffsetForStep', () => {
         new Set(['63:L', '70:R']),
       ),
     ).toBe(1);
+  });
+});
+
+describe('measureIndexMatchesStep', () => {
+  it('maps MusicXML measure numbers to OSMD measure indices', () => {
+    expect(measureIndexMatchesStep(0, 1)).toBe(true);
+    expect(measureIndexMatchesStep(9, 10)).toBe(true);
+    expect(measureIndexMatchesStep(10, 11)).toBe(true);
+    expect(measureIndexMatchesStep(10, 30)).toBe(false);
   });
 });
 

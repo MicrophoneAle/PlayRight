@@ -20,6 +20,7 @@ export interface NormalizedNote {
   timeBeats: number;
   timeBeatType: number;
   divisionsAtNote: number;
+  measureNumber: number;
 }
 
 export interface NormalizedControl {
@@ -34,6 +35,7 @@ interface MeasureContext {
   beats: number;
   beatType: number;
   divisions: number;
+  measureNumber: number;
 }
 
 const DEFAULT_BEATS = 4;
@@ -389,6 +391,7 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     timeBeats: measureContext.beats,
     timeBeatType: measureContext.beatType,
     divisionsAtNote: measureContext.divisions,
+    measureNumber: measureContext.measureNumber,
   };
 }
 
@@ -488,12 +491,16 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
     beats: DEFAULT_BEATS,
     beatType: DEFAULT_BEAT_TYPE,
     divisions: DEFAULT_DIVISIONS,
+    measureNumber: 1,
   };
 
   for (const measureWrapper of partEntry.part) {
     if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
       continue;
     }
+
+    const wrapperAttrs = isRecord(measureWrapper[':@']) ? measureWrapper[':@'] : {};
+    measureContext.measureNumber = toNumber(wrapperAttrs['@_number'], measureContext.measureNumber);
 
     collectOrderedMeasureElements(measureWrapper.measure, results, measureContext);
   }

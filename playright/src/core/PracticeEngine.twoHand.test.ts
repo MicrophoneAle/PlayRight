@@ -65,6 +65,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
     ]);
@@ -82,6 +83,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
     ]);
@@ -101,11 +103,13 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -125,11 +129,13 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
       },
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -151,6 +157,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [
           { pitch: 'C3', midi: 48, hand: 'L', finger: 1 },
           { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
@@ -159,6 +166,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -178,6 +186,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [
           { pitch: 'C4', midi: 60, hand: 'L', finger: 5 },
           { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
@@ -186,6 +195,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 1,
         onset: 1,
+        measureNumber: 1,
         notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
       },
     ]);
@@ -205,6 +215,7 @@ describe('PracticeEngine two-hand finger press', () => {
       {
         order: 0,
         onset: 0,
+        measureNumber: 1,
         notes: [
           { pitch: 'C3', midi: 48, hand: 'L', finger: 1 },
           { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },

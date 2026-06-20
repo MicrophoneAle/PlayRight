@@ -3,7 +3,7 @@ import type { StepOrder } from '../types/index.ts';
 import { getExpectedNoteForFinger } from './practiceSteps.ts';
 
 function step(notes: StepOrder['notes']): StepOrder {
-  return { order: 0, onset: 0, notes };
+  return { order: 0, onset: 0, measureNumber: 1, notes };
 }
 
 describe('getExpectedNoteForFinger', () => {

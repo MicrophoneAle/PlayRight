@@ -13,6 +13,7 @@ const sampleScript: PlaybackScript = [
   {
     order: 0,
     onset: 0,
+    measureNumber: 1,
     notes: [
       { pitch: 'C4', midi: 60, hand: 'R', finger: null },
       { pitch: 'E4', midi: 64, hand: 'R', finger: 2, fingerSource: 'score' },
@@ -21,6 +22,7 @@ const sampleScript: PlaybackScript = [
   {
     order: 1,
     onset: 480,
+    measureNumber: 1,
     notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: null }],
   },
 ];

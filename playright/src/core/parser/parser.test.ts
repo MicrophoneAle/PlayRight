@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { parseMusicXmlToScript } from './index.ts';
 import { MINIMAL_MUSICXML } from './__fixtures__/minimal.musicxml.ts';
 import { TIE_AND_SYNC_MUSICXML } from './__fixtures__/tieAndSync.musicxml.ts';
+import { MOMS_LIKE_THESE_MUSICXML } from './__fixtures__/momsLikeThese.musicxml.ts';
 
 async function unzipScoreXmlFromMxlBuffer(buffer: ArrayBuffer): Promise<string> {
   const archive = await JSZip.loadAsync(buffer);
@@ -134,6 +135,58 @@ describe('parseMusicXmlToScript', () => {
       'G4',
     ]);
     expect(chordStep.notes.every((note) => note.durationDivisions === 480)).toBe(true);
+  });
+
+  it('parses fermata opening chords, eighth-note pairs, and tied intervals', () => {
+    const { script } = parseMusicXmlToScript(MOMS_LIKE_THESE_MUSICXML);
+
+    expect(script[0]).toMatchObject({
+      measureNumber: 1,
+      onset: 0,
+    });
+    expect(script[0].notes.map((note) => note.pitch).sort()).toEqual([
+      'B2',
+      'B4',
+      'D#5',
+      'F#5',
+    ]);
+
+    const eighthPair = script.filter(
+      (step) =>
+        step.measureNumber === 10 &&
+        step.notes.length === 1 &&
+        step.notes[0].hand === 'R',
+    );
+    expect(eighthPair).toHaveLength(2);
+    expect(eighthPair.map((step) => step.notes[0].pitch)).toEqual(['D5', 'C#5']);
+
+    const intervalStep = script.find(
+      (step) =>
+        step.measureNumber === 11 &&
+        step.notes.some((note) => note.pitch === 'F#5') &&
+        step.notes.some((note) => note.pitch === 'A5'),
+    );
+    expect(intervalStep?.notes.map((note) => note.pitch).sort()).toEqual([
+      'A5',
+      'F#5',
+    ]);
+
+    const tiedD5 = script.find(
+      (step) =>
+        step.measureNumber === 10 &&
+        step.notes.some((note) => note.pitch === 'D5' && note.hand === 'R'),
+    );
+    expect(tiedD5?.notes.find((note) => note.pitch === 'D5')).toMatchObject({
+      durationDivisions: 720,
+    });
+    expect(
+      script.some(
+        (step) =>
+          step.measureNumber === 11 &&
+          step.notes.length === 1 &&
+          step.notes[0].pitch === 'D5',
+      ),
+    ).toBe(false);
   });
 
   it('merges a multi-measure tie into one long note at the first onset', () => {

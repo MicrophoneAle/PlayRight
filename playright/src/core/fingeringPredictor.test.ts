@@ -38,8 +38,9 @@ function step(
   order: number,
   onset: number,
   notes: ScriptNote[],
+  measureNumber = 1,
 ): PlaybackScript[number] {
-  return { order, onset, notes };
+  return { order, onset, measureNumber, notes };
 }
 
 function isMonotonicFingers(hand: Hand, fingers: Finger[]): boolean {

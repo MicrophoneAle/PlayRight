@@ -16,6 +16,7 @@ const ScriptNoteSchema = z.object({
 const StepOrderSchema = z.object({
   order: z.number().int().min(0),
   onset: z.number().int().min(0),
+  measureNumber: z.number().int().min(1),
   notes: z.array(ScriptNoteSchema),
 });
 
