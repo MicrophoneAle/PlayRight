@@ -1,4 +1,8 @@
-import { keyAlterForStep, isPlayablePitchStep } from './pitch.ts';
+import {
+  accidentalAlterFromText,
+  keyAlterForStep,
+  isPlayablePitchStep,
+} from './pitch.ts';
 
 export interface NormalizedNote {
   type: 'note';
@@ -36,6 +40,7 @@ interface MeasureContext {
   beatType: number;
   divisions: number;
   measureNumber: number;
+  activeAccidentals: Map<string, number>;
 }
 
 const DEFAULT_BEATS = 4;
@@ -196,6 +201,11 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
       continue;
     }
 
+    if (tag === 'accidental') {
+      record.accidental = readOrderedText(value);
+      continue;
+    }
+
     record[tag] = readOrderedText(value);
   }
 
@@ -353,13 +363,46 @@ function extractKeyFifths(attributesChildren: unknown[]): number | null {
   return null;
 }
 
+function pitchAccidentalKey(step: string, octave: number): string {
+  return `${step}:${octave}`;
+}
+
+function resolveEffectiveAlter(
+  step: string,
+  octave: number,
+  pitch: RawRecord,
+  note: RawRecord,
+  measureContext: MeasureContext,
+): number {
+  if (pitch.alter !== undefined && pitch.alter !== null) {
+    return toNumber(pitch.alter, 0);
+  }
+
+  const accidentalAlter =
+    note.accidental !== undefined && note.accidental !== null
+      ? accidentalAlterFromText(toString(note.accidental, ''))
+      : null;
+
+  const carryKey = pitchAccidentalKey(step, octave);
+
+  if (accidentalAlter !== null) {
+    measureContext.activeAccidentals.set(carryKey, accidentalAlter);
+    return accidentalAlter;
+  }
+
+  const carriedAlter = measureContext.activeAccidentals.get(carryKey);
+  if (carriedAlter !== undefined) {
+    return carriedAlter;
+  }
+
+  return keyAlterForStep(step, measureContext.fifths);
+}
+
 function normalizeNote(rawNote: unknown, measureContext: MeasureContext): NormalizedNote {
   const note = isRecord(rawNote) ? rawNote : {};
   const pitch = isRecord(note.pitch) ? note.pitch : {};
   const step = toString(pitch.step, '').trim().charAt(0).toUpperCase();
   const octave = toNumber(pitch.octave, 0);
-  const hasExplicitAlter = pitch.alter !== undefined && pitch.alter !== null;
-  const explicitAlter = hasExplicitAlter ? toNumber(pitch.alter, 0) : null;
   const isRest = note.rest != null;
   const isCue = note.cue != null;
   const isUnpitched = note.unpitched != null;
@@ -374,8 +417,7 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     type: 'note',
     step,
     octave,
-    alter:
-      explicitAlter !== null ? explicitAlter : keyAlterForStep(step, measureContext.fifths),
+    alter: resolveEffectiveAlter(step, octave, pitch, note, measureContext),
     duration: toNumber(note.duration, 0),
     staff: toNumber(note.staff, 1),
     fingering: extractFingering(note),
@@ -492,6 +534,7 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
     beatType: DEFAULT_BEAT_TYPE,
     divisions: DEFAULT_DIVISIONS,
     measureNumber: 1,
+    activeAccidentals: new Map(),
   };
 
   for (const measureWrapper of partEntry.part) {
@@ -501,6 +544,7 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
 
     const wrapperAttrs = isRecord(measureWrapper[':@']) ? measureWrapper[':@'] : {};
     measureContext.measureNumber = toNumber(wrapperAttrs['@_number'], measureContext.measureNumber);
+    measureContext.activeAccidentals.clear();
 
     collectOrderedMeasureElements(measureWrapper.measure, results, measureContext);
   }

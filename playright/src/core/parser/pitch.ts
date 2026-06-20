@@ -19,6 +19,28 @@ export function isPlayablePitchStep(step: string): boolean {
   return NATURAL_PITCH_STEPS.has(letter);
 }
 
+/** Maps MusicXML `<accidental>` text to semitone alteration; unknown names yield null. */
+export function accidentalAlterFromText(text: string): number | null {
+  const normalized = text.trim().toLowerCase().replace(/_/g, '-');
+
+  switch (normalized) {
+    case 'sharp':
+      return 1;
+    case 'flat':
+      return -1;
+    case 'natural':
+      return 0;
+    case 'double-sharp':
+    case 'sharp-sharp':
+      return 2;
+    case 'flat-flat':
+    case 'double-flat':
+      return -2;
+    default:
+      return null;
+  }
+}
+
 /** Key-signature accidental when MusicXML omits `<alter>`. */
 export function keyAlterForStep(step: string, fifths: number): number {
   const letter = step.trim().charAt(0).toUpperCase();

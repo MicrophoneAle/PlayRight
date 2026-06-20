@@ -283,6 +283,173 @@ describe('parseMusicXmlToScript', () => {
   });
 });
 
+describe('accidental resolution', () => {
+  const ACCIDENTAL_SHARP = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>0</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>F</step><octave>4</octave></pitch>
+        <accidental>sharp</accidental>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const ACCIDENTAL_NATURAL = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>4</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>G</step><octave>4</octave></pitch>
+        <accidental>natural</accidental>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const ACCIDENTAL_CARRY = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>0</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <accidental>sharp</accidental>
+        <duration>480</duration>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const ACCIDENTAL_RESET = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>0</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <accidental>sharp</accidental>
+        <duration>480</duration>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>C</step><octave>5</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const EXPLICIT_ALTER = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>0</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>D</step><alter>1</alter><octave>5</octave></pitch>
+        <accidental>flat</accidental>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const EXPLICIT_ALTER_EVERY_NOTE = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>4</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>B</step><alter>0</alter><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+      <note>
+        <pitch><step>D</step><alter>1</alter><octave>5</octave></pitch>
+        <duration>480</duration>
+      </note>
+      <note>
+        <pitch><step>F</step><alter>1</alter><octave>5</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  it('resolves a written sharp accidental without pitch alter', () => {
+    const { script } = parseMusicXmlToScript(ACCIDENTAL_SHARP);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'F#4', midi: 66 });
+  });
+
+  it('resolves a written natural that cancels the key signature', () => {
+    const { script } = parseMusicXmlToScript(ACCIDENTAL_NATURAL);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'G4', midi: 67 });
+  });
+
+  it('carries an accidental through the rest of the measure', () => {
+    const { script } = parseMusicXmlToScript(ACCIDENTAL_CARRY);
+
+    expect(script).toHaveLength(2);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'C#5', midi: 73 });
+    expect(script[1].notes[0]).toMatchObject({ pitch: 'C#5', midi: 73 });
+  });
+
+  it('resets carried accidentals at a barline', () => {
+    const { script } = parseMusicXmlToScript(ACCIDENTAL_RESET);
+
+    expect(script).toHaveLength(2);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'C#5', midi: 73 });
+    expect(script[1].notes[0]).toMatchObject({ pitch: 'C5', midi: 72 });
+  });
+
+  it('uses explicit pitch alter over accidental and carry', () => {
+    const { script } = parseMusicXmlToScript(EXPLICIT_ALTER);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'D#5', midi: 75 });
+  });
+
+  it('parses scores with explicit alter on every note identically to before', () => {
+    const { script } = parseMusicXmlToScript(EXPLICIT_ALTER_EVERY_NOTE);
+
+    expect(script).toHaveLength(3);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'B4', midi: 71 });
+    expect(script[1].notes[0]).toMatchObject({ pitch: 'D#5', midi: 75 });
+    expect(script[2].notes[0]).toMatchObject({ pitch: 'F#5', midi: 78 });
+  });
+});
+
 describe('parseMusicXmlToScript defensive fixes', () => {
   const SCORE_TIMEWISE = `<?xml version="1.0" encoding="UTF-8"?>
 <score-timewise version="3.1">
