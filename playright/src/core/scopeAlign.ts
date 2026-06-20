@@ -1,6 +1,7 @@
 import {
   getDisplayScopeMidiBounds,
   getDynamicKeyMap,
+  midisFitScopeKeyMap,
   PIANO_END_MIDI,
   PIANO_START_MIDI,
   SCOPE_SIZE,
@@ -52,29 +53,68 @@ function findBestScopeStart(
   return best;
 }
 
+function findBestScopeStartForKeyMap(
+  midis: number[],
+  currentScopeStart: number,
+  transpose: number,
+): number | null {
+  let best: number | null = null;
+  let bestDistance = Infinity;
+
+  for (let start = PIANO_START_MIDI; start <= MAX_SCOPE_START; start += 1) {
+    if (!midisFitScopeKeyMap(midis, start, transpose)) {
+      continue;
+    }
+
+    const distance = Math.abs(start - currentScopeStart);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = start;
+    }
+  }
+
+  return best;
+}
+
 export function alignScopeToMidis(midis: Iterable<number>): void {
   const midiList = [...midis];
   if (midiList.length === 0) {
     return;
   }
 
-  const currentScopeStart = useEngineStore.getState().scopeStartMidi;
+  const { scopeStartMidi, scopeTranspose } = useEngineStore.getState();
 
-  if (midisFitDisplayScope(midiList, currentScopeStart)) {
+  if (midisFitScopeKeyMap(midiList, scopeStartMidi, scopeTranspose)) {
     return;
   }
 
-  if (midisFitCoreAnchors(midiList, currentScopeStart)) {
+  const keyMapScopeStart = findBestScopeStartForKeyMap(
+    midiList,
+    scopeStartMidi,
+    scopeTranspose,
+  );
+  if (keyMapScopeStart !== null) {
+    if (keyMapScopeStart !== scopeStartMidi) {
+      useEngineStore.getState().actions.setScopeStart(keyMapScopeStart);
+    }
+    return;
+  }
+
+  if (midisFitDisplayScope(midiList, scopeStartMidi)) {
+    return;
+  }
+
+  if (midisFitCoreAnchors(midiList, scopeStartMidi)) {
     return;
   }
 
   const coreScopeStart = findBestScopeStart(
     midiList,
-    currentScopeStart,
+    scopeStartMidi,
     true,
   );
   if (coreScopeStart !== null) {
-    if (coreScopeStart !== currentScopeStart) {
+    if (coreScopeStart !== scopeStartMidi) {
       useEngineStore.getState().actions.setScopeStart(coreScopeStart);
     }
     return;
@@ -82,10 +122,10 @@ export function alignScopeToMidis(midis: Iterable<number>): void {
 
   const displayScopeStart = findBestScopeStart(
     midiList,
-    currentScopeStart,
+    scopeStartMidi,
     false,
   );
-  if (displayScopeStart !== null && displayScopeStart !== currentScopeStart) {
+  if (displayScopeStart !== null && displayScopeStart !== scopeStartMidi) {
     useEngineStore.getState().actions.setScopeStart(displayScopeStart);
   }
 }

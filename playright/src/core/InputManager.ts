@@ -349,6 +349,42 @@ export function getScopeKeyMap(
   );
 }
 
+export function midiHasPhysicalKeyInScope(
+  midi: number,
+  scopeStart: number,
+  transpose = 0,
+): boolean {
+  const keyMap = getScopeKeyMap(scopeStart, transpose);
+  return Object.values(keyMap).includes(midi);
+}
+
+export function midisFitScopeKeyMap(
+  midis: number[],
+  scopeStart: number,
+  transpose = 0,
+): boolean {
+  return midis.every((midi) => midiHasPhysicalKeyInScope(midi, scopeStart, transpose));
+}
+
+export function expectedMidisMissingPhysicalKey(
+  midis: readonly number[],
+  scopeStart: number,
+  transpose = 0,
+): number[] {
+  return midis.filter(
+    (midi) =>
+      isMidiInDisplayScope(midi, scopeStart) &&
+      !midiHasPhysicalKeyInScope(midi, scopeStart, transpose),
+  );
+}
+
+export function expectedMidisOutsideDisplayScope(
+  midis: readonly number[],
+  scopeStart: number,
+): number[] {
+  return midis.filter((midi) => !isMidiInDisplayScope(midi, scopeStart));
+}
+
 export function getExtensionMidis(
   keyMap: Record<string, number>,
 ): Set<number> {

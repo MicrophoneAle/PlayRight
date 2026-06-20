@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { alignScopeToMidis } from './scopeAlign.ts';
-import { getDynamicKeyMap } from './InputManager.ts';
+import {
+  getDynamicKeyMap,
+  getScopeKeyMap,
+  midisFitScopeKeyMap,
+} from './InputManager.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 describe('alignScopeToMidis', () => {
@@ -40,8 +44,15 @@ describe('alignScopeToMidis', () => {
   it('moves the scope when practice notes sit above the current Semicolon anchor', () => {
     alignScopeToMidis([88]);
 
-    const map = getDynamicKeyMap(useEngineStore.getState().scopeStartMidi);
-    expect(map.KeyA).toBeLessThanOrEqual(88);
-    expect(map.Semicolon).toBeGreaterThanOrEqual(88);
+    const scopeStart = useEngineStore.getState().scopeStartMidi;
+    expect(midisFitScopeKeyMap([88], scopeStart, 0)).toBe(true);
+    expect(Object.values(getScopeKeyMap(scopeStart, 0))).toContain(88);
+  });
+
+  it('aligns scope so every note in an interval maps to a physical key', () => {
+    alignScopeToMidis([78, 81]);
+
+    const scopeStart = useEngineStore.getState().scopeStartMidi;
+    expect(midisFitScopeKeyMap([78, 81], scopeStart, 0)).toBe(true);
   });
 });

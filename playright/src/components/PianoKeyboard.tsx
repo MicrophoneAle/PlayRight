@@ -4,25 +4,23 @@ import { useAuth } from '@clerk/react';
 import {
   getLabelForKeyMapMidi,
   getScopeKeyMap,
+  expectedMidisMissingPhysicalKey,
+  expectedMidisOutsideDisplayScope,
   isMidiInDisplayScope,
   resolveNoteMidiFromKeyboard,
 } from '../core/InputManager.ts';
-import { getExpectedNoteForFinger } from '../core/practiceSteps.ts';
-import { TWO_HAND_KEY_MAP } from '../core/twoHandMapping.ts';
+import {
+  buildTwoHandExpectedMidis,
+  buildTwoHandPhysicalKeysByMidi,
+  buildTwoHandStepNotesByMidi,
+} from '../core/practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
-import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type { Finger, Hand, ScriptNote } from '../types/index.ts';
 
 const START_MIDI = 21;
 const END_MIDI = 108;
 const FINGER_OPTIONS: Finger[] = [1, 2, 3, 4, 5];
 const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
-
-interface StepNoteInfo {
-  hand: Hand;
-  midi: number;
-  finger: Finger | null;
-  fingerSource?: ScriptNote['fingerSource'];
-}
 
 interface SelectedStepNote {
   stepIndex: number;
@@ -47,56 +45,6 @@ function isMidiActive(
   return Object.entries(keyMap).some(
     ([code, mappedMidi]) => mappedMidi === midi && activePhysicalKeys.has(code),
   );
-}
-
-function buildTwoHandExpectedLabels(
-  script: PlaybackScript | null,
-  stepIndex: number,
-): Map<number, string> {
-  const labels = new Map<number, string>();
-
-  if (!script || stepIndex < 0 || stepIndex >= script.length) {
-    return labels;
-  }
-
-  const step = script[stepIndex];
-
-  for (const [physicalKey, mapping] of Object.entries(TWO_HAND_KEY_MAP)) {
-    const expected = getExpectedNoteForFinger(
-      step,
-      mapping.hand,
-      mapping.finger,
-    );
-    if (expected !== null) {
-      labels.set(expected.midi, physicalKey);
-    }
-  }
-
-  return labels;
-}
-
-function buildTwoHandStepNotesByMidi(
-  script: PlaybackScript | null,
-  stepIndex: number,
-): Map<number, StepNoteInfo[]> {
-  const byMidi = new Map<number, StepNoteInfo[]>();
-
-  if (!script || stepIndex < 0 || stepIndex >= script.length) {
-    return byMidi;
-  }
-
-  for (const note of script[stepIndex].notes) {
-    const existing = byMidi.get(note.midi) ?? [];
-    existing.push({
-      hand: note.hand,
-      midi: note.midi,
-      finger: note.finger,
-      fingerSource: note.fingerSource,
-    });
-    byMidi.set(note.midi, existing);
-  }
-
-  return byMidi;
 }
 
 function formatTwoHandKeyLabel(physicalKey: string): string {
@@ -189,7 +137,7 @@ function getKeyHighlightState(
     expectedMidiSet: Set<number>;
     showStepKeyHighlight: boolean;
     isKeyInDisplayRange: (midi: number) => boolean;
-    twoHandMidiLabels: Map<number, string> | null;
+    twoHandExpectedMidis: Set<number> | null;
     isPhysicallyActive: boolean;
   },
 ): { isExpected: boolean; isPressed: boolean } {
@@ -200,7 +148,7 @@ function getKeyHighlightState(
     playingMidiCounts,
     expectedMidiSet,
     showStepKeyHighlight,
-    twoHandMidiLabels,
+    twoHandExpectedMidis,
     isPhysicallyActive,
   } = options;
 
@@ -210,7 +158,7 @@ function getKeyHighlightState(
   }
 
   if (isTwoHand) {
-    const isExpected = twoHandMidiLabels?.has(midi) ?? false;
+    const isExpected = twoHandExpectedMidis?.has(midi) ?? false;
     return { isExpected, isPressed: isPhysicallyActive };
   }
 
@@ -273,12 +221,12 @@ export function PianoKeyboard() {
     return isMidiInDisplayScope(midi, scopeStartMidi);
   };
 
-  const twoHandMidiLabels = useMemo(() => {
+  const twoHandExpectedMidis = useMemo(() => {
     if (!isTwoHand) {
       return null;
     }
 
-    return buildTwoHandExpectedLabels(script, currentStepIndex);
+    return buildTwoHandExpectedMidis(script, currentStepIndex);
   }, [isTwoHand, script, currentStepIndex]);
 
   const twoHandStepNotesByMidi = useMemo(() => {
@@ -288,6 +236,38 @@ export function PianoKeyboard() {
 
     return buildTwoHandStepNotesByMidi(script, currentStepIndex);
   }, [isTwoHand, script, currentStepIndex]);
+
+  const twoHandPhysicalKeysByMidi = useMemo(() => {
+    if (!isTwoHand) {
+      return null;
+    }
+
+    return buildTwoHandPhysicalKeysByMidi(script, currentStepIndex);
+  }, [isTwoHand, script, currentStepIndex]);
+
+  const oneHandExpectedCoverage = useMemo(() => {
+    if (isTwoHand || playMode || expectedMidiNotes.length === 0) {
+      return { missingPhysicalKey: [] as number[], outsideDisplayScope: [] as number[] };
+    }
+
+    return {
+      missingPhysicalKey: expectedMidisMissingPhysicalKey(
+        expectedMidiNotes,
+        scopeStartMidi,
+        scopeTranspose,
+      ),
+      outsideDisplayScope: expectedMidisOutsideDisplayScope(
+        expectedMidiNotes,
+        scopeStartMidi,
+      ),
+    };
+  }, [
+    expectedMidiNotes,
+    isTwoHand,
+    playMode,
+    scopeStartMidi,
+    scopeTranspose,
+  ]);
 
   const selectedHasManualOverride = useMemo(() => {
     if (!selectedNote) {
@@ -304,7 +284,7 @@ export function PianoKeyboard() {
     }
 
     return isTwoHand
-      ? twoHandMidiLabels?.get(midi)
+      ? twoHandPhysicalKeysByMidi?.get(midi)?.[0]
       : getLabelForKeyMapMidi(midi, onBlackPianoKey, keyMap);
   };
 
@@ -448,26 +428,33 @@ export function PianoKeyboard() {
   };
 
   const renderTwoHandHint = (midi: number, onBlack: boolean) => {
-    const stepNotes = twoHandStepNotesByMidi?.get(midi);
-    const note = stepNotes?.[0];
-    const keyLabel = twoHandMidiLabels?.get(midi);
+    const stepNotes = twoHandStepNotesByMidi?.get(midi) ?? [];
+    const physicalKeys = twoHandPhysicalKeysByMidi?.get(midi) ?? [];
 
-    if (!note?.finger && !keyLabel) {
+    if (stepNotes.length === 0) {
       return null;
     }
 
     return (
       <div className="absolute bottom-2 flex w-full flex-col items-center gap-px leading-none">
-        {note?.finger !== null && note?.finger !== undefined ? (
-          <span className={twoHandFingerLabelClass(note.fingerSource, onBlack)}>
-            {note.finger}
+        {stepNotes.map((note, index) =>
+          note.finger !== null ? (
+            <span
+              key={`${note.hand}:${note.finger}:${index}`}
+              className={twoHandFingerLabelClass(note.fingerSource, onBlack)}
+            >
+              {note.finger}
+            </span>
+          ) : null,
+        )}
+        {physicalKeys.map((physicalKey) => (
+          <span
+            key={physicalKey}
+            className={oneHandKeyLabelClass(onBlack)}
+          >
+            {formatTwoHandKeyLabel(physicalKey)}
           </span>
-        ) : null}
-        {keyLabel ? (
-          <span className={oneHandKeyLabelClass(onBlack)}>
-            {formatTwoHandKeyLabel(keyLabel)}
-          </span>
-        ) : null}
+        ))}
       </div>
     );
   };
@@ -486,11 +473,28 @@ export function PianoKeyboard() {
     expectedMidiSet,
     showStepKeyHighlight,
     isKeyInDisplayRange,
-    twoHandMidiLabels,
+    twoHandExpectedMidis,
   };
+
+  const showOneHandCoverageNotice =
+    !isTwoHand &&
+    !playMode &&
+    isPracticeActive &&
+    (oneHandExpectedCoverage.outsideDisplayScope.length > 0 ||
+      oneHandExpectedCoverage.missingPhysicalKey.length > 0);
 
   return (
     <div className="relative">
+      {showOneHandCoverageNotice ? (
+        <div
+          className="mb-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-center text-[11px] text-amber-200"
+          role="status"
+        >
+          {oneHandExpectedCoverage.outsideDisplayScope.length > 0
+            ? 'An expected note is outside the current scope window — use ← / → or 1 / 2 to shift.'
+            : 'An expected note has no keyboard key in the current window — shift scope to reach it.'}
+        </div>
+      ) : null}
       {isTwoHand && selectedNote ? (
         <div
           className="absolute -top-10 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 shadow-lg"

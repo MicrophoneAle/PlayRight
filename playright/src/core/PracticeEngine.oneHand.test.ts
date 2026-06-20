@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine } from './AudioEngine.ts';
 import { PracticeEngine } from './PracticeEngine.ts';
-import { getDynamicKeyMap } from './InputManager.ts';
+import { getDynamicKeyMap, getScopeKeyMap, midisFitScopeKeyMap } from './InputManager.ts';
 import type { PlaybackScript } from '../types/index.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
@@ -240,8 +240,9 @@ describe('PracticeEngine one-hand progression', () => {
     const scopeStart = useEngineStore.getState().scopeStartMidi;
     const map = getDynamicKeyMap(scopeStart);
 
+    expect(midisFitScopeKeyMap([highMidi], scopeStart, 0)).toBe(true);
+    expect(Object.values(getScopeKeyMap(scopeStart, 0))).toContain(highMidi);
     expect(map.KeyA).toBeLessThanOrEqual(highMidi);
-    expect(map.Semicolon).toBeGreaterThanOrEqual(highMidi);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([highMidi]);
   });
 
