@@ -501,6 +501,20 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     sheetScrollMode,
   ]);
 
+  useEffect(() => {
+    return useEngineStore.subscribe((state, prevState) => {
+      if (
+        state.playMode &&
+        state.isPlaybackActive &&
+        !state.isPlaybackPaused &&
+        (state.playingPlaybackNotes !== prevState.playingPlaybackNotes ||
+          state.currentStepIndex !== prevState.currentStepIndex)
+      ) {
+        syncPracticeVisuals();
+      }
+    });
+  }, []);
+
   if (!musicXml) {
     return null;
   }

@@ -6,6 +6,7 @@ import {
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
   pieceEndQuarterNotes,
+  quarterNotesToRelativeTickTime,
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
@@ -16,7 +17,9 @@ import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
 import type { Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
-const transport = Tone.getTransport();
+function getTransport(): ReturnType<typeof Tone.getTransport> {
+  return Tone.getTransport();
+}
 
 function isPlaybackTieContinuation(
   script: PlaybackScript,
@@ -109,19 +112,21 @@ export class PlaybackEngine {
     );
 
     this.clearScheduledEvents();
+    const transport = getTransport();
     transport.stop();
     this.applyTransportBpm(scoreTiming.tempoBpm);
     transport.ticks = quartersToTicks(startOnsetQuarters, this.transportPpq());
     this.applyStepVisual(startIndex);
     this.scheduleFromStep(startIndex);
 
-    transport.start();
-    this.isPlaying = true;
-    this.isPaused = false;
     const { actions } = useEngineStore.getState();
     actions.setPlaybackActive(true);
     actions.setPlaybackFinished(false);
     actions.setPlaybackPaused(false);
+
+    this.isPlaying = true;
+    this.isPaused = false;
+    transport.start();
   }
 
   pause(): void {
@@ -129,14 +134,14 @@ export class PlaybackEngine {
       return;
     }
 
-    transport.pause();
+    getTransport().pause();
     this.isPaused = true;
     this.clearPlayingNotes();
     useEngineStore.getState().actions.setPlaybackPaused(true);
   }
 
   resume(): void {
-    if (!this.isPlaying || !this.isPaused) {
+    if (!this.isPlaying || this.isPaused) {
       return;
     }
 
@@ -145,7 +150,7 @@ export class PlaybackEngine {
       return;
     }
 
-    transport.start();
+    getTransport().start();
     this.isPaused = false;
     useEngineStore.getState().actions.setPlaybackPaused(false);
   }
@@ -157,13 +162,13 @@ export class PlaybackEngine {
     }
 
     this.clearScheduledEvents();
-    transport.stop();
+    getTransport().stop();
     this.isPlaying = false;
     this.isPaused = true;
     this.hasFinishedPiece = false;
 
     this.applyTransportBpm(scoreTiming.tempoBpm);
-    transport.ticks = 0;
+    getTransport().ticks = 0;
     this.applyStepVisual(0);
     this.audioEngine?.releaseAll();
 
@@ -174,7 +179,7 @@ export class PlaybackEngine {
 
   stop(): void {
     this.clearScheduledEvents();
-    transport.stop();
+    getTransport().stop();
     this.isPlaying = false;
     this.isPaused = false;
     this.hasFinishedPiece = false;
@@ -187,7 +192,7 @@ export class PlaybackEngine {
     actions.setExpectedNotes([]);
     actions.setPlayingMidiNotes([]);
     actions.setPlayingPlaybackNotes([]);
-    transport.ticks = 0;
+    getTransport().ticks = 0;
     this.audioEngine?.releaseAll();
   }
 
@@ -211,21 +216,21 @@ export class PlaybackEngine {
     );
 
     this.clearScheduledEvents();
-    transport.ticks = quartersToTicks(onsetQuarters, this.transportPpq());
+    getTransport().ticks = quartersToTicks(onsetQuarters, this.transportPpq());
     this.hasFinishedPiece = false;
     actions.setStepIndex(stepIndex);
     this.applyStepVisual(stepIndex);
 
     if (wasPlaying) {
       this.scheduleFromStep(stepIndex);
-      transport.start();
+      getTransport().start();
       this.isPlaying = true;
       this.isPaused = false;
       actions.setPlaybackPaused(false);
       return;
     }
 
-    transport.pause();
+    getTransport().pause();
     actions.setPlaybackPaused(true);
   }
 
@@ -235,7 +240,7 @@ export class PlaybackEngine {
       return;
     }
 
-    transport.bpm.value = scoreTiming.tempoBpm * factor;
+    getTransport().bpm.value = scoreTiming.tempoBpm * factor;
   }
 
   /** Re-push active note highlights after layout changes (e.g. header toggle). */
@@ -255,12 +260,12 @@ export class PlaybackEngine {
 
   private syncAfterPlayModeChange(playMode: boolean): void {
     this.clearScheduledEvents();
-    transport.stop();
+    getTransport().stop();
     this.isPlaying = false;
     this.isPaused = false;
     this.hasFinishedPiece = false;
     this.clearPlayingNotes();
-    transport.ticks = 0;
+    getTransport().ticks = 0;
     this.audioEngine?.releaseAll();
 
     if (!playMode) {
@@ -272,12 +277,12 @@ export class PlaybackEngine {
   }
 
   private transportPpq(): number {
-    return transport.PPQ;
+    return getTransport().PPQ;
   }
 
   private applyTransportBpm(baseTempoBpm: number): void {
     const { tempoFactor } = useEngineStore.getState();
-    transport.bpm.value = baseTempoBpm * tempoFactor;
+    getTransport().bpm.value = baseTempoBpm * tempoFactor;
   }
 
   private syncPlayingNotes(): void {
@@ -317,7 +322,7 @@ export class PlaybackEngine {
     }
 
     if (playMode) {
-      this.releaseStalePlaybackVisuals(script, stepIndex);
+      this.clearPlayingNotes();
     }
 
     const displayNotes = getDisplayNotesForStep(
@@ -331,36 +336,6 @@ export class PlaybackEngine {
     actions.setExpectedNotes(displayNotes.map((note) => note.midi));
   }
 
-  private releaseStalePlaybackVisuals(
-    script: PlaybackScript,
-    currentStepIndex: number,
-  ): void {
-    const changed = this.playingPressTracker.releaseMatching((press) => {
-      if (press.stepIndex >= currentStepIndex) {
-        return false;
-      }
-
-      const step = script[press.stepIndex];
-      const note = step?.notes.find(
-        (candidate) =>
-          candidate.midi === press.midi && candidate.hand === press.hand,
-      );
-
-      if (
-        note?.tiedToNext &&
-        currentStepIndex === press.stepIndex + 1
-      ) {
-        return false;
-      }
-
-      return true;
-    });
-
-    if (changed) {
-      this.syncPlayingNotes();
-    }
-  }
-
   private scheduleFromStep(fromStepIndex: number): void {
     const { script, scoreTiming } = useEngineStore.getState();
     const engine = this.audioEngine;
@@ -368,6 +343,7 @@ export class PlaybackEngine {
       return;
     }
 
+    const transport = getTransport();
     const { divisionsPerQuarter } = scoreTiming;
     const ppq = this.transportPpq();
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
@@ -386,50 +362,47 @@ export class PlaybackEngine {
       );
       const transportTime = quartersToTransportTickTime(onsetQuarters, ppq);
 
-      const stepVisualId = transport.scheduleOnce(() => {
+      const stepEventId = transport.scheduleOnce((time) => {
         this.applyStepVisual(stepIndex);
-      }, transportTime);
-      this.scheduledEventIds.push(stepVisualId);
 
-      for (const note of step.notes) {
-        if (isPlaybackTieContinuation(script, stepIndex, note)) {
-          continue;
-        }
+        for (const note of step.notes) {
+          if (isPlaybackTieContinuation(script, stepIndex, note)) {
+            continue;
+          }
 
-        const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-        const writtenQuarters = noteDurationQuarterNotes(
-          durationDivisions,
-          divisionsPerQuarter,
-        );
-        const isFinalNote = finalNoteKeys.has(
-          `${stepIndex}:${note.hand}:${note.midi}`,
-        );
-        const durationOptions = {
-          isFinalNote,
-          hasFermata: note.hasFermata ?? false,
-        };
-        const playedQuarters = playbackDurationQuarterNotes(
-          writtenQuarters,
-          note.tiedToNext ?? false,
-          durationOptions,
-        );
-        const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
-        const releaseQuarters = onsetQuarters + playedQuarters;
-        const pressId = this.playingPressTracker.allocatePressId();
+          const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+          const writtenQuarters = noteDurationQuarterNotes(
+            durationDivisions,
+            divisionsPerQuarter,
+          );
+          const isFinalNote = finalNoteKeys.has(
+            `${stepIndex}:${note.hand}:${note.midi}`,
+          );
+          const durationOptions = {
+            isFinalNote,
+            hasFermata: note.hasFermata ?? false,
+          };
+          const playedQuarters = playbackDurationQuarterNotes(
+            writtenQuarters,
+            note.tiedToNext ?? false,
+            durationOptions,
+          );
+          const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
+          const pressId = this.playingPressTracker.allocatePressId();
 
-        const attackId = transport.scheduleOnce((time) => {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
           this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
-        }, transportTime);
-        this.scheduledEventIds.push(attackId);
 
-        if (!note.tiedToNext) {
-          const releaseId = transport.scheduleOnce(() => {
-            this.releasePlayingNote(pressId);
-          }, quartersToTransportTickTime(releaseQuarters, ppq));
-          this.scheduledEventIds.push(releaseId);
+          if (!note.tiedToNext) {
+            const releaseEventId = transport.scheduleOnce(() => {
+              this.releasePlayingNote(pressId);
+            }, quarterNotesToRelativeTickTime(playedQuarters, ppq));
+            this.scheduledEventIds.push(releaseEventId);
+          }
         }
-      }
+      }, transportTime);
+
+      this.scheduledEventIds.push(stepEventId);
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
@@ -444,7 +417,7 @@ export class PlaybackEngine {
       return;
     }
 
-    transport.pause();
+    getTransport().pause();
     this.isPaused = true;
     this.hasFinishedPiece = true;
     this.clearPlayingNotes();
@@ -454,6 +427,8 @@ export class PlaybackEngine {
   }
 
   private clearScheduledEvents(): void {
+    const transport = getTransport();
+
     for (const eventId of this.scheduledEventIds) {
       transport.clear(eventId);
     }

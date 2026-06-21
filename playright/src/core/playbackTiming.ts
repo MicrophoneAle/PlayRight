@@ -204,6 +204,18 @@ export function quartersToTransportTickTime(
   return `${quartersToTicks(quarterNotes, ppq)}i`;
 }
 
+/** Relative Transport tick offset for scheduling after the current timeline position. */
+export function quarterNotesToRelativeTickTime(
+  quarterNotes: number,
+  ppq: number,
+): string {
+  if (quarterNotes <= 0) {
+    return '+0i';
+  }
+
+  return `+${quartersToTicks(quarterNotes, ppq)}i`;
+}
+
 /** Tick duration for note scheduling (scales with Transport BPM). */
 export function quarterNotesToTickDuration(
   quarterNotes: number,
