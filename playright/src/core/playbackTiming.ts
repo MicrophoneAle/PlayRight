@@ -33,6 +33,9 @@ export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 /** Extra release gap when the same pitch re-attacks on the very next step. */
 export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.015;
 
+/** Max RH/LH onset drift aligned at playback time within a measure. */
+export const PLAYBACK_HAND_SYNC_MAX_DRIFT_DIVISIONS = 48;
+
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
 
@@ -132,6 +135,110 @@ export function scheduledPlaybackAttackQuarterNotes(
     stepOnsetQuarterNotes(writtenOnsetDivisions, divisionsPerQuarter) +
     fermataOffsetQuarterNotes
   );
+}
+
+function stepHands(step: PlaybackScript[number]): Set<Hand> {
+  return new Set(step.notes.map((note) => note.hand));
+}
+
+/** Align cross-hand attacks in the same measure without merging script steps. */
+export function buildPlaybackHandSyncOnsetsByStep(
+  script: PlaybackScript,
+  maxDriftDivisions = PLAYBACK_HAND_SYNC_MAX_DRIFT_DIVISIONS,
+): number[] {
+  const syncedOnsets = script.map((step) => step.onset);
+
+  for (let startIndex = 0; startIndex < script.length; startIndex += 1) {
+    const measureNumber = script[startIndex].measureNumber;
+    const clusterStartOnset = script[startIndex].onset;
+    const clusterIndices: number[] = [startIndex];
+    let hasRight = stepHands(script[startIndex]).has('R');
+    let hasLeft = stepHands(script[startIndex]).has('L');
+
+    for (
+      let index = startIndex + 1;
+      index < script.length &&
+      script[index].measureNumber === measureNumber &&
+      script[index].onset - clusterStartOnset <= maxDriftDivisions;
+      index += 1
+    ) {
+      clusterIndices.push(index);
+      if (stepHands(script[index]).has('R')) {
+        hasRight = true;
+      }
+      if (stepHands(script[index]).has('L')) {
+        hasLeft = true;
+      }
+    }
+
+    if (!hasRight || !hasLeft || clusterIndices.length < 2) {
+      continue;
+    }
+
+    let alignedOnset = clusterStartOnset;
+    for (const index of clusterIndices) {
+      alignedOnset = Math.min(alignedOnset, syncedOnsets[index]);
+    }
+
+    for (const index of clusterIndices) {
+      syncedOnsets[index] = alignedOnset;
+    }
+  }
+
+  return syncedOnsets;
+}
+
+export function nextSameHandWrittenOnsetDivisions(
+  script: PlaybackScript,
+  fromStepIndex: number,
+  hand: Hand,
+  attackOnsetDivisions: number,
+): number | null {
+  for (let stepIndex = fromStepIndex + 1; stepIndex < script.length; stepIndex += 1) {
+    const step = script[stepIndex];
+    if (!step.notes.some((note) => note.hand === hand)) {
+      continue;
+    }
+
+    if (step.onset <= attackOnsetDivisions) {
+      continue;
+    }
+
+    return step.onset;
+  }
+
+  return null;
+}
+
+export function capPlaybackDurationToNextSameHandAttackQuarterNotes(
+  stepIndex: number,
+  note: ScriptNote,
+  attackOnsetDivisions: number,
+  script: PlaybackScript,
+  divisionsPerQuarter: number,
+  playedQuarterNotes: number,
+): number {
+  if (note.tiedToNext) {
+    return playedQuarterNotes;
+  }
+
+  const nextOnsetDivisions = nextSameHandWrittenOnsetDivisions(
+    script,
+    stepIndex,
+    note.hand,
+    attackOnsetDivisions,
+  );
+  if (nextOnsetDivisions === null) {
+    return playedQuarterNotes;
+  }
+
+  const maxQuarterNotes =
+    (nextOnsetDivisions - attackOnsetDivisions) / divisionsPerQuarter;
+  if (maxQuarterNotes <= 0) {
+    return playedQuarterNotes;
+  }
+
+  return Math.min(playedQuarterNotes, maxQuarterNotes);
 }
 
 /** Gap before the next attack, scaled by note length with min/max clamps. */
@@ -468,25 +575,42 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
 export function resolveNotePlaybackDurationQuarterNotes(
   stepIndex: number,
   note: ScriptNote,
-  step: PlaybackScript[number],
+  script: PlaybackScript,
   stepDurations: number[],
   divisionsPerQuarter: number,
   finalNoteKeys: Set<string>,
   consecutiveSameNoteKeys: Set<string>,
+  handSyncOnsets: number[],
 ): number {
+  const step = script[stepIndex];
+  let playedQuarterNotes: number;
+
   if (shouldUnifyStepPlaybackDuration(step)) {
-    return stepDurations[stepIndex];
+    playedQuarterNotes = stepDurations[stepIndex];
+  } else {
+    playedQuarterNotes = notePlaybackDurationQuarterNotes(
+      note,
+      divisionsPerQuarter,
+      notePlaybackDurationOptions(
+        stepIndex,
+        note,
+        finalNoteKeys,
+        consecutiveSameNoteKeys,
+      ),
+    );
   }
 
-  return notePlaybackDurationQuarterNotes(
+  if (shouldUnifyStepPlaybackDuration(step)) {
+    return playedQuarterNotes;
+  }
+
+  return capPlaybackDurationToNextSameHandAttackQuarterNotes(
+    stepIndex,
     note,
+    handSyncOnsets[stepIndex] ?? step.onset,
+    script,
     divisionsPerQuarter,
-    notePlaybackDurationOptions(
-      stepIndex,
-      note,
-      finalNoteKeys,
-      consecutiveSameNoteKeys,
-    ),
+    playedQuarterNotes,
   );
 }
 
@@ -512,19 +636,33 @@ export function pieceEndQuarterNotes(
     finalNoteKeys,
     consecutiveSameNoteKeys,
   );
+  const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
   let endQuarters = 0;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
-    const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      script[stepIndex].onset,
+    const step = script[stepIndex];
+    const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
+      handSyncOnsets[stepIndex],
       divisionsPerQuarter,
       fermataOffsets[stepIndex],
     );
 
-    endQuarters = Math.max(
-      endQuarters,
-      onsetQuarters + stepDurations[stepIndex],
-    );
+    for (const note of step.notes) {
+      const playedQuarterNotes = resolveNotePlaybackDurationQuarterNotes(
+        stepIndex,
+        note,
+        script,
+        stepDurations,
+        divisionsPerQuarter,
+        finalNoteKeys,
+        consecutiveSameNoteKeys,
+        handSyncOnsets,
+      );
+      endQuarters = Math.max(
+        endQuarters,
+        attackOnsetQuarters + playedQuarterNotes,
+      );
+    }
   }
 
   return endQuarters;

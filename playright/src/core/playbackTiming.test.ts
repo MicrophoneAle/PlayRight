@@ -4,7 +4,9 @@ import {
   buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  buildPlaybackHandSyncOnsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
+  capPlaybackDurationToNextSameHandAttackQuarterNotes,
   latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -350,6 +352,7 @@ describe('playbackTiming', () => {
       finalNoteKeys,
       consecutiveSameNoteKeys,
     );
+    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
 
     const shortHold = playbackDurationQuarterNotes(0.5);
 
@@ -359,13 +362,88 @@ describe('playbackTiming', () => {
       resolveNotePlaybackDurationQuarterNotes(
         0,
         script[0].notes[0],
-        script[0],
+        script,
         stepDurations,
         divisionsPerQuarter,
         finalNoteKeys,
         consecutiveSameNoteKeys,
+        handSyncOnsets,
       ),
     ).toBeCloseTo(shortHold, 5);
+  });
+
+  it('aligns cross-hand playback attacks within a measure without merging steps', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 19,
+        notes: [{ pitch: 'C5', midi: 72, hand: 'R', finger: null, durationDivisions: 240 }],
+      },
+      {
+        order: 1,
+        onset: 40,
+        measureNumber: 19,
+        notes: [{ pitch: 'E2', midi: 40, hand: 'L', finger: null, durationDivisions: 240 }],
+      },
+    ];
+
+    expect(buildPlaybackHandSyncOnsetsByStep(script)).toEqual([0, 0]);
+  });
+
+  it('does not align sequential same-hand notes in a measure', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 10,
+        notes: [{ pitch: 'E2', midi: 40, hand: 'L', finger: null, durationDivisions: 240 }],
+      },
+      {
+        order: 1,
+        onset: 240,
+        measureNumber: 10,
+        notes: [{ pitch: 'F#2', midi: 42, hand: 'L', finger: null, durationDivisions: 240 }],
+      },
+    ];
+
+    expect(buildPlaybackHandSyncOnsetsByStep(script)).toEqual([0, 240]);
+  });
+
+  it('caps an over-long note at the next same-hand attack', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 3,
+        notes: [
+          {
+            pitch: 'A2',
+            midi: 45,
+            hand: 'L',
+            finger: null,
+            durationDivisions: 3840,
+          },
+        ],
+      },
+      {
+        order: 1,
+        onset: 960,
+        measureNumber: 4,
+        notes: [{ pitch: 'B2', midi: 47, hand: 'L', finger: null, durationDivisions: 480 }],
+      },
+    ];
+
+    const capped = capPlaybackDurationToNextSameHandAttackQuarterNotes(
+      0,
+      script[0].notes[0],
+      0,
+      script,
+      480,
+      8,
+    );
+
+    expect(capped).toBeCloseTo(2, 5);
   });
 
   it('shifts subsequent attacks after a fermata so they do not overlap the extended release', () => {

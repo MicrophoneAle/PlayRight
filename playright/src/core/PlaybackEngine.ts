@@ -4,6 +4,7 @@ import {
   buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  buildPlaybackHandSyncOnsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
   noteDurationQuarterNotes,
@@ -90,8 +91,9 @@ export class PlaybackEngine {
       scoreTiming.divisionsPerQuarter,
       finalNoteKeys,
     );
+    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
     const startOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      script[startIndex].onset,
+      handSyncOnsets[startIndex],
       scoreTiming.divisionsPerQuarter,
       fermataOffsets[startIndex],
     );
@@ -205,8 +207,9 @@ export class PlaybackEngine {
       scoreTiming.divisionsPerQuarter,
       finalNoteKeys,
     );
+    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
     const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      script[stepIndex].onset,
+      handSyncOnsets[stepIndex],
       scoreTiming.divisionsPerQuarter,
       fermataOffsets[stepIndex],
     );
@@ -407,11 +410,12 @@ export class PlaybackEngine {
       finalNoteKeys,
       consecutiveSameNoteKeys,
     );
+    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
       const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-        step.onset,
+        handSyncOnsets[stepIndex],
         divisionsPerQuarter,
         fermataOffsets[stepIndex],
       );
@@ -440,11 +444,12 @@ export class PlaybackEngine {
         const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
           stepIndex,
           note,
-          step,
+          script,
           stepDurations,
           divisionsPerQuarter,
           finalNoteKeys,
           consecutiveSameNoteKeys,
+          handSyncOnsets,
         );
         const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
         const pressId = this.playingPressTracker.allocatePressId();
