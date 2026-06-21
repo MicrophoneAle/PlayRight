@@ -6,7 +6,9 @@ import {
   playbackDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
-  quarterNotesToToneDuration,
+  quarterNotesToTickDuration,
+  quartersToTicks,
+  quartersToTransportTickTime,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -15,12 +17,6 @@ import { getDisplayNotesForStep } from './practiceSteps.ts';
 import type { Hand } from '../types/index.ts';
 
 const transport = Tone.getTransport();
-
-function quartersToTransportPosition(quarterNotes: number): string {
-  const bars = Math.floor(quarterNotes / 4);
-  const beats = quarterNotes % 4;
-  return `${bars}:${beats}:0`;
-}
 
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
@@ -85,7 +81,7 @@ export class PlaybackEngine {
     this.clearScheduledEvents();
     transport.stop();
     this.applyTransportBpm(scoreTiming.tempoBpm);
-    transport.position = quartersToTransportPosition(startOnsetQuarters);
+    transport.ticks = quartersToTicks(startOnsetQuarters, this.transportPpq());
     this.applyStepVisual(startIndex);
     this.scheduleFromStep(startIndex);
 
@@ -137,7 +133,7 @@ export class PlaybackEngine {
     this.hasFinishedPiece = false;
 
     this.applyTransportBpm(scoreTiming.tempoBpm);
-    transport.position = 0;
+    transport.ticks = 0;
     this.applyStepVisual(0);
     this.audioEngine?.releaseAll();
 
@@ -161,7 +157,7 @@ export class PlaybackEngine {
     actions.setExpectedNotes([]);
     actions.setPlayingMidiNotes([]);
     actions.setPlayingPlaybackNotes([]);
-    transport.position = 0;
+    transport.ticks = 0;
     this.audioEngine?.releaseAll();
   }
 
@@ -178,7 +174,7 @@ export class PlaybackEngine {
     );
 
     this.clearScheduledEvents();
-    transport.position = quartersToTransportPosition(onsetQuarters);
+    transport.ticks = quartersToTicks(onsetQuarters, this.transportPpq());
     this.hasFinishedPiece = false;
     actions.setStepIndex(stepIndex);
     this.applyStepVisual(stepIndex);
@@ -218,6 +214,10 @@ export class PlaybackEngine {
     this.stop();
     this.audioEngine = null;
     this.storeSubscriptionInitialized = false;
+  }
+
+  private transportPpq(): number {
+    return transport.PPQ;
   }
 
   private applyTransportBpm(baseTempoBpm: number): void {
@@ -262,15 +262,18 @@ export class PlaybackEngine {
     }
 
     const { divisionsPerQuarter } = scoreTiming;
+    const ppq = this.transportPpq();
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
       const onsetQuarters = stepOnsetQuarterNotes(step.onset, divisionsPerQuarter);
-      const transportTime = quartersToTransportPosition(onsetQuarters);
+      const transportTime = quartersToTransportTickTime(onsetQuarters, ppq);
 
       const eventId = transport.scheduleOnce((time) => {
-        this.applyStepVisual(stepIndex);
+        Tone.Draw.schedule(() => {
+          this.applyStepVisual(stepIndex);
+        }, time);
 
         for (const note of step.notes) {
           const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
@@ -290,7 +293,7 @@ export class PlaybackEngine {
             note.tiedToNext ?? false,
             durationOptions,
           );
-          const playedDuration = quarterNotesToToneDuration(playedQuarters);
+          const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
           const releaseQuarters = playbackReleaseOnsetQuarterNotes(
             onsetQuarters,
             writtenQuarters,
@@ -299,11 +302,15 @@ export class PlaybackEngine {
           );
           const pressId = this.playingPressTracker.allocatePressId();
 
-          this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+          Tone.Draw.schedule(() => {
+            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+          }, time);
 
-          const releaseEventId = transport.scheduleOnce(() => {
-            this.releasePlayingNote(pressId);
-          }, quartersToTransportPosition(releaseQuarters));
+          const releaseEventId = transport.scheduleOnce((releaseTime) => {
+            Tone.Draw.schedule(() => {
+              this.releasePlayingNote(pressId);
+            }, releaseTime);
+          }, quartersToTransportTickTime(releaseQuarters, ppq));
           this.scheduledEventIds.push(releaseEventId);
 
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
@@ -314,9 +321,11 @@ export class PlaybackEngine {
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
-    const endEventId = transport.scheduleOnce(() => {
-      this.completePlayback();
-    }, quartersToTransportPosition(pieceEndQuarters));
+    const endEventId = transport.scheduleOnce((time) => {
+      Tone.Draw.schedule(() => {
+        this.completePlayback();
+      }, time);
+    }, quartersToTransportTickTime(pieceEndQuarters, ppq));
     this.scheduledEventIds.push(endEventId);
   }
 

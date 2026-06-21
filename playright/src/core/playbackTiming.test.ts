@@ -12,7 +12,9 @@ import {
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   PLAYBACK_FERMATA_HOLD_FACTOR,
   quarterNotesToSeconds,
-  quarterNotesToToneDuration,
+  quarterNotesToTickDuration,
+  quartersToTicks,
+  quartersToTransportTickTime,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 import type { PlaybackScript } from '../types/index.ts';
@@ -34,11 +36,24 @@ describe('playbackTiming', () => {
     expect(quarterNotesToSeconds(2, 60)).toBe(2);
   });
 
-  it('converts quarter notes to Tone duration strings', () => {
-    expect(quarterNotesToToneDuration(1)).toBe('4n');
-    expect(quarterNotesToToneDuration(2)).toBe('2n');
-    expect(quarterNotesToToneDuration(0.5)).toBe('8n');
-    expect(quarterNotesToToneDuration(4)).toBe('1n');
+  it('converts dotted-quarter position and duration to exact ticks', () => {
+    const ppq = 192;
+    const dottedQuarter = 1.5;
+
+    expect(quartersToTicks(dottedQuarter, ppq)).toBe(288);
+    expect(quartersToTicks(2.5, ppq)).toBe(480);
+    expect(quartersToTransportTickTime(2.5, ppq)).toBe('480i');
+    expect(quarterNotesToTickDuration(dottedQuarter, ppq)).toBe('288i');
+  });
+
+  it('converts eighth-triplet position and duration to exact ticks', () => {
+    const ppq = 192;
+    const tripletEighth = 1 / 3;
+
+    expect(quartersToTicks(tripletEighth, ppq)).toBe(64);
+    expect(quartersToTicks(4 / 3, ppq)).toBe(256);
+    expect(quartersToTransportTickTime(4 / 3, ppq)).toBe('256i');
+    expect(quarterNotesToTickDuration(tripletEighth, ppq)).toBe('64i');
   });
 
   it('scales articulation gaps by note length with min and max clamps', () => {

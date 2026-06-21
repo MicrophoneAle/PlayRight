@@ -116,13 +116,29 @@ export function playbackSilenceBeforeNextAttackQuarters(
   );
 }
 
-/** Tone.js duration string for a span of quarter-note beats (scales with Transport BPM). */
-export function quarterNotesToToneDuration(quarterNotes: number): string {
+/** Ticks from quarter-note musical time at the given Transport PPQ. */
+export function quartersToTicks(quarterNotes: number, ppq: number): number {
+  return quarterNotes * ppq;
+}
+
+/** Absolute Transport tick time for scheduling (scales with tempo via PPQ). */
+export function quartersToTransportTickTime(
+  quarterNotes: number,
+  ppq: number,
+): string {
+  return `${quartersToTicks(quarterNotes, ppq)}i`;
+}
+
+/** Tick duration for note scheduling (scales with Transport BPM). */
+export function quarterNotesToTickDuration(
+  quarterNotes: number,
+  ppq: number,
+): string {
   if (quarterNotes <= 0) {
-    return '4n';
+    return '0i';
   }
 
-  return `${4 / quarterNotes}n`;
+  return `${quartersToTicks(quarterNotes, ppq)}i`;
 }
 
 function playbackNoteKey(stepIndex: number, hand: Hand, midi: number): string {
