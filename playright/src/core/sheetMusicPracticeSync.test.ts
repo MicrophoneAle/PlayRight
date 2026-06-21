@@ -2,17 +2,62 @@ import { describe, expect, it } from 'vitest';
 import {
   countMatchedPracticeNotes,
   findCursorOffsetForStep,
-  measureIndexMatchesStep,
+  findSequentialStepMatch,
+  isGraceOnlyAttackGNotes,
+  measureListIndexForStep,
+  measureNumberMatchesStep,
   practiceNotesFullyMatched,
   type CursorKeySnapshot,
 } from './sheetMusicPracticeSync.ts';
 import type { ScriptNote } from '../types/index.ts';
+import type { GraphicalNote, Note, OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
 function snapshot(
   keys: Array<[number, 'L' | 'R']>,
 ): CursorKeySnapshot {
   return {
     attackKeys: new Set(keys.map(([midi, hand]) => `${midi}:${hand}`)),
+  };
+}
+
+function mockGraphicalNote(
+  midi: number,
+  staffId: number,
+  options: { isGrace?: boolean } = {},
+): GraphicalNote {
+  return {
+    sourceNote: {
+      isRest: () => false,
+      IsGraceNote: options.isGrace === true,
+      Pitch: { getHalfTone: () => midi - 12 },
+      ParentStaff: { Id: staffId },
+    },
+  } as GraphicalNote;
+}
+
+function mockOsmdForNotes(notes: GraphicalNote[]): OpenSheetMusicDisplay {
+  return {
+    EngravingRules: {
+      GNote: (note: Note) =>
+        notes.find((gNote) => gNote.sourceNote === note) ?? null,
+    },
+  } as OpenSheetMusicDisplay;
+}
+
+function mockCursorSnapshot(options: {
+  measureNumber: number;
+  measureListIndex: number;
+  midi: number;
+  staffId?: number;
+}) {
+  const gNote = mockGraphicalNote(options.midi, options.staffId ?? 1);
+  return {
+    cursorIndex: 0,
+    attackKeys: new Set([`${options.midi}:R`]),
+    attackGNotes: [gNote],
+    allGNotes: [gNote],
+    measureNumber: options.measureNumber,
+    measureListIndex: options.measureListIndex,
   };
 }
 
@@ -101,12 +146,121 @@ describe('findCursorOffsetForStep', () => {
   });
 });
 
-describe('measureIndexMatchesStep', () => {
-  it('maps MusicXML measure numbers to OSMD measure indices', () => {
-    expect(measureIndexMatchesStep(0, 1)).toBe(true);
-    expect(measureIndexMatchesStep(9, 10)).toBe(true);
-    expect(measureIndexMatchesStep(10, 11)).toBe(true);
-    expect(measureIndexMatchesStep(10, 30)).toBe(false);
+describe('measureNumberMatchesStep', () => {
+  it('matches OSMD MeasureNumberXML to the script measure number directly', () => {
+    expect(measureNumberMatchesStep(1, 1)).toBe(true);
+    expect(measureNumberMatchesStep(10, 10)).toBe(true);
+    expect(measureNumberMatchesStep(11, 11)).toBe(true);
+    expect(measureNumberMatchesStep(10, 30)).toBe(false);
+  });
+
+  it('matches pickup measures numbered 0 without index arithmetic', () => {
+    expect(measureNumberMatchesStep(0, 0)).toBe(true);
+    expect(measureNumberMatchesStep(0, 1)).toBe(false);
+    expect(measureNumberMatchesStep(1, 0)).toBe(false);
+  });
+});
+
+describe('measureListIndexForStep', () => {
+  it('resolves score order from snapshots rather than XML number minus one', () => {
+    const snapshots = [
+      { measureNumber: 0, measureListIndex: 0 },
+      { measureNumber: 10, measureListIndex: 1 },
+      { measureNumber: 11, measureListIndex: 2 },
+    ];
+
+    expect(measureListIndexForStep(snapshots, 0)).toBe(0);
+    expect(measureListIndexForStep(snapshots, 10)).toBe(1);
+    expect(measureListIndexForStep(snapshots, 11)).toBe(2);
+    expect(measureListIndexForStep(snapshots, 1)).toBeNull();
+  });
+});
+
+describe('findSequentialStepMatch', () => {
+  const c4: ScriptNote = { pitch: 'C4', midi: 60, hand: 'R', finger: null };
+
+  it('prefers the measure-aligned match instead of an earlier duplicate pitch', () => {
+    const earlier = mockCursorSnapshot({
+      measureNumber: 1,
+      measureListIndex: 0,
+      midi: 60,
+    });
+    const later = mockCursorSnapshot({
+      measureNumber: 10,
+      measureListIndex: 1,
+      midi: 60,
+    });
+    later.cursorIndex = 1;
+    const snapshots = [earlier, later];
+    const osmd = mockOsmdForNotes([earlier.attackGNotes[0], later.attackGNotes[0]]);
+
+    const match = findSequentialStepMatch(osmd, snapshots, 0, [c4], 10);
+
+    expect(match).toMatchObject({ offset: 1, endIdx: 1 });
+  });
+
+  it('does not fall back to a wrong-measure match after the target measure ends', () => {
+    const measureOne = mockCursorSnapshot({
+      measureNumber: 1,
+      measureListIndex: 0,
+      midi: 60,
+    });
+    const measureTwo = mockCursorSnapshot({
+      measureNumber: 2,
+      measureListIndex: 1,
+      midi: 62,
+    });
+    measureTwo.cursorIndex = 1;
+    const snapshots = [measureOne, measureTwo];
+    const osmd = mockOsmdForNotes([
+      measureOne.attackGNotes[0],
+      measureTwo.attackGNotes[0],
+    ]);
+
+    const match = findSequentialStepMatch(osmd, snapshots, 1, [c4], 2);
+
+    expect(match).toBeNull();
+  });
+});
+
+describe('isGraceOnlyAttackGNotes', () => {
+  it('returns true when every attack note under the cursor is grace', () => {
+    expect(
+      isGraceOnlyAttackGNotes([mockGraphicalNote(60, 1, { isGrace: true })]),
+    ).toBe(true);
+  });
+
+  it('returns false when a main note attack is present', () => {
+    expect(
+      isGraceOnlyAttackGNotes([
+        mockGraphicalNote(60, 1, { isGrace: true }),
+        mockGraphicalNote(62, 1),
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe('grace-free cursor offset alignment', () => {
+  it('keeps the first script step at offset 0 when a grace note precedes the main attack', () => {
+    const grace = mockGraphicalNote(60, 1, { isGrace: true });
+    const main = mockGraphicalNote(62, 1);
+    const snapshots = [
+      {
+        cursorIndex: 0,
+        attackKeys: new Set(['62:R']),
+        attackGNotes: [main],
+        allGNotes: [main],
+        measureNumber: 1,
+        measureListIndex: 0,
+      },
+    ];
+    const d4: ScriptNote = { pitch: 'D4', midi: 62, hand: 'R', finger: null };
+    const osmd = mockOsmdForNotes([main]);
+
+    expect(isGraceOnlyAttackGNotes([grace])).toBe(true);
+    expect(
+      findSequentialStepMatch(osmd, snapshots, 0, [d4], 1),
+    ).toMatchObject({ offset: 0 });
   });
 });
 
@@ -117,16 +271,6 @@ describe('practiceNotesFullyMatched', () => {
     hand: 'R',
     finger: null,
   };
-
-  function mockGraphicalNote(midi: number, staffId: number) {
-    return {
-      sourceNote: {
-        isRest: () => false,
-        Pitch: { getHalfTone: () => midi - 12 },
-        ParentStaff: { Id: staffId },
-      },
-    } as import('opensheetmusicdisplay').GraphicalNote;
-  }
 
   it('accepts multiple graphical tie segments for one merged script note', () => {
     const collected = [mockGraphicalNote(60, 1), mockGraphicalNote(60, 1)];
@@ -153,16 +297,6 @@ describe('practiceNotesFullyMatched', () => {
 describe('partial highlight selection', () => {
   const c4: ScriptNote = { pitch: 'C4', midi: 60, hand: 'R', finger: null };
   const e4: ScriptNote = { pitch: 'E4', midi: 64, hand: 'R', finger: null };
-
-  function mockGraphicalNote(midi: number, staffId: number) {
-    return {
-      sourceNote: {
-        isRest: () => false,
-        Pitch: { getHalfTone: () => midi - 12 },
-        ParentStaff: { Id: staffId },
-      },
-    } as import('opensheetmusicdisplay').GraphicalNote;
-  }
 
   it('counts matched notes without requiring a full step match', () => {
     const collected = [mockGraphicalNote(60, 1)];

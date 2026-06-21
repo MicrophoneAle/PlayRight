@@ -39,7 +39,14 @@ interface CursorSnapshot {
   attackKeys: Set<string>;
   attackGNotes: GraphicalNote[];
   allGNotes: GraphicalNote[];
-  measureIndex: number;
+  measureNumber: number;
+  measureListIndex: number;
+}
+
+interface OsmdSourceMeasure {
+  MeasureNumberXML?: number;
+  MeasureNumber?: number;
+  measureListIndex?: number;
 }
 
 export interface CursorKeySnapshot {
@@ -116,6 +123,49 @@ function stepMatchesKeys(expected: Set<string>, atCursor: Set<string>): boolean 
   return true;
 }
 
+function osmdMeasureInfoFromCursor(
+  cursor: NonNullable<OpenSheetMusicDisplay['cursor']>,
+): { measureNumber: number; measureListIndex: number } {
+  const measure = cursor.Iterator?.CurrentMeasure as OsmdSourceMeasure | undefined;
+  const measureNumber =
+    measure?.MeasureNumberXML ?? measure?.MeasureNumber ?? 0;
+  const measureListIndex =
+    measure?.measureListIndex ?? cursor.Iterator?.CurrentMeasureIndex ?? 0;
+
+  return { measureNumber, measureListIndex };
+}
+
+/** True when every attack under the cursor is a grace note (script omits these positions). */
+export function isGraceOnlyAttackGNotes(gNotes: GraphicalNote[]): boolean {
+  const attackNotes = gNotes.filter(
+    (gNote) =>
+      !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
+  );
+
+  if (attackNotes.length === 0) {
+    return false;
+  }
+
+  return attackNotes.every((gNote) => gNote.sourceNote.IsGraceNote === true);
+}
+
+function isGraceOnlyCursorPosition(
+  cursor: NonNullable<OpenSheetMusicDisplay['cursor']>,
+): boolean {
+  return isGraceOnlyAttackGNotes(cursor.GNotesUnderCursor());
+}
+
+function advanceCursorSkippingGrace(
+  cursor: NonNullable<OpenSheetMusicDisplay['cursor']>,
+): void {
+  do {
+    cursor.next();
+  } while (
+    !cursor.Iterator?.EndReached &&
+    isGraceOnlyCursorPosition(cursor)
+  );
+}
+
 function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): GraphicalNote[] {
   if (!cursor) {
     return [];
@@ -188,7 +238,7 @@ function matchStepAtSnapshotWithLookahead(
     return null;
   }
 
-  const baseMeasure = snapshots[startIdx].measureIndex;
+  const baseMeasureListIndex = snapshots[startIdx].measureListIndex;
   const attackGNotes: GraphicalNote[] = [];
   const allGNotes: GraphicalNote[] = [];
   const seenAttack = new Set<Note>();
@@ -200,7 +250,7 @@ function matchStepAtSnapshotWithLookahead(
       break;
     }
 
-    if (span > 0 && snapshots[idx].measureIndex !== baseMeasure) {
+    if (span > 0 && snapshots[idx].measureListIndex !== baseMeasureListIndex) {
       break;
     }
 
@@ -243,34 +293,53 @@ function matchStepAtSnapshotWithLookahead(
   return null;
 }
 
-/** OSMD measure indices are 0-based; MusicXML measure numbers are 1-based. */
-export function measureIndexMatchesStep(
-  measureIndex: number,
+/** Compare a script step's MusicXML measure number to OSMD's MeasureNumberXML. */
+export function measureNumberMatchesStep(
+  osmdMeasureNumber: number,
   stepMeasureNumber: number,
 ): boolean {
-  return measureIndex === stepMeasureNumber - 1;
+  return osmdMeasureNumber === stepMeasureNumber;
 }
 
-function findSequentialStepMatch(
+export function measureListIndexForStep(
+  snapshots: readonly Pick<CursorSnapshot, 'measureNumber' | 'measureListIndex'>[],
+  stepMeasureNumber: number,
+): number | null {
+  for (const snapshot of snapshots) {
+    if (snapshot.measureNumber === stepMeasureNumber) {
+      return snapshot.measureListIndex;
+    }
+  }
+
+  return null;
+}
+
+function isPastTargetMeasure(
+  snapshot: Pick<CursorSnapshot, 'measureListIndex'>,
+  targetMeasureListIndex: number | null,
+): boolean {
+  return (
+    targetMeasureListIndex !== null &&
+    snapshot.measureListIndex > targetMeasureListIndex
+  );
+}
+
+export function findSequentialStepMatch(
   osmd: OpenSheetMusicDisplay,
   snapshots: CursorSnapshot[],
   searchStart: number,
   practiceNotes: ScriptNote[],
   stepMeasureNumber: number,
 ): { offset: number; endIdx: number; notes: GraphicalNote[] } | null {
-  let fallbackMatch: {
-    offset: number;
-    endIdx: number;
-    notes: GraphicalNote[];
-  } | null = null;
+  const targetMeasureListIndex = measureListIndexForStep(
+    snapshots,
+    stepMeasureNumber,
+  );
 
   for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
     const snapshot = snapshots[cursorIdx];
 
-    if (
-      stepMeasureNumber > 1 &&
-      snapshot.measureIndex > stepMeasureNumber - 1
-    ) {
+    if (isPastTargetMeasure(snapshot, targetMeasureListIndex)) {
       break;
     }
 
@@ -293,18 +362,36 @@ function findSequentialStepMatch(
       continue;
     }
 
-    const match = { offset: cursorIdx, endIdx, notes };
-
-    if (measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)) {
-      return match;
-    }
-
-    if (!fallbackMatch) {
-      fallbackMatch = match;
+    if (measureNumberMatchesStep(snapshot.measureNumber, stepMeasureNumber)) {
+      return { offset: cursorIdx, endIdx, notes };
     }
   }
 
-  return fallbackMatch;
+  return null;
+}
+
+function measureListIndexForStepInOsmd(
+  osmd: OpenSheetMusicDisplay,
+  stepMeasureNumber: number,
+): number | null {
+  const measures = (
+    osmd as OpenSheetMusicDisplay & {
+      Sheet?: { SourceMeasures?: OsmdSourceMeasure[] };
+    }
+  ).Sheet?.SourceMeasures;
+
+  if (!measures) {
+    return null;
+  }
+
+  for (const measure of measures) {
+    const measureNumber = measure.MeasureNumberXML ?? measure.MeasureNumber ?? 0;
+    if (measureNumber === stepMeasureNumber) {
+      return measure.measureListIndex ?? null;
+    }
+  }
+
+  return null;
 }
 
 function resolveStepGraphicalNotes(
@@ -332,8 +419,13 @@ function resolveStepGraphicalNotes(
 
   cursor.reset();
   for (let i = 0; i < startOffset; i += 1) {
-    cursor.next();
+    advanceCursorSkippingGrace(cursor);
   }
+
+  const targetMeasureListIndex = measureListIndexForStepInOsmd(
+    osmd,
+    stepMeasureNumber,
+  );
 
   const maxScan = 512;
   let runtimeFallback: GraphicalNote[] = [];
@@ -342,18 +434,17 @@ function resolveStepGraphicalNotes(
   for (let scanned = 0; scanned < maxScan; scanned += 1) {
     const attackGNotes = attackGNotesUnderCursor(cursor);
     const allGNotes = cursor.GNotesUnderCursor();
+    const measureInfo = osmdMeasureInfoFromCursor(cursor);
     const snapshot: CursorSnapshot = {
       cursorIndex: startOffset + scanned,
       attackKeys: keysFromAttackGNotes(allGNotes),
       attackGNotes,
       allGNotes,
-      measureIndex: cursor.Iterator?.CurrentMeasureIndex ?? 0,
+      measureNumber: measureInfo.measureNumber,
+      measureListIndex: measureInfo.measureListIndex,
     };
 
-    if (
-      stepMeasureNumber > 1 &&
-      snapshot.measureIndex > stepMeasureNumber - 1
-    ) {
+    if (isPastTargetMeasure(snapshot, targetMeasureListIndex)) {
       break;
     }
 
@@ -363,16 +454,17 @@ function resolveStepGraphicalNotes(
       practiceNotes,
     );
     const score = countMatchedPracticeNotes(practiceNotes, collected);
+    const inTargetMeasure = measureNumberMatchesStep(
+      snapshot.measureNumber,
+      stepMeasureNumber,
+    );
 
-    if (score > runtimeFallbackScore) {
+    if (inTargetMeasure && score > runtimeFallbackScore) {
       runtimeFallbackScore = score;
       runtimeFallback = collected;
     }
 
-    if (
-      score === practiceNotes.length &&
-      measureIndexMatchesStep(snapshot.measureIndex, stepMeasureNumber)
-    ) {
+    if (score === practiceNotes.length && inTargetMeasure) {
       cursorOffsetRef.current = startOffset + scanned;
       return collected;
     }
@@ -381,7 +473,7 @@ function resolveStepGraphicalNotes(
       break;
     }
 
-    cursor.next();
+    advanceCursorSkippingGrace(cursor);
   }
 
   if (runtimeFallback.length > 0) {
@@ -390,7 +482,7 @@ function resolveStepGraphicalNotes(
 
   cursor.reset();
   for (let i = 0; i < startOffset; i += 1) {
-    cursor.next();
+    advanceCursorSkippingGrace(cursor);
   }
   cursorOffsetRef.current = startOffset;
 
@@ -401,7 +493,7 @@ function resolveStepGraphicalNotes(
       attackKeys: keysFromAttackGNotes(cursor.GNotesUnderCursor()),
       attackGNotes: attackGNotesUnderCursor(cursor),
       allGNotes: cursor.GNotesUnderCursor(),
-      measureIndex: cursor.Iterator?.CurrentMeasureIndex ?? 0,
+      ...osmdMeasureInfoFromCursor(cursor),
     },
     practiceNotes,
   );
@@ -475,17 +567,22 @@ function findBestPartialHighlightInSnapshots(
   practiceNotes: ScriptNote[],
   stepMeasureNumber: number,
 ): GraphicalNote[] {
+  const targetMeasureListIndex = measureListIndexForStep(
+    snapshots,
+    stepMeasureNumber,
+  );
   let best: GraphicalNote[] = [];
   let bestScore = 0;
 
   for (let cursorIdx = searchStart; cursorIdx < snapshots.length; cursorIdx += 1) {
     const snapshot = snapshots[cursorIdx];
 
-    if (
-      stepMeasureNumber > 1 &&
-      snapshot.measureIndex > stepMeasureNumber - 1
-    ) {
+    if (isPastTargetMeasure(snapshot, targetMeasureListIndex)) {
       break;
+    }
+
+    if (!measureNumberMatchesStep(snapshot.measureNumber, stepMeasureNumber)) {
+      continue;
     }
 
     const collected = collectHighlightNotesAtSnapshot(
@@ -586,25 +683,27 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
 
   cursor.reset();
 
-  for (let cursorIndex = 0; cursorIndex < 200_000; cursorIndex += 1) {
+  while (!cursor.Iterator?.EndReached) {
+    if (isGraceOnlyCursorPosition(cursor)) {
+      cursor.next();
+      continue;
+    }
+
     const gNotes = cursor.GNotesUnderCursor();
     const attackGNotes = gNotes.filter(
       (gNote) =>
         !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
     );
+    const measureInfo = osmdMeasureInfoFromCursor(cursor);
 
     snapshots.push({
-      cursorIndex,
+      cursorIndex: snapshots.length,
       attackKeys: keysFromAttackGNotes(gNotes),
       attackGNotes,
       allGNotes: gNotes,
-      measureIndex: cursor.Iterator?.CurrentMeasureIndex ?? 0,
+      measureNumber: measureInfo.measureNumber,
+      measureListIndex: measureInfo.measureListIndex,
     });
-
-    const iterator = cursor.Iterator;
-    if (iterator?.EndReached) {
-      break;
-    }
 
     cursor.next();
   }
@@ -686,11 +785,11 @@ function moveCursorToOffset(
   if (lastOffsetRef.current < 0 || offset < lastOffsetRef.current) {
     cursor.reset();
     for (let i = 0; i < offset; i += 1) {
-      cursor.next();
+      advanceCursorSkippingGrace(cursor);
     }
   } else {
     for (let i = lastOffsetRef.current; i < offset; i += 1) {
-      cursor.next();
+      advanceCursorSkippingGrace(cursor);
     }
   }
 
