@@ -17,7 +17,7 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
-import type { Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type { Hand, ScriptNote } from '../types/index.ts';
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
