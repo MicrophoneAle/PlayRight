@@ -1,6 +1,6 @@
 import type { ParseMusicXmlResult } from '../../types/index.ts';
 import { MusicXMLIngestor } from './MusicXMLIngestor.ts';
-import { MusicXMLMapper } from './MusicXMLMapper.ts';
+import { MusicXMLMapper, mergePlaybackScripts } from './MusicXMLMapper.ts';
 import {
   assertSupportedScoreFormat,
   collectParseWarnings,
@@ -13,11 +13,22 @@ export class MusicXMLParser {
     const raw = MusicXMLIngestor.ingest(xmlString);
     assertSupportedScoreFormat(raw);
     const warnings = collectParseWarnings(raw);
-    const { elements: flat, warnings: normalizeWarnings } =
+    const { partElements, warnings: normalizeWarnings } =
       MusicXMLNormalizer.normalize(raw);
-    const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flat);
+    const flatElements = partElements.flat();
+    const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flatElements);
     const { tempoBpm } = extractScoreTiming(raw);
-    const mapped = MusicXMLMapper.mapToDomain(flat, canonicalDivisionsPerQuarter);
+    const mapped =
+      partElements.length <= 1
+        ? MusicXMLMapper.mapToDomain(
+            partElements[0] ?? [],
+            canonicalDivisionsPerQuarter,
+          )
+        : mergePlaybackScripts(
+            partElements.map((part) =>
+              MusicXMLMapper.mapToDomain(part, canonicalDivisionsPerQuarter),
+            ),
+          );
     const script = MusicXMLValidator.validate(mapped);
 
     return {

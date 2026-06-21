@@ -33,6 +33,8 @@ export interface NormalizedNote {
   divisionsAtNote: number;
   measureNumber: number;
   hasFermata: boolean;
+  partIndex: number;
+  partCount: number;
 }
 
 export interface NormalizedControl {
@@ -51,10 +53,12 @@ interface MeasureContext {
   measureNumber: number;
   activeAccidentals: Map<string, number>;
   warnings: string[];
+  partIndex: number;
+  partCount: number;
 }
 
 export interface NormalizeResult {
-  elements: NormalizedElement[];
+  partElements: NormalizedElement[][];
   warnings: string[];
 }
 
@@ -481,6 +485,8 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     divisionsAtNote: measureContext.divisions,
     measureNumber: measureContext.measureNumber,
     hasFermata: hasFermataNotation(note),
+    partIndex: measureContext.partIndex,
+    partCount: measureContext.partCount,
   };
 }
 
@@ -555,28 +561,16 @@ function collectOrderedMeasureElements(
   }
 }
 
-function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizeResult {
+function normalizePartMeasures(
+  partEntry: RawRecord,
+  partIndex: number,
+  partCount: number,
+  warnings: string[],
+): NormalizedElement[] {
   const results: NormalizedElement[] = [];
-  const warnings: string[] = [];
-  const scorePartwiseEntry = rawXmlObj.find(
-    (entry) => isRecord(entry) && entry['score-partwise'] != null,
-  );
 
-  if (!isRecord(scorePartwiseEntry)) {
-    return { elements: results, warnings };
-  }
-
-  const scorePartwise = scorePartwiseEntry['score-partwise'];
-  if (!Array.isArray(scorePartwise)) {
-    return { elements: results, warnings };
-  }
-
-  const partEntry = scorePartwise.find(
-    (entry) => isRecord(entry) && entry.part != null,
-  );
-
-  if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
-    return { elements: results, warnings };
+  if (!Array.isArray(partEntry.part)) {
+    return results;
   }
 
   const measureContext: MeasureContext = {
@@ -587,6 +581,8 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizeResult {
     measureNumber: 1,
     activeAccidentals: new Map(),
     warnings,
+    partIndex,
+    partCount,
   };
 
   for (const measureWrapper of partEntry.part) {
@@ -601,7 +597,38 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizeResult {
     collectOrderedMeasureElements(measureWrapper.measure, results, measureContext);
   }
 
-  return { elements: results, warnings };
+  return results;
+}
+
+function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizeResult {
+  const warnings: string[] = [];
+  const scorePartwiseEntry = rawXmlObj.find(
+    (entry) => isRecord(entry) && entry['score-partwise'] != null,
+  );
+
+  if (!isRecord(scorePartwiseEntry)) {
+    return { partElements: [], warnings };
+  }
+
+  const scorePartwise = scorePartwiseEntry['score-partwise'];
+  if (!Array.isArray(scorePartwise)) {
+    return { partElements: [], warnings };
+  }
+
+  const partEntries = scorePartwise.filter(
+    (entry) => isRecord(entry) && entry.part != null,
+  );
+
+  if (partEntries.length === 0) {
+    return { partElements: [], warnings };
+  }
+
+  const partCount = partEntries.length;
+  const partElements = partEntries.map((entry, partIndex) =>
+    normalizePartMeasures(entry, partIndex, partCount, warnings),
+  );
+
+  return { partElements, warnings };
 }
 
 export class MusicXMLNormalizer {
@@ -611,7 +638,7 @@ export class MusicXMLNormalizer {
       return normalizePreserveOrder(rawXmlObj);
     }
 
-    return { elements: [], warnings: [] };
+    return { partElements: [], warnings: [] };
   }
 }
 
@@ -776,42 +803,41 @@ function collectScoreTiming(rawXmlObj: unknown[]): {
     };
   }
 
-  const partEntry = scorePartwiseEntry['score-partwise'].find(
+  const partEntries = scorePartwiseEntry['score-partwise'].filter(
     (entry) => isRecord(entry) && entry.part != null,
   );
 
-  if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
-    return {
-      divisionsPerQuarter: DEFAULT_DIVISIONS_PER_QUARTER,
-      tempoBpm: DEFAULT_TEMPO_BPM,
-    };
-  }
-
-  for (const measureWrapper of partEntry.part) {
-    if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
+  for (const partEntry of partEntries) {
+    if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
       continue;
     }
 
-    if (tempoBpm === null) {
-      const measureTempo = extractTempoFromMeasureChildren(measureWrapper.measure);
-      if (measureTempo !== null) {
-        tempoBpm = measureTempo;
-      }
-    }
-
-    for (const child of measureWrapper.measure) {
-      if (!isRecord(child)) {
+    for (const measureWrapper of partEntry.part) {
+      if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
         continue;
       }
 
-      const tag = Object.keys(child).find((key) => key !== ':@');
-      if (tag !== 'attributes' || !Array.isArray(child.attributes)) {
-        continue;
+      if (tempoBpm === null) {
+        const measureTempo = extractTempoFromMeasureChildren(measureWrapper.measure);
+        if (measureTempo !== null) {
+          tempoBpm = measureTempo;
+        }
       }
 
-      const divisions = extractDivisions(child.attributes);
-      if (divisions !== null && divisions > 0) {
-        divisionsValues.push(divisions);
+      for (const child of measureWrapper.measure) {
+        if (!isRecord(child)) {
+          continue;
+        }
+
+        const tag = Object.keys(child).find((key) => key !== ':@');
+        if (tag !== 'attributes' || !Array.isArray(child.attributes)) {
+          continue;
+        }
+
+        const divisions = extractDivisions(child.attributes);
+        if (divisions !== null && divisions > 0) {
+          divisionsValues.push(divisions);
+        }
       }
     }
   }

@@ -832,15 +832,19 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     );
   });
 
-  it('warns when multiple parts are present but still parses the first part', () => {
+  it('merges a two-part score into both hands at aligned onsets', () => {
     const { script, warnings } = parseMusicXmlToScript(MULTI_PART);
 
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/2 parts/i);
-    expect(warnings[0]).toMatch(/first part/i);
+    expect(warnings).toEqual([]);
     expect(script).toHaveLength(1);
-    expect(script[0]).toMatchObject({ onset: 0 });
-    expect(script[0].notes[0]).toMatchObject({ pitch: 'C4', midi: 60 });
+    expect(script[0]).toMatchObject({ onset: 0, measureNumber: 1 });
+    expect(script[0].notes).toHaveLength(2);
+    expect(script[0].notes).toContainEqual(
+      expect.objectContaining({ pitch: 'C4', midi: 60, hand: 'R' }),
+    );
+    expect(script[0].notes).toContainEqual(
+      expect.objectContaining({ pitch: 'D4', midi: 62, hand: 'L' }),
+    );
   });
 
   it('skips cue notes but preserves later onsets', () => {

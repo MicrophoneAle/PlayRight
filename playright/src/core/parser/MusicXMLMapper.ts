@@ -2,7 +2,16 @@ import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../
 import { formatPitch, getMidiNumber } from './pitch.ts';
 import type { NormalizedControl, NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
-function mapStaffToHand(staff: number): Hand {
+function mapStaffToHand(
+  staff: number,
+  partIndex: number,
+  partCount: number,
+  partUsesMultipleStavesInPart: boolean,
+): Hand {
+  if (partCount === 2 && !partUsesMultipleStavesInPart) {
+    return partIndex === 0 ? 'R' : 'L';
+  }
+
   return staff === 2 ? 'L' : 'R';
 }
 
@@ -15,7 +24,8 @@ function mapScoreFingering(fingering: number): Finger | null {
 }
 
 function tieKeyForElement(element: NormalizedNote): string {
-  return `${element.staff}:${element.voice}:${element.step}:${element.octave}`;
+  const partPrefix = element.partCount > 1 ? `${element.partIndex}:` : '';
+  return `${partPrefix}${element.staff}:${element.voice}:${element.step}:${element.octave}`;
 }
 
 function toCanonicalDuration(
@@ -152,16 +162,34 @@ function groupByOnset(
   return script;
 }
 
+function partUsesMultipleStaves(elements: NormalizedElement[]): boolean {
+  const staves = new Set<number>();
+
+  for (const element of elements) {
+    if (element.type === 'note' && element.hasPlayablePitch && !element.isGrace) {
+      staves.add(element.staff);
+    }
+  }
+
+  return staves.size > 1;
+}
+
 function createScriptNote(
   element: NormalizedNote,
   canonicalDivisionsPerQuarter: number,
+  partUsesMultipleStavesInPart: boolean,
 ): ScriptNote {
   const finger = mapScoreFingering(element.fingering);
 
   return {
     pitch: formatPitch(element.step, element.octave, element.alter),
     midi: getMidiNumber(element.step, element.octave, element.alter),
-    hand: mapStaffToHand(element.staff),
+    hand: mapStaffToHand(
+      element.staff,
+      element.partIndex,
+      element.partCount,
+      partUsesMultipleStavesInPart,
+    ),
     finger,
     durationDivisions: toCanonicalDuration(
       element.duration,
@@ -174,7 +202,37 @@ function createScriptNote(
   };
 }
 
+function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
+  const byOnset = new Map<number, { measureNumber: number; notes: ScriptNote[] }>();
+
+  for (const script of scripts) {
+    for (const step of script) {
+      const existing = byOnset.get(step.onset);
+
+      if (existing) {
+        existing.notes.push(...step.notes);
+        continue;
+      }
+
+      byOnset.set(step.onset, {
+        measureNumber: step.measureNumber,
+        notes: [...step.notes],
+      });
+    }
+  }
+
+  const sortedOnsets = [...byOnset.keys()].sort((left, right) => left - right);
+
+  return sortedOnsets.map((onset, order) => ({
+    order,
+    onset,
+    measureNumber: byOnset.get(onset)!.measureNumber,
+    notes: byOnset.get(onset)!.notes,
+  }));
+}
+
 export { getMidiNumber, formatPitch } from './pitch.ts';
+export { mergePlaybackScripts };
 
 export class MusicXMLMapper {
   static mapToDomain(
@@ -185,6 +243,7 @@ export class MusicXMLMapper {
     let currentBaseOnset = 0;
     const absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }> = [];
     const openTies = new Map<string, number>();
+    const multiStaffPart = partUsesMultipleStaves(elements);
 
     for (const element of elements) {
       if (element.type === 'backup') {
@@ -255,7 +314,11 @@ export class MusicXMLMapper {
         }
       }
 
-      const scriptNote = createScriptNote(element, canonicalDivisionsPerQuarter);
+      const scriptNote = createScriptNote(
+        element,
+        canonicalDivisionsPerQuarter,
+        multiStaffPart,
+      );
 
       if (element.isChord && absoluteNotes.length > 0) {
         absoluteNotes.push({
