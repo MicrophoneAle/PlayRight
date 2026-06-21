@@ -969,3 +969,50 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     expect(script[0].notes.map((note) => note.pitch)).toEqual(['C4', 'D4']);
   });
 });
+
+describe('mid-piece divisions changes', () => {
+  const CHANGING_DIVISIONS = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <time>
+          <beats>4</beats>
+          <beat-type>4</beat-type>
+        </time>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+    <measure number="2">
+      <attributes>
+        <divisions>240</divisions>
+      </attributes>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>240</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  it('normalizes onsets to a single canonical divisions base across measures', () => {
+    const { script, scoreTiming } = parseMusicXmlToScript(CHANGING_DIVISIONS);
+
+    expect(scoreTiming.divisionsPerQuarter).toBe(480);
+    expect(script).toHaveLength(2);
+    expect(script[0]).toMatchObject({ onset: 0, measureNumber: 1 });
+    expect(script[0].notes[0]).toMatchObject({
+      pitch: 'C4',
+      durationDivisions: 480,
+    });
+    expect(script[1]).toMatchObject({ onset: 480, measureNumber: 2 });
+    expect(script[1].notes[0]).toMatchObject({
+      pitch: 'D4',
+      durationDivisions: 480,
+    });
+  });
+});

@@ -1,6 +1,6 @@
 import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
 import { formatPitch, getMidiNumber } from './pitch.ts';
-import type { NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
+import type { NormalizedControl, NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
 function mapStaffToHand(staff: number): Hand {
   return staff === 2 ? 'L' : 'R';
@@ -16,6 +16,22 @@ function mapScoreFingering(fingering: number): Finger | null {
 
 function tieKeyForElement(element: NormalizedNote): string {
   return `${element.staff}:${element.voice}:${element.step}:${element.octave}`;
+}
+
+function toCanonicalDuration(
+  duration: number,
+  divisionsAtNote: number,
+  canonicalDivisionsPerQuarter: number,
+): number {
+  if (duration === 0) {
+    return 0;
+  }
+
+  if (divisionsAtNote <= 0) {
+    return duration;
+  }
+
+  return Math.round((duration * canonicalDivisionsPerQuarter) / divisionsAtNote);
 }
 
 function mergeOpenTie(
@@ -66,20 +82,48 @@ function registerOpenTie(
   openTies.set(tieKey, noteIndex);
 }
 
-function fullMeasureDurationDivisions(element: NormalizedNote): number {
-  return (element.timeBeats * element.divisionsAtNote * 4) / element.timeBeatType;
+function fullMeasureDurationDivisions(
+  element: NormalizedNote,
+  canonicalDivisionsPerQuarter: number,
+): number {
+  const measureDuration =
+    (element.timeBeats * element.divisionsAtNote * 4) / element.timeBeatType;
+
+  return toCanonicalDuration(
+    measureDuration,
+    element.divisionsAtNote,
+    canonicalDivisionsPerQuarter,
+  );
 }
 
-function timeAdvanceForSkippedNote(element: NormalizedNote): number {
+function timeAdvanceForSkippedNote(
+  element: NormalizedNote,
+  canonicalDivisionsPerQuarter: number,
+): number {
   if (element.duration > 0) {
-    return element.duration;
+    return toCanonicalDuration(
+      element.duration,
+      element.divisionsAtNote,
+      canonicalDivisionsPerQuarter,
+    );
   }
 
   if (element.isRest && element.isMeasureRest) {
-    return fullMeasureDurationDivisions(element);
+    return fullMeasureDurationDivisions(element, canonicalDivisionsPerQuarter);
   }
 
   return 0;
+}
+
+function controlTimeAdvance(
+  element: NormalizedControl,
+  canonicalDivisionsPerQuarter: number,
+): number {
+  return toCanonicalDuration(
+    element.duration,
+    element.divisionsAtNote,
+    canonicalDivisionsPerQuarter,
+  );
 }
 
 function groupByOnset(
@@ -108,7 +152,10 @@ function groupByOnset(
   return script;
 }
 
-function createScriptNote(element: NormalizedNote): ScriptNote {
+function createScriptNote(
+  element: NormalizedNote,
+  canonicalDivisionsPerQuarter: number,
+): ScriptNote {
   const finger = mapScoreFingering(element.fingering);
 
   return {
@@ -116,7 +163,11 @@ function createScriptNote(element: NormalizedNote): ScriptNote {
     midi: getMidiNumber(element.step, element.octave, element.alter),
     hand: mapStaffToHand(element.staff),
     finger,
-    durationDivisions: element.duration,
+    durationDivisions: toCanonicalDuration(
+      element.duration,
+      element.divisionsAtNote,
+      canonicalDivisionsPerQuarter,
+    ),
     ...(element.isTieStart ? { tiedToNext: true } : {}),
     ...(element.hasFermata ? { hasFermata: true } : {}),
     ...(finger !== null ? { fingerSource: 'score' as const } : {}),
@@ -126,7 +177,10 @@ function createScriptNote(element: NormalizedNote): ScriptNote {
 export { getMidiNumber, formatPitch } from './pitch.ts';
 
 export class MusicXMLMapper {
-  static mapToDomain(elements: NormalizedElement[]): PlaybackScript {
+  static mapToDomain(
+    elements: NormalizedElement[],
+    canonicalDivisionsPerQuarter: number,
+  ): PlaybackScript {
     let currentTime = 0;
     let currentBaseOnset = 0;
     const absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }> = [];
@@ -134,12 +188,15 @@ export class MusicXMLMapper {
 
     for (const element of elements) {
       if (element.type === 'backup') {
-        currentTime = Math.max(0, currentTime - element.duration);
+        currentTime = Math.max(
+          0,
+          currentTime - controlTimeAdvance(element, canonicalDivisionsPerQuarter),
+        );
         continue;
       }
 
       if (element.type === 'forward') {
-        currentTime += element.duration;
+        currentTime += controlTimeAdvance(element, canonicalDivisionsPerQuarter);
         continue;
       }
 
@@ -151,13 +208,19 @@ export class MusicXMLMapper {
         continue;
       }
 
+      const noteDuration = toCanonicalDuration(
+        element.duration,
+        element.divisionsAtNote,
+        canonicalDivisionsPerQuarter,
+      );
+
       if (element.isRest) {
-        currentTime += timeAdvanceForSkippedNote(element);
+        currentTime += timeAdvanceForSkippedNote(element, canonicalDivisionsPerQuarter);
         continue;
       }
 
       if (!element.hasPlayablePitch) {
-        currentTime += timeAdvanceForSkippedNote(element);
+        currentTime += timeAdvanceForSkippedNote(element, canonicalDivisionsPerQuarter);
         continue;
       }
 
@@ -173,26 +236,26 @@ export class MusicXMLMapper {
 
       if (isTieEnd) {
         if (
-          mergeOpenTie(openTies, tieKey, absoluteNotes, element.duration, true)
+          mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, true)
         ) {
-          currentTime += element.duration;
+          currentTime += noteDuration;
           continue;
         }
 
-        currentTime += element.duration;
+        currentTime += noteDuration;
         continue;
       }
 
       if (isTieMiddle || isImplicitTieContinue) {
         if (
-          mergeOpenTie(openTies, tieKey, absoluteNotes, element.duration, false)
+          mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, false)
         ) {
-          currentTime += element.duration;
+          currentTime += noteDuration;
           continue;
         }
       }
 
-      const scriptNote = createScriptNote(element);
+      const scriptNote = createScriptNote(element, canonicalDivisionsPerQuarter);
 
       if (element.isChord && absoluteNotes.length > 0) {
         absoluteNotes.push({
@@ -212,7 +275,7 @@ export class MusicXMLMapper {
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }
-        currentTime += element.duration;
+        currentTime += noteDuration;
       }
     }
 

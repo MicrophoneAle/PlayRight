@@ -38,6 +38,7 @@ export interface NormalizedNote {
 export interface NormalizedControl {
   type: 'backup' | 'forward';
   duration: number;
+  divisionsAtNote: number;
 }
 
 export type NormalizedElement = NormalizedNote | NormalizedControl;
@@ -486,12 +487,14 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
 function normalizeControl(
   type: 'backup' | 'forward',
   rawControl: unknown,
+  measureContext: MeasureContext,
 ): NormalizedControl {
   const control = isRecord(rawControl) ? rawControl : {};
 
   return {
     type,
     duration: toNumber(control.duration, 0),
+    divisionsAtNote: measureContext.divisions,
   };
 }
 
@@ -545,8 +548,9 @@ function collectOrderedMeasureElements(
 
     if ((tag === 'backup' || tag === 'forward') && Array.isArray(child[tag])) {
       results.push(
-        normalizeControl(tag, orderedChildrenToRecord(child[tag] as unknown[])),
+        normalizeControl(tag, orderedChildrenToRecord(child[tag] as unknown[]), measureContext),
       );
+      continue;
     }
   }
 }
@@ -738,6 +742,20 @@ function resolveDivisionsPerQuarter(observed: number[]): number {
   }
 
   return dominant;
+}
+
+export function resolveCanonicalDivisionsPerQuarter(
+  elements: NormalizedElement[],
+): number {
+  const observed: number[] = [];
+
+  for (const element of elements) {
+    if (element.divisionsAtNote > 0) {
+      observed.push(element.divisionsAtNote);
+    }
+  }
+
+  return resolveDivisionsPerQuarter(observed);
 }
 
 function collectScoreTiming(rawXmlObj: unknown[]): {

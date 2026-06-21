@@ -5,7 +5,7 @@ import {
   assertSupportedScoreFormat,
   collectParseWarnings,
 } from './MusicXMLParseChecks.ts';
-import { extractScoreTiming, MusicXMLNormalizer } from './MusicXMLNormalizer.ts';
+import { extractScoreTiming, MusicXMLNormalizer, resolveCanonicalDivisionsPerQuarter } from './MusicXMLNormalizer.ts';
 import { MusicXMLValidator } from './MusicXMLValidator.ts';
 
 export class MusicXMLParser {
@@ -15,13 +15,17 @@ export class MusicXMLParser {
     const warnings = collectParseWarnings(raw);
     const { elements: flat, warnings: normalizeWarnings } =
       MusicXMLNormalizer.normalize(raw);
-    const scoreTiming = extractScoreTiming(raw);
-    const mapped = MusicXMLMapper.mapToDomain(flat);
+    const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flat);
+    const { tempoBpm } = extractScoreTiming(raw);
+    const mapped = MusicXMLMapper.mapToDomain(flat, canonicalDivisionsPerQuarter);
     const script = MusicXMLValidator.validate(mapped);
 
     return {
       script,
-      scoreTiming,
+      scoreTiming: {
+        divisionsPerQuarter: canonicalDivisionsPerQuarter,
+        tempoBpm,
+      },
       warnings: [...warnings, ...normalizeWarnings],
     };
   }
