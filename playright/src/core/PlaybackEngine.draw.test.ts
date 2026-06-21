@@ -133,7 +133,9 @@ describe('PlaybackEngine playback visuals', () => {
     useEngineStore.setState({ script });
 
     const releaseTickTime = quartersToTransportTickTime(
-      playbackReleaseOnsetQuarterNotes(0, 1, false),
+      playbackReleaseOnsetQuarterNotes(0, 1, false, {
+        followedByConsecutiveSameNote: true,
+      }),
       480,
     );
     const scheduled: Array<{ time: string; callback: (time: number) => void }> = [];

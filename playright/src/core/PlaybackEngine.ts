@@ -1,8 +1,10 @@
 import * as Tone from 'tone';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
+  buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  isPlaybackTieContinuation,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
@@ -19,24 +21,6 @@ import type { Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
-}
-
-function isPlaybackTieContinuation(
-  script: PlaybackScript,
-  stepIndex: number,
-  note: ScriptNote,
-): boolean {
-  if (stepIndex === 0) {
-    return false;
-  }
-
-  const previousStep = script[stepIndex - 1];
-  return previousStep.notes.some(
-    (previous) =>
-      previous.midi === note.midi &&
-      previous.hand === note.hand &&
-      previous.tiedToNext,
-  );
 }
 
 export class PlaybackEngine {
@@ -411,6 +395,11 @@ export class PlaybackEngine {
       divisionsPerQuarter,
       finalNoteKeys,
     );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
+      script,
+      divisionsPerQuarter,
+      fermataOffsets,
+    );
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
@@ -452,6 +441,9 @@ export class PlaybackEngine {
         const durationOptions = {
           isFinalNote,
           hasFermata: note.hasFermata ?? false,
+          followedByConsecutiveSameNote: consecutiveSameNoteKeys.has(
+            `${stepIndex}:${note.hand}:${note.midi}`,
+          ),
         };
         const playedQuarters = playbackDurationQuarterNotes(
           writtenQuarters,

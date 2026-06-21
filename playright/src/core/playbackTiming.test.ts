@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   articulationGapQuarterNotes,
+  buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
   latestWrittenEndQuarterNotes,
@@ -11,6 +12,7 @@ import {
   pieceEndQuarterNotes,
   PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
+  PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
   PLAYBACK_FERMATA_HOLD_FACTOR,
   quarterNotesToSeconds,
   quarterNotesToTickDuration,
@@ -72,6 +74,67 @@ describe('playbackTiming', () => {
     expect(playbackDurationQuarterNotes(1)).toBeCloseTo(0.965, 5);
     expect(playbackDurationQuarterNotes(2)).toBeCloseTo(1.95, 5);
     expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.48, 5);
+  });
+
+  it('uses a slightly shorter release when the same pitch re-attacks on the next step', () => {
+    const written = 0.5;
+    const normal = playbackDurationQuarterNotes(written);
+    const consecutive = playbackDurationQuarterNotes(written, false, {
+      followedByConsecutiveSameNote: true,
+    });
+
+    expect(consecutive).toBeLessThan(normal);
+    expect(normal - consecutive).toBeCloseTo(
+      PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
+      5,
+    );
+    expect(articulationGapQuarterNotes(written, { followedByConsecutiveSameNote: true })).toBeCloseTo(
+      articulationGapQuarterNotes(written) +
+        PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
+      5,
+    );
+  });
+
+  it('marks only immediate same-pitch re-attacks as consecutive', () => {
+    const consecutiveScript: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+      {
+        order: 1,
+        onset: 240,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+    ];
+    const nonConsecutiveScript: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+      {
+        order: 1,
+        onset: 240,
+        measureNumber: 1,
+        notes: [{ pitch: 'G5', midi: 79, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+      {
+        order: 2,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+    ];
+
+    expect(buildConsecutiveSameNoteKeySet(consecutiveScript, 480)).toEqual(
+      new Set(['0:R:76']),
+    );
+    expect(buildConsecutiveSameNoteKeySet(nonConsecutiveScript, 480)).toEqual(new Set());
   });
 
   it('keeps tied and final playback durations at the written length', () => {
