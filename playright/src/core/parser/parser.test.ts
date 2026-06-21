@@ -847,7 +847,7 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     );
   });
 
-  it('merges two-part onsets within one division of drift', () => {
+  it('keeps two-part onsets separate when they differ by one division', () => {
     const NEAR_MISS_MULTI_PART = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part id="P1">
@@ -874,12 +874,14 @@ describe('parseMusicXmlToScript defensive fixes', () => {
 
     const { script } = parseMusicXmlToScript(NEAR_MISS_MULTI_PART);
 
-    expect(script).toHaveLength(1);
+    expect(script).toHaveLength(2);
     expect(script[0]).toMatchObject({ onset: 0, measureNumber: 1 });
-    expect(script[0].notes.map((note) => note.pitch).sort()).toEqual(['C4', 'D4']);
+    expect(script[0].notes.map((note) => note.pitch)).toEqual(['C4']);
+    expect(script[1]).toMatchObject({ onset: 1, measureNumber: 1 });
+    expect(script[1].notes.map((note) => note.pitch)).toEqual(['D4']);
   });
 
-  it('merges RH and LH steps when onset drift is small within a measure', () => {
+  it('keeps RH and LH steps separate when onset drift is non-zero', () => {
     const CROSS_HAND_DRIFT = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part id="P1">
@@ -906,15 +908,107 @@ describe('parseMusicXmlToScript defensive fixes', () => {
 
     const { script } = parseMusicXmlToScript(CROSS_HAND_DRIFT);
 
-    expect(script).toHaveLength(1);
-    expect(script[0].notes).toHaveLength(2);
+    expect(script).toHaveLength(2);
+    expect(script[0]).toMatchObject({ onset: 0, measureNumber: 1 });
     expect(script[0].notes).toContainEqual(
       expect.objectContaining({ pitch: 'C4', hand: 'R' }),
     );
-    expect(script[0].notes).toContainEqual(
+    expect(script[1]).toMatchObject({ onset: 40, measureNumber: 1 });
+    expect(script[1].notes).toContainEqual(
       expect.objectContaining({ pitch: 'D4', hand: 'L' }),
     );
-    expect(script[0].onset).toBe(0);
+  });
+
+  it('keeps consecutive bass eighth notes as separate steps after a grand-staff backup', () => {
+    const GRAND_STAFF_BASS_EIGHTHS = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="50">
+      <attributes>
+        <divisions>480</divisions>
+        <staves>2</staves>
+      </attributes>
+      <note>
+        <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
+        <duration>960</duration>
+        <voice>1</voice>
+        <staff>1</staff>
+      </note>
+      <backup><duration>960</duration></backup>
+      <note>
+        <pitch><step>E</step><octave>2</octave></pitch>
+        <duration>240</duration>
+        <voice>5</voice>
+        <staff>2</staff>
+      </note>
+      <note>
+        <pitch><step>F</step><alter>1</alter><octave>2</octave></pitch>
+        <duration>240</duration>
+        <voice>5</voice>
+        <staff>2</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(GRAND_STAFF_BASS_EIGHTHS);
+    const bassE2Step = script.find((step) =>
+      step.notes.some((note) => note.pitch === 'E2'),
+    );
+    const bassFSharpStep = script.find((step) =>
+      step.notes.some((note) => note.pitch === 'F#2'),
+    );
+
+    expect(bassE2Step).toMatchObject({ onset: 0, measureNumber: 50 });
+    expect(bassE2Step?.notes.filter((note) => note.hand === 'L')).toHaveLength(1);
+    expect(bassFSharpStep).toMatchObject({ onset: 240, measureNumber: 50 });
+    expect(bassFSharpStep?.notes).toEqual([
+      expect.objectContaining({
+        pitch: 'F#2',
+        hand: 'L',
+        durationDivisions: 240,
+      }),
+    ]);
+    expect(bassE2Step).not.toBe(bassFSharpStep);
+    expect(
+      script.some(
+        (step) =>
+          step.measureNumber === 50 &&
+          step.notes.some((note) => note.pitch === 'E2') &&
+          step.notes.some((note) => note.pitch === 'F#2'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not snap nearby onsets into one step', () => {
+    const NEARBY_ONSETS = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>3</octave></pitch>
+        <duration>240</duration>
+        <staff>2</staff>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>3</octave></pitch>
+        <duration>238</duration>
+        <staff>2</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(NEARBY_ONSETS);
+
+    expect(script).toHaveLength(2);
+    expect(script[0]).toMatchObject({ onset: 0 });
+    expect(script[1].onset).toBeGreaterThan(script[0].onset);
+    expect(script[0].notes[0].hand).toBe('L');
+    expect(script[1].notes[0].hand).toBe('L');
   });
 
   it('skips cue notes but preserves later onsets', () => {

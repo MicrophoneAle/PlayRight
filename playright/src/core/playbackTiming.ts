@@ -33,12 +33,6 @@ export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 /** Extra release gap when the same pitch re-attacks on the very next step. */
 export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.015;
 
-/** Max onset drift merged into one step when grouping parts or staves. */
-export const ONSET_SNAP_GRID_DIVISIONS = 4;
-
-/** Max RH/LH onset drift merged into one step within a measure. */
-export const HAND_SYNC_MAX_DRIFT_DIVISIONS = 48;
-
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
 

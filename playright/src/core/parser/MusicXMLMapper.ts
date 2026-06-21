@@ -1,8 +1,4 @@
 import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
-import {
-  HAND_SYNC_MAX_DRIFT_DIVISIONS,
-  ONSET_SNAP_GRID_DIVISIONS,
-} from '../playbackTiming.ts';
 import { formatPitch, getMidiNumber } from './pitch.ts';
 import type { NormalizedControl, NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
@@ -27,9 +23,47 @@ function mapScoreFingering(fingering: number): Finger | null {
   return null;
 }
 
-function tieKeyForElement(element: NormalizedNote): string {
+function voiceStreamKey(element: NormalizedNote): string {
   const partPrefix = element.partCount > 1 ? `${element.partIndex}:` : '';
-  return `${partPrefix}${element.staff}:${element.voice}:${element.step}:${element.octave}`;
+  return `${partPrefix}${element.staff}:${element.voice}`;
+}
+
+function isPlayableNormalizedNote(element: NormalizedElement): element is NormalizedNote {
+  return (
+    element.type === 'note' &&
+    !element.isGrace &&
+    !element.isRest &&
+    element.hasPlayablePitch
+  );
+}
+
+function nextPlayableNote(
+  elements: NormalizedElement[],
+  fromIndex: number,
+): NormalizedNote | null {
+  for (let index = fromIndex + 1; index < elements.length; index += 1) {
+    const element = elements[index];
+    if (isPlayableNormalizedNote(element)) {
+      return element;
+    }
+  }
+
+  return null;
+}
+
+function canFollowWithChordTone(
+  note: NormalizedNote,
+  nextNote: NormalizedNote | null,
+): boolean {
+  if (nextNote === null || !nextNote.isChord) {
+    return false;
+  }
+
+  return voiceStreamKey(note) === voiceStreamKey(nextNote);
+}
+
+function tieKeyForElement(element: NormalizedNote): string {
+  return `${voiceStreamKey(element)}:${element.step}:${element.octave}`;
 }
 
 function toCanonicalDuration(
@@ -140,118 +174,30 @@ function controlTimeAdvance(
   );
 }
 
-function snapOnset(
-  onset: number,
-  grid = ONSET_SNAP_GRID_DIVISIONS,
-): number {
-  if (grid <= 1) {
-    return onset;
-  }
-
-  return Math.round(onset / grid) * grid;
-}
-
-function onsetBucketKey(measureNumber: number, onset: number): string {
-  return `${measureNumber}:${snapOnset(onset)}`;
-}
-
-function mergeCrossHandDriftSteps(
-  script: PlaybackScript,
-  maxDriftDivisions = HAND_SYNC_MAX_DRIFT_DIVISIONS,
-): PlaybackScript {
-  if (script.length <= 1) {
-    return script;
-  }
-
-  const sorted = [...script].sort(
-    (left, right) => left.onset - right.onset || left.order - right.order,
-  );
-  const merged: PlaybackScript = [];
-
-  for (const step of sorted) {
-    const previous = merged[merged.length - 1];
-
-    if (
-      previous &&
-      shouldMergeCrossHandSteps(previous, step, maxDriftDivisions)
-    ) {
-      previous.notes.push(...step.notes);
-      previous.onset = Math.min(previous.onset, step.onset);
-      continue;
-    }
-
-    merged.push({
-      order: merged.length,
-      onset: step.onset,
-      measureNumber: step.measureNumber,
-      notes: [...step.notes],
-    });
-  }
-
-  return merged.map((step, order) => ({ ...step, order }));
-}
-
-function shouldMergeCrossHandSteps(
-  left: StepOrder,
-  right: StepOrder,
-  maxDriftDivisions: number,
-): boolean {
-  if (left.measureNumber !== right.measureNumber) {
-    return false;
-  }
-
-  if (Math.abs(left.onset - right.onset) > maxDriftDivisions) {
-    return false;
-  }
-
-  const leftHands = new Set(left.notes.map((note) => note.hand));
-  const rightHands = new Set(right.notes.map((note) => note.hand));
-
-  if (leftHands.size > 1 || rightHands.size > 1) {
-    return false;
-  }
-
-  const combinedHands = new Set([...leftHands, ...rightHands]);
-  return combinedHands.size === 2;
-}
-
 function groupByOnset(
   absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
 ): PlaybackScript {
-  const buckets = new Map<
-    string,
-    { onset: number; measureNumber: number; notes: ScriptNote[] }
-  >();
+  const sorted = [...absoluteNotes].sort((left, right) => left.onset - right.onset);
 
-  for (const entry of absoluteNotes) {
-    const key = onsetBucketKey(entry.measureNumber, entry.onset);
-    const existing = buckets.get(key);
+  const script: PlaybackScript = [];
+  let order = 0;
 
-    if (existing) {
-      existing.notes.push(entry.note);
-      existing.onset = Math.min(existing.onset, entry.onset);
-      continue;
+  for (let index = 0; index < sorted.length; ) {
+    const onset = sorted[index].onset;
+    const measureNumber = sorted[index].measureNumber;
+    const notes: ScriptNote[] = [];
+
+    while (index < sorted.length && sorted[index].onset === onset) {
+      notes.push(sorted[index].note);
+      index += 1;
     }
 
-    buckets.set(key, {
-      onset: entry.onset,
-      measureNumber: entry.measureNumber,
-      notes: [entry.note],
-    });
+    const step: StepOrder = { order, onset, measureNumber, notes };
+    script.push(step);
+    order += 1;
   }
 
-  const grouped = [...buckets.values()].sort(
-    (left, right) => left.onset - right.onset || left.measureNumber - right.measureNumber,
-  );
-
-  return mergeCrossHandDriftSteps(
-    grouped.map((step, order) => ({
-      order,
-      onset: step.onset,
-      measureNumber: step.measureNumber,
-      notes: step.notes,
-    })),
-  );
+  return script;
 }
 
 function partUsesMultipleStaves(elements: NormalizedElement[]): boolean {
@@ -295,43 +241,32 @@ function createScriptNote(
 }
 
 function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
-  const buckets = new Map<
-    string,
-    { onset: number; measureNumber: number; notes: ScriptNote[] }
-  >();
+  const byOnset = new Map<number, { measureNumber: number; notes: ScriptNote[] }>();
 
   for (const script of scripts) {
     for (const step of script) {
-      const key = onsetBucketKey(step.measureNumber, step.onset);
-      const existing = buckets.get(key);
+      const existing = byOnset.get(step.onset);
 
       if (existing) {
         existing.notes.push(...step.notes);
-        existing.onset = Math.min(existing.onset, step.onset);
         continue;
       }
 
-      buckets.set(key, {
-        onset: step.onset,
+      byOnset.set(step.onset, {
         measureNumber: step.measureNumber,
         notes: [...step.notes],
       });
     }
   }
 
-  const grouped = [...buckets.values()].sort(
-    (left, right) => left.onset - right.onset || left.measureNumber - right.measureNumber,
-  );
+  const sortedOnsets = [...byOnset.keys()].sort((left, right) => left - right);
 
-  return mergeCrossHandDriftSteps(
-    grouped.map((step, order) => ({
-      order,
-      onset: step.onset,
-      measureNumber: step.measureNumber,
-      notes: step.notes,
-    })),
-    HAND_SYNC_MAX_DRIFT_DIVISIONS,
-  );
+  return sortedOnsets.map((onset, order) => ({
+    order,
+    onset,
+    measureNumber: byOnset.get(onset)!.measureNumber,
+    notes: byOnset.get(onset)!.notes,
+  }));
 }
 
 export { getMidiNumber, formatPitch } from './pitch.ts';
@@ -343,22 +278,42 @@ export class MusicXMLMapper {
     canonicalDivisionsPerQuarter: number,
   ): PlaybackScript {
     let currentTime = 0;
-    let currentBaseOnset = 0;
+    let chordAnchorEligible = false;
+    let chordAnchorOnset = 0;
+    let chordAnchorVoiceKey: string | null = null;
+    let pendingTimeAdvance = 0;
     const absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }> = [];
     const openTies = new Map<string, number>();
     const multiStaffPart = partUsesMultipleStaves(elements);
 
-    for (const element of elements) {
+    const flushPendingTimeAdvance = (): void => {
+      if (pendingTimeAdvance > 0) {
+        currentTime += pendingTimeAdvance;
+        pendingTimeAdvance = 0;
+      }
+    };
+
+    const invalidateChordAnchor = (): void => {
+      chordAnchorEligible = false;
+      chordAnchorVoiceKey = null;
+      flushPendingTimeAdvance();
+    };
+
+    for (let elementIndex = 0; elementIndex < elements.length; elementIndex += 1) {
+      const element = elements[elementIndex];
+
       if (element.type === 'backup') {
         currentTime = Math.max(
           0,
           currentTime - controlTimeAdvance(element, canonicalDivisionsPerQuarter),
         );
+        invalidateChordAnchor();
         continue;
       }
 
       if (element.type === 'forward') {
         currentTime += controlTimeAdvance(element, canonicalDivisionsPerQuarter);
+        invalidateChordAnchor();
         continue;
       }
 
@@ -378,16 +333,28 @@ export class MusicXMLMapper {
 
       if (element.isRest) {
         currentTime += timeAdvanceForSkippedNote(element, canonicalDivisionsPerQuarter);
+        invalidateChordAnchor();
         continue;
       }
 
       if (!element.hasPlayablePitch) {
         currentTime += timeAdvanceForSkippedNote(element, canonicalDivisionsPerQuarter);
+        invalidateChordAnchor();
         continue;
       }
 
-      if (!element.isChord) {
-        currentBaseOnset = currentTime;
+      const voiceKey = voiceStreamKey(element);
+      const effectiveIsChord =
+        element.isChord &&
+        chordAnchorEligible &&
+        chordAnchorVoiceKey === voiceKey &&
+        (currentTime === chordAnchorOnset ||
+          (pendingTimeAdvance > 0 &&
+            currentTime === chordAnchorOnset + pendingTimeAdvance));
+      const nextNote = nextPlayableNote(elements, elementIndex);
+
+      if (!effectiveIsChord) {
+        flushPendingTimeAdvance();
       }
 
       const tieKey = tieKeyForElement(element);
@@ -397,6 +364,7 @@ export class MusicXMLMapper {
         element.isTieStart && !element.isTieStop && openTies.has(tieKey);
 
       if (isTieEnd) {
+        invalidateChordAnchor();
         if (
           mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, true)
         ) {
@@ -412,9 +380,23 @@ export class MusicXMLMapper {
         if (
           mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, false)
         ) {
+          const segmentStart = currentTime;
           currentTime += noteDuration;
+          const next = nextPlayableNote(elements, elementIndex);
+          if (canFollowWithChordTone(element, next)) {
+            chordAnchorEligible = true;
+            chordAnchorOnset = segmentStart;
+            chordAnchorVoiceKey = voiceStreamKey(element);
+            pendingTimeAdvance = noteDuration;
+          } else {
+            invalidateChordAnchor();
+          }
           continue;
         }
+
+        invalidateChordAnchor();
+        currentTime += noteDuration;
+        continue;
       }
 
       const scriptNote = createScriptNote(
@@ -423,14 +405,18 @@ export class MusicXMLMapper {
         multiStaffPart,
       );
 
-      if (element.isChord && absoluteNotes.length > 0) {
+      if (effectiveIsChord && absoluteNotes.length > 0) {
         absoluteNotes.push({
           note: scriptNote,
-          onset: currentBaseOnset,
+          onset: chordAnchorOnset,
           measureNumber: element.measureNumber,
         });
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
+        }
+
+        if (!canFollowWithChordTone(element, nextNote)) {
+          flushPendingTimeAdvance();
         }
       } else {
         absoluteNotes.push({
@@ -441,10 +427,20 @@ export class MusicXMLMapper {
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }
-        currentTime += noteDuration;
+
+        chordAnchorEligible = true;
+        chordAnchorOnset = currentTime;
+        chordAnchorVoiceKey = voiceKey;
+
+        if (canFollowWithChordTone(element, nextNote)) {
+          pendingTimeAdvance = noteDuration;
+        } else {
+          currentTime += noteDuration;
+        }
       }
     }
 
+    flushPendingTimeAdvance();
     clearDanglingOpenTies(openTies, absoluteNotes);
 
     return groupByOnset(absoluteNotes);
