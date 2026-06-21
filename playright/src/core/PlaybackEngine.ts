@@ -17,7 +17,6 @@ import { getDisplayNotesForStep } from './practiceSteps.ts';
 import type { Hand } from '../types/index.ts';
 
 const transport = Tone.getTransport();
-const draw = Tone.getDraw();
 
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
@@ -318,9 +317,7 @@ export class PlaybackEngine {
       const transportTime = quartersToTransportTickTime(onsetQuarters, ppq);
 
       const eventId = transport.scheduleOnce((time) => {
-        draw.schedule(() => {
-          this.applyStepVisual(stepIndex);
-        }, time);
+        this.applyStepVisual(stepIndex);
 
         for (const note of step.notes) {
           const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
@@ -345,15 +342,10 @@ export class PlaybackEngine {
           const pressId = this.playingPressTracker.allocatePressId();
 
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
+          this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
 
-          draw.schedule(() => {
-            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
-          }, time);
-
-          const releaseEventId = transport.scheduleOnce((releaseTime) => {
-            draw.schedule(() => {
-              this.releasePlayingNote(pressId);
-            }, releaseTime);
+          const releaseEventId = transport.scheduleOnce(() => {
+            this.releasePlayingNote(pressId);
           }, quartersToTransportTickTime(releaseQuarters, ppq));
           this.scheduledEventIds.push(releaseEventId);
         }
@@ -363,10 +355,8 @@ export class PlaybackEngine {
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
-    const endEventId = transport.scheduleOnce((time) => {
-      draw.schedule(() => {
-        this.completePlayback();
-      }, time);
+    const endEventId = transport.scheduleOnce(() => {
+      this.completePlayback();
     }, quartersToTransportTickTime(pieceEndQuarters, ppq));
     this.scheduledEventIds.push(endEventId);
   }

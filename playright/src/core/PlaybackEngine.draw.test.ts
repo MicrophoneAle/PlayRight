@@ -1,14 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaybackScript, ScoreTiming } from '../types/index.ts';
 
-const drawSchedule = vi.hoisted(() =>
-  vi.fn((_callback: () => void, _time: number) => ({})),
-);
-const staleDrawSchedule = vi.hoisted(() => vi.fn());
 const transportScheduleOnce = vi.hoisted(() =>
   vi.fn((callback: (time: number) => void, _time: string | number) => {
     callback(0);
-    return 1;
+    return transportScheduleOnce.mock.calls.length;
   }),
 );
 const scheduleAttackRelease = vi.hoisted(() => vi.fn());
@@ -26,21 +22,18 @@ vi.mock('tone', () => ({
     cancel: vi.fn(),
   }),
   getDraw: () => ({
-    schedule: drawSchedule,
+    schedule: vi.fn(),
   }),
   Draw: {
-    schedule: staleDrawSchedule,
+    schedule: vi.fn(),
   },
 }));
 
-import * as Tone from 'tone';
 import { PlaybackEngine } from './PlaybackEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
-describe('PlaybackEngine draw scheduling', () => {
+describe('PlaybackEngine playback visuals', () => {
   beforeEach(() => {
-    drawSchedule.mockClear();
-    staleDrawSchedule.mockClear();
     transportScheduleOnce.mockClear();
     scheduleAttackRelease.mockClear();
 
@@ -70,7 +63,7 @@ describe('PlaybackEngine draw scheduling', () => {
     });
   });
 
-  it('uses getDraw().schedule for playback visuals, not the stale Tone.Draw export', async () => {
+  it('updates playing notes from transport callbacks, not Tone.Draw', async () => {
     const engine = new PlaybackEngine();
     engine.attachAudioEngine({
       warm: async () => {},
@@ -80,17 +73,22 @@ describe('PlaybackEngine draw scheduling', () => {
 
     await engine.play();
 
-    expect(drawSchedule).toHaveBeenCalled();
-    expect(staleDrawSchedule).not.toHaveBeenCalled();
-    expect(Tone.Draw.schedule).not.toHaveBeenCalled();
     expect(scheduleAttackRelease).toHaveBeenCalled();
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });
 
-  it('populates playingMidiNotes when draw press callbacks run', async () => {
-    const scheduledCallbacks: Array<() => void> = [];
-    drawSchedule.mockImplementation((callback: () => void) => {
-      scheduledCallbacks.push(callback);
-      return {};
+  it('clears playingMidiNotes after the scheduled release transport callback', async () => {
+    const deferredCallbacks: Array<() => void> = [];
+    let scheduleCallCount = 0;
+    transportScheduleOnce.mockImplementation((callback, _time) => {
+      scheduleCallCount += 1;
+      if (scheduleCallCount === 1) {
+        callback(0);
+      } else {
+        deferredCallbacks.push(() => callback(0));
+      }
+      return scheduleCallCount;
     });
 
     const engine = new PlaybackEngine();
@@ -102,12 +100,16 @@ describe('PlaybackEngine draw scheduling', () => {
 
     await engine.play();
 
-    expect(scheduledCallbacks.length).toBeGreaterThanOrEqual(2);
-    scheduledCallbacks[1]();
-
-    expect(useEngineStore.getState().playingMidiNotes).toContain(60);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([
       expect.objectContaining({ stepIndex: 0, midi: 60, hand: 'R' }),
     ]);
+
+    for (const callback of deferredCallbacks) {
+      callback();
+    }
+
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });
 });
