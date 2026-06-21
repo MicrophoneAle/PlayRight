@@ -408,6 +408,95 @@ describe('parseMusicXmlToScript', () => {
       });
     }
   });
+
+  it('places chord members at the base note onset after a merged tie continuation', () => {
+    const TIE_INTO_CHORD = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+        <tie type="stop"/>
+        <tie type="start"/>
+        <notations>
+          <tied type="stop"/>
+          <tied type="start"/>
+        </notations>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(TIE_INTO_CHORD);
+
+    expect(script).toHaveLength(2);
+    expect(script[0]).toMatchObject({ onset: 0 });
+    expect(script[0].notes.find((note) => note.pitch === 'C4')).toMatchObject({
+      durationDivisions: 960,
+      tiedToNext: false,
+    });
+    expect(script[1]).toMatchObject({ onset: 480 });
+    expect(script[1].notes.map((note) => note.pitch)).toEqual(['E4']);
+    expect(script.some((step) => step.notes.some((note) => note.pitch === 'E4' && step.onset === 0))).toBe(
+      false,
+    );
+  });
+
+  it('merges a cross-measure D natural tie in a sharp key using the start pitch', () => {
+    const CROSS_MEASURE_NATURAL_TIE = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <key><fifths>4</fifths></key>
+      </attributes>
+      <note>
+        <pitch><step>D</step><alter>0</alter><octave>5</octave></pitch>
+        <duration>480</duration>
+        <accidental>natural</accidental>
+        <tie type="start"/>
+        <notations><tied type="start"/></notations>
+      </note>
+    </measure>
+    <measure number="2">
+      <note>
+        <pitch><step>D</step><octave>5</octave></pitch>
+        <duration>480</duration>
+        <tie type="stop"/>
+        <notations><tied type="stop"/></notations>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(CROSS_MEASURE_NATURAL_TIE);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(0);
+    expect(script[0].notes).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({
+      pitch: 'D5',
+      midi: 74,
+      durationDivisions: 960,
+      tiedToNext: false,
+    });
+  });
 });
 
 describe('accidental resolution', () => {

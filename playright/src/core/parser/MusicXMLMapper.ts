@@ -15,7 +15,7 @@ function mapScoreFingering(fingering: number): Finger | null {
 }
 
 function tieKeyForElement(element: NormalizedNote): string {
-  return `${element.staff}:${element.voice}:${element.step}:${element.octave}:${element.alter}`;
+  return `${element.staff}:${element.voice}:${element.step}:${element.octave}`;
 }
 
 function mergeOpenTie(
@@ -128,6 +128,7 @@ export { getMidiNumber, formatPitch } from './pitch.ts';
 export class MusicXMLMapper {
   static mapToDomain(elements: NormalizedElement[]): PlaybackScript {
     let currentTime = 0;
+    let currentBaseOnset = 0;
     const absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }> = [];
     const openTies = new Map<string, number>();
 
@@ -160,6 +161,10 @@ export class MusicXMLMapper {
         continue;
       }
 
+      if (!element.isChord) {
+        currentBaseOnset = currentTime;
+      }
+
       const tieKey = tieKeyForElement(element);
       const isTieEnd = element.isTieStop && !element.isTieStart;
       const isTieMiddle = element.isTieStop && element.isTieStart;
@@ -190,10 +195,9 @@ export class MusicXMLMapper {
       const scriptNote = createScriptNote(element);
 
       if (element.isChord && absoluteNotes.length > 0) {
-        const chordOnset = absoluteNotes[absoluteNotes.length - 1].onset;
         absoluteNotes.push({
           note: scriptNote,
-          onset: chordOnset,
+          onset: currentBaseOnset,
           measureNumber: element.measureNumber,
         });
         if (element.isTieStart) {
