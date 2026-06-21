@@ -31,6 +31,7 @@ vi.mock('tone', () => ({
 }));
 
 import { PlaybackEngine } from './PlaybackEngine.ts';
+import { playbackReleaseOnsetQuarterNotes, quartersToTransportTickTime } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 describe('PlaybackEngine playback visuals', () => {
@@ -65,7 +66,24 @@ describe('PlaybackEngine playback visuals', () => {
     });
   });
 
-  it('schedules one transport callback per step with relative release', async () => {
+  it('schedules absolute release times alongside step attacks', async () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+
+    useEngineStore.setState({ script });
+
     transportScheduleOnce.mockImplementation((callback, time) => {
       if (String(time) === '0i') {
         callback(0);
@@ -83,15 +101,20 @@ describe('PlaybackEngine playback visuals', () => {
 
     await engine.play();
 
-    expect(transportScheduleOnce.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const releaseTickTime = quartersToTransportTickTime(
+      playbackReleaseOnsetQuarterNotes(0, 1, false),
+      480,
+    );
+
+    expect(transportScheduleOnce.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(scheduleAttackRelease).toHaveBeenCalled();
     expect(
-      transportScheduleOnce.mock.calls.some(([_, time]) => String(time).startsWith('+')),
+      transportScheduleOnce.mock.calls.some(([_, time]) => String(time) === releaseTickTime),
     ).toBe(true);
     expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
   });
 
-  it('releases highlights before the next attack via relative scheduling', async () => {
+  it('releases highlights before the next attack via absolute scheduling', async () => {
     const script: PlaybackScript = [
       {
         order: 0,
@@ -109,20 +132,14 @@ describe('PlaybackEngine playback visuals', () => {
 
     useEngineStore.setState({ script });
 
-    const firedTimes: string[] = [];
-    let scheduleCallCount = 0;
+    const releaseTickTime = quartersToTransportTickTime(
+      playbackReleaseOnsetQuarterNotes(0, 1, false),
+      480,
+    );
+    const scheduled: Array<{ time: string; callback: (time: number) => void }> = [];
     transportScheduleOnce.mockImplementation((callback, time) => {
-      scheduleCallCount += 1;
-      const tickTime = String(time);
-      firedTimes.push(tickTime);
-
-      if (tickTime === '0i') {
-        callback(0);
-      } else if (tickTime.startsWith('+')) {
-        callback(0);
-      }
-
-      return scheduleCallCount;
+      scheduled.push({ time: String(time), callback });
+      return scheduled.length;
     });
 
     const engine = new PlaybackEngine();
@@ -134,7 +151,17 @@ describe('PlaybackEngine playback visuals', () => {
 
     await engine.play();
 
-    expect(firedTimes.some((time) => time.startsWith('+'))).toBe(true);
+    const parseTick = (tickTime: string) => Number.parseFloat(tickTime.replace('i', ''));
+
+    for (const { time, callback } of scheduled.sort(
+      (left, right) => parseTick(left.time) - parseTick(right.time),
+    )) {
+      if (time === '0i' || time === releaseTickTime) {
+        callback(0);
+      }
+    }
+
+    expect(scheduled.map(({ time }) => time)).toContain(releaseTickTime);
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });

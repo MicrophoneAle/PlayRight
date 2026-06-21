@@ -5,8 +5,8 @@ import {
   buildPlaybackFermataOffsetsByStep,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
+  playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
-  quarterNotesToRelativeTickTime,
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
@@ -323,6 +323,53 @@ export class PlaybackEngine {
     this.syncPlayingNotes();
   }
 
+  /** Fallback when an absolute release event was skipped during transport catch-up. */
+  private releasePriorStepNotes(currentStepIndex: number): void {
+    const changed = this.playingPressTracker.releaseMatching(
+      (note) => note.stepIndex < currentStepIndex,
+    );
+
+    if (changed) {
+      this.syncPlayingNotes();
+    }
+  }
+
+  private scheduleTieEndRelease(
+    stepIndex: number,
+    note: ScriptNote,
+    attackOnsetQuarters: number,
+    divisionsPerQuarter: number,
+    ppq: number,
+    finalNoteKeys: Set<string>,
+  ): void {
+    const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+    const writtenQuarters = noteDurationQuarterNotes(
+      durationDivisions,
+      divisionsPerQuarter,
+    );
+    const isFinalNote = finalNoteKeys.has(`${stepIndex}:${note.hand}:${note.midi}`);
+    const durationOptions = {
+      isFinalNote,
+      hasFermata: note.hasFermata ?? false,
+    };
+    const releaseOnset = playbackReleaseOnsetQuarterNotes(
+      attackOnsetQuarters,
+      writtenQuarters,
+      false,
+      durationOptions,
+    );
+    const releaseEventId = getTransport().scheduleOnce(() => {
+      this.playingPressTracker.releaseMatching(
+        (active) =>
+          active.midi === note.midi &&
+          active.hand === note.hand &&
+          active.stepIndex < stepIndex,
+      );
+      this.syncPlayingNotes();
+    }, quartersToTransportTickTime(releaseOnset, ppq));
+    this.scheduledEventIds.push(releaseEventId);
+  }
+
   private clearPlayingNotes(): void {
     this.playingPressTracker.clear();
     const { actions } = useEngineStore.getState();
@@ -367,50 +414,76 @@ export class PlaybackEngine {
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
-      const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
+      const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
         step.onset,
         divisionsPerQuarter,
         fermataOffsets[stepIndex],
       );
-      const transportTime = quartersToTransportTickTime(onsetQuarters, ppq);
+      const transportTime = quartersToTransportTickTime(attackOnsetQuarters, ppq);
+      const stepPresses: Array<{
+        pressId: number;
+        note: ScriptNote;
+        playedDuration: string;
+      }> = [];
 
-      const stepEventId = transport.scheduleOnce((time) => {
-        this.applyStepVisual(stepIndex);
-
-        for (const note of step.notes) {
-          if (isPlaybackTieContinuation(script, stepIndex, note)) {
-            continue;
+      for (const note of step.notes) {
+        if (isPlaybackTieContinuation(script, stepIndex, note)) {
+          if (!note.tiedToNext) {
+            this.scheduleTieEndRelease(
+              stepIndex,
+              note,
+              attackOnsetQuarters,
+              divisionsPerQuarter,
+              ppq,
+              finalNoteKeys,
+            );
           }
+          continue;
+        }
 
-          const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-          const writtenQuarters = noteDurationQuarterNotes(
-            durationDivisions,
-            divisionsPerQuarter,
-          );
-          const isFinalNote = finalNoteKeys.has(
-            `${stepIndex}:${note.hand}:${note.midi}`,
-          );
-          const durationOptions = {
-            isFinalNote,
-            hasFermata: note.hasFermata ?? false,
-          };
-          const playedQuarters = playbackDurationQuarterNotes(
+        const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+        const writtenQuarters = noteDurationQuarterNotes(
+          durationDivisions,
+          divisionsPerQuarter,
+        );
+        const isFinalNote = finalNoteKeys.has(
+          `${stepIndex}:${note.hand}:${note.midi}`,
+        );
+        const durationOptions = {
+          isFinalNote,
+          hasFermata: note.hasFermata ?? false,
+        };
+        const playedQuarters = playbackDurationQuarterNotes(
+          writtenQuarters,
+          note.tiedToNext ?? false,
+          durationOptions,
+        );
+        const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
+        const pressId = this.playingPressTracker.allocatePressId();
+
+        stepPresses.push({ pressId, note, playedDuration });
+
+        if (!note.tiedToNext) {
+          const releaseOnset = playbackReleaseOnsetQuarterNotes(
+            attackOnsetQuarters,
             writtenQuarters,
-            note.tiedToNext ?? false,
+            false,
             durationOptions,
           );
-          const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
-          const pressId = this.playingPressTracker.allocatePressId();
+          const releaseEventId = transport.scheduleOnce(() => {
+            this.releasePlayingNote(pressId);
+          }, quartersToTransportTickTime(releaseOnset, ppq));
+          this.scheduledEventIds.push(releaseEventId);
+        }
+      }
 
+      const stepEventId = transport.scheduleOnce((time) => {
+        this.releasePriorStepNotes(stepIndex);
+        this.applyStepVisual(stepIndex);
+
+        for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
           this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
-
-          if (!note.tiedToNext) {
-            const releaseEventId = transport.scheduleOnce(() => {
-              this.releasePlayingNote(pressId);
-            }, quarterNotesToRelativeTickTime(playedQuarters, ppq));
-            this.scheduledEventIds.push(releaseEventId);
-          }
         }
       }, transportTime);
 
