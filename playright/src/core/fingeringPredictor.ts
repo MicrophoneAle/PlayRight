@@ -783,10 +783,10 @@ export function applyManualFingerings(
     return script;
   }
 
-  return script.map((step, stepIndex) => ({
+  return script.map((step) => ({
     ...step,
     notes: step.notes.map((note) => {
-      const finger = overrides[fingeringKey(stepIndex, note.hand, note.midi)];
+      const finger = overrides[fingeringKey(step.onset, note.hand, note.midi)];
       if (finger === undefined) {
         return note;
       }
@@ -805,13 +805,13 @@ export function extractManualFingerings(
 ): ManualFingeringMap {
   const overrides: ManualFingeringMap = {};
 
-  script.forEach((step, stepIndex) => {
+  for (const step of script) {
     for (const note of step.notes) {
       if (note.fingerSource === 'manual' && note.finger !== null) {
-        overrides[fingeringKey(stepIndex, note.hand, note.midi)] = note.finger;
+        overrides[fingeringKey(step.onset, note.hand, note.midi)] = note.finger;
       }
     }
-  });
+  }
 
   return overrides;
 }

@@ -38,6 +38,7 @@ function isMissingManualFingeringsColumn(message: string): boolean {
   return message.includes('manual_fingerings');
 }
 
+/** Keys are onset:hand:midi. Legacy step-index keys are not migrated. */
 function parseManualFingerings(value: unknown): ManualFingeringMap {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -55,20 +56,20 @@ function parseManualFingerings(value: unknown): ManualFingeringMap {
       continue;
     }
 
-    const stepIndex = Number(parts[0]);
+    const onset = Number(parts[0]);
     const hand = parts[1];
     const midi = Number(parts[2]);
 
     if (
-      !Number.isInteger(stepIndex) ||
-      stepIndex < 0 ||
+      !Number.isInteger(onset) ||
+      onset < 0 ||
       (hand !== 'L' && hand !== 'R') ||
       !Number.isInteger(midi)
     ) {
       continue;
     }
 
-    overrides[fingeringKey(stepIndex, hand, midi)] = finger as Finger;
+    overrides[fingeringKey(onset, hand, midi)] = finger as Finger;
   }
 
   return overrides;

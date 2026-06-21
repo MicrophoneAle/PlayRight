@@ -16,6 +16,7 @@ import {
 } from '../core/practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { Finger, Hand, ScriptNote } from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 
 const START_MIDI = 21;
 const END_MIDI = 108;
@@ -23,7 +24,7 @@ const FINGER_OPTIONS: Finger[] = [1, 2, 3, 4, 5];
 const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
 
 interface SelectedStepNote {
-  stepIndex: number;
+  onset: number;
   hand: Hand;
   midi: number;
 }
@@ -274,8 +275,10 @@ export function PianoKeyboard() {
       return false;
     }
 
-    const key = `${selectedNote.stepIndex}:${selectedNote.hand}:${selectedNote.midi}`;
-    return Object.prototype.hasOwnProperty.call(manualFingerings, key);
+    return Object.prototype.hasOwnProperty.call(
+      manualFingerings,
+      fingeringKey(selectedNote.onset, selectedNote.hand, selectedNote.midi),
+    );
   }, [manualFingerings, selectedNote]);
 
   const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) => {
@@ -392,9 +395,14 @@ export function PianoKeyboard() {
       return;
     }
 
+    const step = script?.[currentStepIndex];
+    if (!step) {
+      return;
+    }
+
     const note = stepNotes[0];
     setSelectedNote({
-      stepIndex: currentStepIndex,
+      onset: step.onset,
       hand: note.hand,
       midi: note.midi,
     });
@@ -406,7 +414,7 @@ export function PianoKeyboard() {
     }
 
     setManualFinger(
-      selectedNote.stepIndex,
+      selectedNote.onset,
       selectedNote.hand,
       selectedNote.midi,
       finger,
@@ -420,7 +428,7 @@ export function PianoKeyboard() {
     }
 
     clearManualFinger(
-      selectedNote.stepIndex,
+      selectedNote.onset,
       selectedNote.hand,
       selectedNote.midi,
       userId,
@@ -462,7 +470,7 @@ export function PianoKeyboard() {
   const isNoteSelected = (midi: number) =>
     selectedNote !== null &&
     selectedNote.midi === midi &&
-    selectedNote.stepIndex === currentStepIndex;
+    script?.[currentStepIndex]?.onset === selectedNote.onset;
 
   const highlightOptions = {
     playMode,

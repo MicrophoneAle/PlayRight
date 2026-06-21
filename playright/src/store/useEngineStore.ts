@@ -190,14 +190,14 @@ interface EngineState {
     ) => void;
     clearScript: () => void;
     setManualFinger: (
-      stepIndex: number,
+      onset: number,
       hand: Hand,
       midi: number,
       finger: Finger,
       userId?: string | null,
     ) => void;
     clearManualFinger: (
-      stepIndex: number,
+      onset: number,
       hand: Hand,
       midi: number,
       userId?: string | null,
@@ -292,11 +292,11 @@ export const useEngineStore = create<EngineState>((set) => ({
         playingPlaybackNotes: [],
       });
     },
-    setManualFinger: (stepIndex, hand, midi, finger, userId) => {
+    setManualFinger: (onset, hand, midi, finger, userId) => {
       set((state) => {
         const manualFingerings = {
           ...state.manualFingerings,
-          [fingeringKey(stepIndex, hand, midi)]: finger,
+          [fingeringKey(onset, hand, midi)]: finger,
         };
         const reprocessed = reprocessScriptFromRaw(
           state.rawXml,
@@ -319,9 +319,9 @@ export const useEngineStore = create<EngineState>((set) => ({
         };
       });
     },
-    clearManualFinger: (stepIndex, hand, midi, userId) => {
+    clearManualFinger: (onset, hand, midi, userId) => {
       set((state) => {
-        const key = fingeringKey(stepIndex, hand, midi);
+        const key = fingeringKey(onset, hand, midi);
         const manualFingerings = { ...state.manualFingerings };
         delete manualFingerings[key];
 

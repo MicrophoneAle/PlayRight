@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 import {
+  applyManualFingerings,
   assignChordFingers,
   fingerPhrase,
   HOME_POSITION,
@@ -9,6 +11,7 @@ import {
   PHRASE_LARGE_LEAP_SEMITONES,
   PHRASE_MIN_ONSET_GAP_DIVISIONS,
   predictFingering,
+  prepareScriptWithFingering,
   segmentIntoPhrases,
   transitionCost,
 } from './fingeringPredictor.ts';
@@ -294,5 +297,41 @@ describe('predictFingering', () => {
 
     expect(firstPhraseFinger).toBe(3);
     expect(firstPhraseFinger).not.toBe(1);
+  });
+});
+
+describe('manual fingering identity', () => {
+  it('applies saved fingerings by onset after the script is rebuilt with a different step count', () => {
+    const targetOnset = 480;
+    const overrides = {
+      [fingeringKey(targetOnset, 'R', 64)]: 2 as Finger,
+    };
+
+    const rebuiltScript: PlaybackScript = [
+      step(0, 0, [scriptNote(60, 'R', null)]),
+      step(1, 240, [scriptNote(62, 'R', null)]),
+      step(2, targetOnset, [scriptNote(64, 'R', null)]),
+    ];
+
+    const withManual = applyManualFingerings(rebuiltScript, overrides);
+    expect(withManual[2].notes[0]).toMatchObject({
+      midi: 64,
+      hand: 'R',
+      finger: 2,
+      fingerSource: 'manual',
+    });
+
+    const withPrediction = prepareScriptWithFingering(
+      rebuiltScript,
+      overrides,
+      true,
+      1,
+    );
+    expect(withPrediction[2].notes[0]).toMatchObject({
+      midi: 64,
+      hand: 'R',
+      finger: 2,
+      fingerSource: 'manual',
+    });
   });
 });

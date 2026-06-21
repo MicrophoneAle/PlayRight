@@ -49,17 +49,20 @@ export interface PlayingPlaybackNote {
   hand: Hand;
 }
 
-/** Stable key for a note in manual fingering overrides: stepIndex:hand:midi */
+/**
+ * Stable key for manual fingering overrides: onset:hand:midi (MusicXML divisions).
+ * Pre-existing saves keyed by step index are not migrated and will not match after re-parse.
+ */
 export type ManualFingeringKey = `${number}:${Hand}:${number}`;
 
 export type ManualFingeringMap = Partial<Record<ManualFingeringKey, Finger>>;
 
 export function fingeringKey(
-  stepIndex: number,
+  onset: number,
   hand: Hand,
   midi: number,
 ): ManualFingeringKey {
-  return `${stepIndex}:${hand}:${midi}`;
+  return `${onset}:${hand}:${midi}`;
 }
 
 export function isFinger(value: number): value is Finger {
