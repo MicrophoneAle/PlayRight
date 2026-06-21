@@ -247,7 +247,6 @@ export class PracticeEngine {
       }
 
       this.registerPracticeHitAtIndex(index);
-      break;
     }
   }
 
@@ -348,7 +347,17 @@ export class PracticeEngine {
 
     let index = useEngineStore.getState().currentStepIndex;
 
-    if (!exactStep) {
+    if (exactStep && !stepHasPracticeNotes(script[index], engineMode, activeHand)) {
+      const nearest = this.findNearestStepWithPracticeNotes(index);
+      if (nearest === null) {
+        actions.setPracticeActive(false);
+        actions.setExpectedNotes([]);
+        return;
+      }
+
+      index = nearest;
+      actions.setStepIndex(index);
+    } else if (!exactStep) {
       while (index < script.length) {
         const step = script[index];
         if (stepHasPracticeNotes(step, engineMode, activeHand)) {
@@ -393,6 +402,37 @@ export class PracticeEngine {
       alignScope: useEngineStore.getState().isPracticeActive,
       exactStep: true,
     });
+  }
+
+  private findNearestStepWithPracticeNotes(fromIndex: number): number | null {
+    const { script, engineMode, activeHand } = useEngineStore.getState();
+    if (!script) {
+      return null;
+    }
+
+    if (stepHasPracticeNotes(script[fromIndex], engineMode, activeHand)) {
+      return fromIndex;
+    }
+
+    for (let distance = 1; distance < script.length; distance += 1) {
+      const forward = fromIndex + distance;
+      if (
+        forward < script.length &&
+        stepHasPracticeNotes(script[forward], engineMode, activeHand)
+      ) {
+        return forward;
+      }
+
+      const backward = fromIndex - distance;
+      if (
+        backward >= 0 &&
+        stepHasPracticeNotes(script[backward], engineMode, activeHand)
+      ) {
+        return backward;
+      }
+    }
+
+    return null;
   }
 
   private checkStepCompletion(): void {

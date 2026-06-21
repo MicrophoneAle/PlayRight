@@ -877,4 +877,95 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     expect(script[0].onset).toBe(1920);
     expect(script[0].notes[0]).toMatchObject({ pitch: 'C4', midi: 60 });
   });
+
+  it('skips out-of-range notes with a warning instead of failing validation', () => {
+    const OUT_OF_RANGE_THEN_PITCHED = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>10</octave></pitch>
+        <duration>480</duration>
+      </note>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script, warnings } = parseMusicXmlToScript(OUT_OF_RANGE_THEN_PITCHED);
+
+    expect(warnings.some((warning) => /outside the piano range/i.test(warning))).toBe(
+      true,
+    );
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(480);
+    expect(script[0].notes).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'D4', midi: 62 });
+  });
+
+  it('skips unrecognized pitch steps without emitting midi 0', () => {
+    const UNKNOWN_STEP_THEN_PITCHED = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>H</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+      <note>
+        <pitch><step>E</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(UNKNOWN_STEP_THEN_PITCHED);
+
+    expect(script.flatMap((step) => step.notes).some((note) => note.midi === 0)).toBe(
+      false,
+    );
+    expect(script).toHaveLength(1);
+    expect(script[0].notes[0]).toMatchObject({ pitch: 'E4', midi: 64 });
+  });
+
+  it('clamps backup overshoot so onsets never go negative', () => {
+    const BACKUP_OVERSHOOT = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+      <backup>
+        <duration>960</duration>
+      </backup>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(BACKUP_OVERSHOOT);
+
+    expect(script.every((step) => step.onset >= 0)).toBe(true);
+    expect(script).toHaveLength(1);
+    expect(script[0].onset).toBe(0);
+    expect(script[0].notes.map((note) => note.pitch)).toEqual(['C4', 'D4']);
+  });
 });

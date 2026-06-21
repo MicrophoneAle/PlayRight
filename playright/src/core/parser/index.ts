@@ -13,12 +13,17 @@ export class MusicXMLParser {
     const raw = MusicXMLIngestor.ingest(xmlString);
     assertSupportedScoreFormat(raw);
     const warnings = collectParseWarnings(raw);
-    const flat = MusicXMLNormalizer.normalize(raw);
+    const { elements: flat, warnings: normalizeWarnings } =
+      MusicXMLNormalizer.normalize(raw);
     const scoreTiming = extractScoreTiming(raw);
     const mapped = MusicXMLMapper.mapToDomain(flat);
     const script = MusicXMLValidator.validate(mapped);
 
-    return { script, scoreTiming, warnings };
+    return {
+      script,
+      scoreTiming,
+      warnings: [...warnings, ...normalizeWarnings],
+    };
   }
 }
 

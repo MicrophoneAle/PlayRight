@@ -134,7 +134,7 @@ export class MusicXMLMapper {
 
     for (const element of elements) {
       if (element.type === 'backup') {
-        currentTime -= element.duration;
+        currentTime = Math.max(0, currentTime - element.duration);
         continue;
       }
 

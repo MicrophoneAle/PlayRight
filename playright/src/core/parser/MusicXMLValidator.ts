@@ -4,7 +4,7 @@ import type { PlaybackScript } from '../../types/index.ts';
 /** Mirrors {@link ScriptNote} */
 const ScriptNoteSchema = z.object({
   pitch: z.string().min(1),
-  midi: z.number().int().min(0).max(127),
+  midi: z.number().int().min(21).max(108),
   hand: z.enum(['L', 'R']),
   finger: z.number().int().min(1).max(5).nullable(),
   fingerSource: z.enum(['score', 'predicted', 'manual']).optional(),

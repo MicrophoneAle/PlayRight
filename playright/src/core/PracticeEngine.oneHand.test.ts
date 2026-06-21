@@ -374,4 +374,60 @@ describe('PracticeEngine one-hand progression', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([88]);
   });
+
+  it('marks every same-midi unison voice on one keypress', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
+          { pitch: 'C4', midi: 60, hand: 'R', finger: 2 },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleNoteOn(60);
+    flushAdvance();
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().expectedMidiNotes).toEqual([62]);
+  });
+
+  it('skips to the nearest playable step when seeking onto an empty hand step', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'C3', midi: 48, hand: 'L', finger: 1 }],
+      },
+      {
+        order: 2,
+        onset: 960,
+        measureNumber: 1,
+        notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: 3 }],
+      },
+    ]);
+    engine.start();
+
+    engine.seekToStep(1);
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+    expect(useEngineStore.getState().expectedMidiNotes).toEqual([64]);
+  });
 });

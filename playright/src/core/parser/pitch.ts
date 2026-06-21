@@ -1,5 +1,11 @@
 export const NATURAL_PITCH_STEPS = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
 
+/** Returned by {@link getMidiNumber} when the pitch step cannot be mapped. */
+export const INVALID_MIDI = -1;
+
+export const PIANO_MIDI_MIN = 21;
+export const PIANO_MIDI_MAX = 108;
+
 const NATURAL_SEMITONES: Readonly<Record<string, number>> = {
   C: 0,
   D: 2,
@@ -63,12 +69,16 @@ export function keyAlterForStep(step: string, fifths: number): number {
   return 0;
 }
 
+export function isValidPianoMidi(midi: number): boolean {
+  return midi >= PIANO_MIDI_MIN && midi <= PIANO_MIDI_MAX;
+}
+
 export function getMidiNumber(step: string, octave: number, alter = 0): number {
   const baseLetter = step.trim().charAt(0).toUpperCase();
   const naturalSemitone = NATURAL_SEMITONES[baseLetter];
 
   if (naturalSemitone === undefined) {
-    return 0;
+    return INVALID_MIDI;
   }
 
   return (octave + 1) * 12 + naturalSemitone + alter;

@@ -1,7 +1,13 @@
 import {
   accidentalAlterFromText,
-  keyAlterForStep,
+  formatPitch,
+  getMidiNumber,
+  INVALID_MIDI,
   isPlayablePitchStep,
+  isValidPianoMidi,
+  keyAlterForStep,
+  PIANO_MIDI_MAX,
+  PIANO_MIDI_MIN,
 } from './pitch.ts';
 
 export interface NormalizedNote {
@@ -43,6 +49,12 @@ interface MeasureContext {
   divisions: number;
   measureNumber: number;
   activeAccidentals: Map<string, number>;
+  warnings: string[];
+}
+
+export interface NormalizeResult {
+  elements: NormalizedElement[];
+  warnings: string[];
 }
 
 const DEFAULT_BEATS = 4;
@@ -423,17 +435,33 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
   const isCue = note.cue != null;
   const isUnpitched = note.unpitched != null;
   const isMeasureRest = isRest && note.restMeasureYes === true;
-  const hasPlayablePitch =
+  const alter = resolveEffectiveAlter(step, octave, pitch, note, measureContext);
+  let hasPlayablePitch =
     !isRest &&
     !isCue &&
     !isUnpitched &&
     isPlayablePitchStep(step);
 
+  if (hasPlayablePitch) {
+    const midi = getMidiNumber(step, octave, alter);
+    if (midi === INVALID_MIDI) {
+      measureContext.warnings.push(
+        `Skipped note ${formatPitch(step, octave, alter)}: unrecognized pitch step "${step}"`,
+      );
+      hasPlayablePitch = false;
+    } else if (!isValidPianoMidi(midi)) {
+      measureContext.warnings.push(
+        `Skipped note ${formatPitch(step, octave, alter)}: MIDI ${midi} is outside the piano range (${PIANO_MIDI_MIN}-${PIANO_MIDI_MAX})`,
+      );
+      hasPlayablePitch = false;
+    }
+  }
+
   return {
     type: 'note',
     step,
     octave,
-    alter: resolveEffectiveAlter(step, octave, pitch, note, measureContext),
+    alter,
     duration: toNumber(note.duration, 0),
     staff: toNumber(note.staff, 1),
     voice: toNumber(note.voice, 1),
@@ -523,19 +551,20 @@ function collectOrderedMeasureElements(
   }
 }
 
-function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
+function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizeResult {
   const results: NormalizedElement[] = [];
+  const warnings: string[] = [];
   const scorePartwiseEntry = rawXmlObj.find(
     (entry) => isRecord(entry) && entry['score-partwise'] != null,
   );
 
   if (!isRecord(scorePartwiseEntry)) {
-    return results;
+    return { elements: results, warnings };
   }
 
   const scorePartwise = scorePartwiseEntry['score-partwise'];
   if (!Array.isArray(scorePartwise)) {
-    return results;
+    return { elements: results, warnings };
   }
 
   const partEntry = scorePartwise.find(
@@ -543,7 +572,7 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
   );
 
   if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
-    return results;
+    return { elements: results, warnings };
   }
 
   const measureContext: MeasureContext = {
@@ -553,6 +582,7 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
     divisions: DEFAULT_DIVISIONS,
     measureNumber: 1,
     activeAccidentals: new Map(),
+    warnings,
   };
 
   for (const measureWrapper of partEntry.part) {
@@ -567,17 +597,17 @@ function normalizePreserveOrder(rawXmlObj: unknown[]): NormalizedElement[] {
     collectOrderedMeasureElements(measureWrapper.measure, results, measureContext);
   }
 
-  return results;
+  return { elements: results, warnings };
 }
 
 export class MusicXMLNormalizer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Phase 2 accepts raw Phase 1 tree
-  static normalize(rawXmlObj: any): NormalizedElement[] {
+  static normalize(rawXmlObj: any): NormalizeResult {
     if (Array.isArray(rawXmlObj)) {
       return normalizePreserveOrder(rawXmlObj);
     }
 
-    return [];
+    return { elements: [], warnings: [] };
   }
 }
 
