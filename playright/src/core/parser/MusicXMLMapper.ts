@@ -1,4 +1,5 @@
 import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
+import { ONSET_MERGE_TOLERANCE_DIVISIONS } from '../playbackTiming.ts';
 import { formatPitch, getMidiNumber } from './pitch.ts';
 import type { NormalizedControl, NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
@@ -138,6 +139,7 @@ function controlTimeAdvance(
 
 function groupByOnset(
   absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
+  onsetMergeToleranceDivisions = ONSET_MERGE_TOLERANCE_DIVISIONS,
 ): PlaybackScript {
   const sorted = [...absoluteNotes].sort((left, right) => left.onset - right.onset);
 
@@ -145,16 +147,19 @@ function groupByOnset(
   let order = 0;
 
   for (let index = 0; index < sorted.length; ) {
-    const onset = sorted[index].onset;
+    const clusterOnset = sorted[index].onset;
     const measureNumber = sorted[index].measureNumber;
     const notes: ScriptNote[] = [];
 
-    while (index < sorted.length && sorted[index].onset === onset) {
+    while (
+      index < sorted.length &&
+      sorted[index].onset - clusterOnset <= onsetMergeToleranceDivisions
+    ) {
       notes.push(sorted[index].note);
       index += 1;
     }
 
-    const step: StepOrder = { order, onset, measureNumber, notes };
+    const step: StepOrder = { order, onset: clusterOnset, measureNumber, notes };
     script.push(step);
     order += 1;
   }
@@ -202,19 +207,32 @@ function createScriptNote(
   };
 }
 
-function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
+function mergePlaybackScripts(
+  scripts: PlaybackScript[],
+  onsetMergeToleranceDivisions = ONSET_MERGE_TOLERANCE_DIVISIONS,
+): PlaybackScript {
   const byOnset = new Map<number, { measureNumber: number; notes: ScriptNote[] }>();
 
   for (const script of scripts) {
     for (const step of script) {
-      const existing = byOnset.get(step.onset);
+      let matchedOnset: number | undefined;
+
+      for (const existingOnset of byOnset.keys()) {
+        if (Math.abs(existingOnset - step.onset) <= onsetMergeToleranceDivisions) {
+          matchedOnset = existingOnset;
+          break;
+        }
+      }
+
+      const targetOnset = matchedOnset ?? step.onset;
+      const existing = byOnset.get(targetOnset);
 
       if (existing) {
         existing.notes.push(...step.notes);
         continue;
       }
 
-      byOnset.set(step.onset, {
+      byOnset.set(targetOnset, {
         measureNumber: step.measureNumber,
         notes: [...step.notes],
       });

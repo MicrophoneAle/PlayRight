@@ -847,6 +847,38 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     );
   });
 
+  it('merges two-part onsets within one division of drift', () => {
+    const NEAR_MISS_MULTI_PART = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <forward><duration>1</duration></forward>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(NEAR_MISS_MULTI_PART);
+
+    expect(script).toHaveLength(1);
+    expect(script[0]).toMatchObject({ onset: 0, measureNumber: 1 });
+    expect(script[0].notes.map((note) => note.pitch).sort()).toEqual(['C4', 'D4']);
+  });
+
   it('skips cue notes but preserves later onsets', () => {
     const { script, warnings } = parseMusicXmlToScript(CUE_THEN_PITCHED);
 

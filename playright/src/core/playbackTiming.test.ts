@@ -4,6 +4,7 @@ import {
   buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  buildStepPlaybackDurationQuarterNotesByStep,
   latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -247,6 +248,68 @@ describe('playbackTiming', () => {
     expect(playbackReleaseOnsetQuarterNotes(0, writtenQuarters, false, {
       hasFermata: true,
     })).toBeCloseTo(fermataPlayback, 5);
+  });
+
+  it('keeps all notes in a fermata chord step held through the fermata release', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'B4',
+            midi: 71,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 1920,
+            hasFermata: true,
+          },
+          {
+            pitch: 'D#5',
+            midi: 75,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 1920,
+          },
+          {
+            pitch: 'B2',
+            midi: 47,
+            hand: 'L',
+            finger: null,
+            durationDivisions: 1920,
+            hasFermata: true,
+          },
+        ],
+      },
+    ];
+    const divisionsPerQuarter = 480;
+    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+    );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
+      script,
+      divisionsPerQuarter,
+      fermataOffsets,
+    );
+    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+    );
+
+    const fermataHold = playbackDurationQuarterNotes(4, false, {
+      hasFermata: true,
+      isFinalNote: true,
+    });
+    const chordToneHold = playbackDurationQuarterNotes(4, false, { isFinalNote: true });
+
+    expect(stepDurations[0]).toBeCloseTo(fermataHold, 5);
+    expect(stepDurations[0]).toBeGreaterThan(chordToneHold);
   });
 
   it('shifts subsequent attacks after a fermata so they do not overlap the extended release', () => {

@@ -4,11 +4,12 @@ import {
   buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
   noteDurationQuarterNotes,
-  playbackDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
+  resolveNotePlaybackDurationQuarterNotes,
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
@@ -400,6 +401,12 @@ export class PlaybackEngine {
       divisionsPerQuarter,
       fermataOffsets,
     );
+    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+    );
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
@@ -430,25 +437,14 @@ export class PlaybackEngine {
           continue;
         }
 
-        const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-        const writtenQuarters = noteDurationQuarterNotes(
-          durationDivisions,
+        const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
+          stepIndex,
+          note,
+          step,
+          stepDurations,
           divisionsPerQuarter,
-        );
-        const isFinalNote = finalNoteKeys.has(
-          `${stepIndex}:${note.hand}:${note.midi}`,
-        );
-        const durationOptions = {
-          isFinalNote,
-          hasFermata: note.hasFermata ?? false,
-          followedByConsecutiveSameNote: consecutiveSameNoteKeys.has(
-            `${stepIndex}:${note.hand}:${note.midi}`,
-          ),
-        };
-        const playedQuarters = playbackDurationQuarterNotes(
-          writtenQuarters,
-          note.tiedToNext ?? false,
-          durationOptions,
+          finalNoteKeys,
+          consecutiveSameNoteKeys,
         );
         const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
         const pressId = this.playingPressTracker.allocatePressId();
@@ -456,12 +452,7 @@ export class PlaybackEngine {
         stepPresses.push({ pressId, note, playedDuration });
 
         if (!note.tiedToNext) {
-          const releaseOnset = playbackReleaseOnsetQuarterNotes(
-            attackOnsetQuarters,
-            writtenQuarters,
-            false,
-            durationOptions,
-          );
+          const releaseOnset = attackOnsetQuarters + playedQuarters;
           const releaseEventId = transport.scheduleOnce(() => {
             this.releasePlayingNote(pressId);
           }, quartersToTransportTickTime(releaseOnset, ppq));

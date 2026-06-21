@@ -33,6 +33,9 @@ export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 /** Extra release gap when the same pitch re-attacks on the very next step. */
 export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.015;
 
+/** Max onset drift merged into one step when grouping parts or staves. */
+export const ONSET_MERGE_TOLERANCE_DIVISIONS = 1;
+
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
 
@@ -401,6 +404,110 @@ export function buildFinalNoteKeySet(
   return keys;
 }
 
+export function notePlaybackDurationOptions(
+  stepIndex: number,
+  note: ScriptNote,
+  finalNoteKeys: Set<string>,
+  consecutiveSameNoteKeys: Set<string>,
+): PlaybackDurationOptions {
+  return {
+    isFinalNote: finalNoteKeys.has(playbackNoteKey(stepIndex, note.hand, note.midi)),
+    hasFermata: note.hasFermata ?? false,
+    followedByConsecutiveSameNote: consecutiveSameNoteKeys.has(
+      playbackNoteKey(stepIndex, note.hand, note.midi),
+    ),
+  };
+}
+
+export function notePlaybackDurationQuarterNotes(
+  note: ScriptNote,
+  divisionsPerQuarter: number,
+  options: PlaybackDurationOptions,
+): number {
+  const writtenQuarters = noteDurationQuarterNotes(
+    note.durationDivisions ?? divisionsPerQuarter,
+    divisionsPerQuarter,
+  );
+
+  return playbackDurationQuarterNotes(
+    writtenQuarters,
+    note.tiedToNext ?? false,
+    options,
+  );
+}
+
+/** Keep chord tones and both hands in a step aligned through release. */
+export function shouldUnifyStepPlaybackDuration(step: PlaybackScript[number]): boolean {
+  if (step.notes.length === 0) {
+    return false;
+  }
+
+  if (step.notes.length > 1) {
+    return true;
+  }
+
+  if (step.notes.some((note) => note.hasFermata)) {
+    return true;
+  }
+
+  return new Set(step.notes.map((note) => note.hand)).size > 1;
+}
+
+export function buildStepPlaybackDurationQuarterNotesByStep(
+  script: PlaybackScript,
+  divisionsPerQuarter: number,
+  finalNoteKeys: Set<string>,
+  consecutiveSameNoteKeys: Set<string>,
+): number[] {
+  return script.map((step, stepIndex) => {
+    let stepDuration = 0;
+    const unify = shouldUnifyStepPlaybackDuration(step);
+
+    for (const note of step.notes) {
+      const noteDuration = notePlaybackDurationQuarterNotes(
+        note,
+        divisionsPerQuarter,
+        notePlaybackDurationOptions(
+          stepIndex,
+          note,
+          finalNoteKeys,
+          consecutiveSameNoteKeys,
+        ),
+      );
+      stepDuration = unify
+        ? Math.max(stepDuration, noteDuration)
+        : noteDuration;
+    }
+
+    return stepDuration;
+  });
+}
+
+export function resolveNotePlaybackDurationQuarterNotes(
+  stepIndex: number,
+  note: ScriptNote,
+  step: PlaybackScript[number],
+  stepDurations: number[],
+  divisionsPerQuarter: number,
+  finalNoteKeys: Set<string>,
+  consecutiveSameNoteKeys: Set<string>,
+): number {
+  if (shouldUnifyStepPlaybackDuration(step)) {
+    return stepDurations[stepIndex];
+  }
+
+  return notePlaybackDurationQuarterNotes(
+    note,
+    divisionsPerQuarter,
+    notePlaybackDurationOptions(
+      stepIndex,
+      note,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+    ),
+  );
+}
+
 /** Latest release point in the piece, in quarter-note units from the start. */
 export function pieceEndQuarterNotes(
   script: PlaybackScript,
@@ -417,38 +524,25 @@ export function pieceEndQuarterNotes(
     divisionsPerQuarter,
     fermataOffsets,
   );
+  const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+    script,
+    divisionsPerQuarter,
+    finalNoteKeys,
+    consecutiveSameNoteKeys,
+  );
   let endQuarters = 0;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
-    const step = script[stepIndex];
     const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      step.onset,
+      script[stepIndex].onset,
       divisionsPerQuarter,
       fermataOffsets[stepIndex],
     );
 
-    for (const note of step.notes) {
-      const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-      const writtenQuarters = noteDurationQuarterNotes(
-        durationDivisions,
-        divisionsPerQuarter,
-      );
-      const isFinalNote = finalNoteKeys.has(
-        playbackNoteKey(stepIndex, note.hand, note.midi),
-      );
-      const playedQuarters = playbackDurationQuarterNotes(
-        writtenQuarters,
-        note.tiedToNext ?? false,
-        {
-          isFinalNote,
-          hasFermata: note.hasFermata ?? false,
-          followedByConsecutiveSameNote: consecutiveSameNoteKeys.has(
-            playbackNoteKey(stepIndex, note.hand, note.midi),
-          ),
-        },
-      );
-      endQuarters = Math.max(endQuarters, onsetQuarters + playedQuarters);
-    }
+    endQuarters = Math.max(
+      endQuarters,
+      onsetQuarters + stepDurations[stepIndex],
+    );
   }
 
   return endQuarters;
