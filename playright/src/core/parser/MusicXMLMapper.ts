@@ -1,5 +1,8 @@
 import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
-import { ONSET_MERGE_TOLERANCE_DIVISIONS } from '../playbackTiming.ts';
+import {
+  HAND_SYNC_MAX_DRIFT_DIVISIONS,
+  ONSET_SNAP_GRID_DIVISIONS,
+} from '../playbackTiming.ts';
 import { formatPitch, getMidiNumber } from './pitch.ts';
 import type { NormalizedControl, NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
@@ -137,34 +140,118 @@ function controlTimeAdvance(
   );
 }
 
-function groupByOnset(
-  absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
-  onsetMergeToleranceDivisions = ONSET_MERGE_TOLERANCE_DIVISIONS,
-): PlaybackScript {
-  const sorted = [...absoluteNotes].sort((left, right) => left.onset - right.onset);
-
-  const script: PlaybackScript = [];
-  let order = 0;
-
-  for (let index = 0; index < sorted.length; ) {
-    const clusterOnset = sorted[index].onset;
-    const measureNumber = sorted[index].measureNumber;
-    const notes: ScriptNote[] = [];
-
-    while (
-      index < sorted.length &&
-      sorted[index].onset - clusterOnset <= onsetMergeToleranceDivisions
-    ) {
-      notes.push(sorted[index].note);
-      index += 1;
-    }
-
-    const step: StepOrder = { order, onset: clusterOnset, measureNumber, notes };
-    script.push(step);
-    order += 1;
+function snapOnset(
+  onset: number,
+  grid = ONSET_SNAP_GRID_DIVISIONS,
+): number {
+  if (grid <= 1) {
+    return onset;
   }
 
-  return script;
+  return Math.round(onset / grid) * grid;
+}
+
+function onsetBucketKey(measureNumber: number, onset: number): string {
+  return `${measureNumber}:${snapOnset(onset)}`;
+}
+
+function mergeCrossHandDriftSteps(
+  script: PlaybackScript,
+  maxDriftDivisions = HAND_SYNC_MAX_DRIFT_DIVISIONS,
+): PlaybackScript {
+  if (script.length <= 1) {
+    return script;
+  }
+
+  const sorted = [...script].sort(
+    (left, right) => left.onset - right.onset || left.order - right.order,
+  );
+  const merged: PlaybackScript = [];
+
+  for (const step of sorted) {
+    const previous = merged[merged.length - 1];
+
+    if (
+      previous &&
+      shouldMergeCrossHandSteps(previous, step, maxDriftDivisions)
+    ) {
+      previous.notes.push(...step.notes);
+      previous.onset = Math.min(previous.onset, step.onset);
+      continue;
+    }
+
+    merged.push({
+      order: merged.length,
+      onset: step.onset,
+      measureNumber: step.measureNumber,
+      notes: [...step.notes],
+    });
+  }
+
+  return merged.map((step, order) => ({ ...step, order }));
+}
+
+function shouldMergeCrossHandSteps(
+  left: StepOrder,
+  right: StepOrder,
+  maxDriftDivisions: number,
+): boolean {
+  if (left.measureNumber !== right.measureNumber) {
+    return false;
+  }
+
+  if (Math.abs(left.onset - right.onset) > maxDriftDivisions) {
+    return false;
+  }
+
+  const leftHands = new Set(left.notes.map((note) => note.hand));
+  const rightHands = new Set(right.notes.map((note) => note.hand));
+
+  if (leftHands.size > 1 || rightHands.size > 1) {
+    return false;
+  }
+
+  const combinedHands = new Set([...leftHands, ...rightHands]);
+  return combinedHands.size === 2;
+}
+
+function groupByOnset(
+  absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
+): PlaybackScript {
+  const buckets = new Map<
+    string,
+    { onset: number; measureNumber: number; notes: ScriptNote[] }
+  >();
+
+  for (const entry of absoluteNotes) {
+    const key = onsetBucketKey(entry.measureNumber, entry.onset);
+    const existing = buckets.get(key);
+
+    if (existing) {
+      existing.notes.push(entry.note);
+      existing.onset = Math.min(existing.onset, entry.onset);
+      continue;
+    }
+
+    buckets.set(key, {
+      onset: entry.onset,
+      measureNumber: entry.measureNumber,
+      notes: [entry.note],
+    });
+  }
+
+  const grouped = [...buckets.values()].sort(
+    (left, right) => left.onset - right.onset || left.measureNumber - right.measureNumber,
+  );
+
+  return mergeCrossHandDriftSteps(
+    grouped.map((step, order) => ({
+      order,
+      onset: step.onset,
+      measureNumber: step.measureNumber,
+      notes: step.notes,
+    })),
+  );
 }
 
 function partUsesMultipleStaves(elements: NormalizedElement[]): boolean {
@@ -207,46 +294,44 @@ function createScriptNote(
   };
 }
 
-function mergePlaybackScripts(
-  scripts: PlaybackScript[],
-  onsetMergeToleranceDivisions = ONSET_MERGE_TOLERANCE_DIVISIONS,
-): PlaybackScript {
-  const byOnset = new Map<number, { measureNumber: number; notes: ScriptNote[] }>();
+function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
+  const buckets = new Map<
+    string,
+    { onset: number; measureNumber: number; notes: ScriptNote[] }
+  >();
 
   for (const script of scripts) {
     for (const step of script) {
-      let matchedOnset: number | undefined;
-
-      for (const existingOnset of byOnset.keys()) {
-        if (Math.abs(existingOnset - step.onset) <= onsetMergeToleranceDivisions) {
-          matchedOnset = existingOnset;
-          break;
-        }
-      }
-
-      const targetOnset = matchedOnset ?? step.onset;
-      const existing = byOnset.get(targetOnset);
+      const key = onsetBucketKey(step.measureNumber, step.onset);
+      const existing = buckets.get(key);
 
       if (existing) {
         existing.notes.push(...step.notes);
+        existing.onset = Math.min(existing.onset, step.onset);
         continue;
       }
 
-      byOnset.set(targetOnset, {
+      buckets.set(key, {
+        onset: step.onset,
         measureNumber: step.measureNumber,
         notes: [...step.notes],
       });
     }
   }
 
-  const sortedOnsets = [...byOnset.keys()].sort((left, right) => left - right);
+  const grouped = [...buckets.values()].sort(
+    (left, right) => left.onset - right.onset || left.measureNumber - right.measureNumber,
+  );
 
-  return sortedOnsets.map((onset, order) => ({
-    order,
-    onset,
-    measureNumber: byOnset.get(onset)!.measureNumber,
-    notes: byOnset.get(onset)!.notes,
-  }));
+  return mergeCrossHandDriftSteps(
+    grouped.map((step, order) => ({
+      order,
+      onset: step.onset,
+      measureNumber: step.measureNumber,
+      notes: step.notes,
+    })),
+    HAND_SYNC_MAX_DRIFT_DIVISIONS,
+  );
 }
 
 export { getMidiNumber, formatPitch } from './pitch.ts';

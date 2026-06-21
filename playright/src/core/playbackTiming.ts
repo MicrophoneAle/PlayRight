@@ -34,7 +34,10 @@ export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.015;
 
 /** Max onset drift merged into one step when grouping parts or staves. */
-export const ONSET_MERGE_TOLERANCE_DIVISIONS = 1;
+export const ONSET_SNAP_GRID_DIVISIONS = 4;
+
+/** Max RH/LH onset drift merged into one step within a measure. */
+export const HAND_SYNC_MAX_DRIFT_DIVISIONS = 48;
 
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
@@ -436,21 +439,9 @@ export function notePlaybackDurationQuarterNotes(
   );
 }
 
-/** Keep chord tones and both hands in a step aligned through release. */
+/** Keep fermata chord tones held through the extended fermata release. */
 export function shouldUnifyStepPlaybackDuration(step: PlaybackScript[number]): boolean {
-  if (step.notes.length === 0) {
-    return false;
-  }
-
-  if (step.notes.length > 1) {
-    return true;
-  }
-
-  if (step.notes.some((note) => note.hasFermata)) {
-    return true;
-  }
-
-  return new Set(step.notes.map((note) => note.hand)).size > 1;
+  return step.notes.some((note) => note.hasFermata);
 }
 
 export function buildStepPlaybackDurationQuarterNotesByStep(
@@ -460,8 +451,7 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
   consecutiveSameNoteKeys: Set<string>,
 ): number[] {
   return script.map((step, stepIndex) => {
-    let stepDuration = 0;
-    const unify = shouldUnifyStepPlaybackDuration(step);
+    let maxDuration = 0;
 
     for (const note of step.notes) {
       const noteDuration = notePlaybackDurationQuarterNotes(
@@ -474,12 +464,10 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
           consecutiveSameNoteKeys,
         ),
       );
-      stepDuration = unify
-        ? Math.max(stepDuration, noteDuration)
-        : noteDuration;
+      maxDuration = Math.max(maxDuration, noteDuration);
     }
 
-    return stepDuration;
+    return maxDuration;
   });
 }
 

@@ -879,6 +879,44 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     expect(script[0].notes.map((note) => note.pitch).sort()).toEqual(['C4', 'D4']);
   });
 
+  it('merges RH and LH steps when onset drift is small within a measure', () => {
+    const CROSS_HAND_DRIFT = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+      </attributes>
+      <note>
+        <pitch><step>C</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+  <part id="P2">
+    <measure number="1">
+      <forward><duration>40</duration></forward>
+      <note>
+        <pitch><step>D</step><octave>4</octave></pitch>
+        <duration>480</duration>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(CROSS_HAND_DRIFT);
+
+    expect(script).toHaveLength(1);
+    expect(script[0].notes).toHaveLength(2);
+    expect(script[0].notes).toContainEqual(
+      expect.objectContaining({ pitch: 'C4', hand: 'R' }),
+    );
+    expect(script[0].notes).toContainEqual(
+      expect.objectContaining({ pitch: 'D4', hand: 'L' }),
+    );
+    expect(script[0].onset).toBe(0);
+  });
+
   it('skips cue notes but preserves later onsets', () => {
     const { script, warnings } = parseMusicXmlToScript(CUE_THEN_PITCHED);
 

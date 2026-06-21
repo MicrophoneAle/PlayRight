@@ -11,6 +11,8 @@ import {
   playbackReleaseOnsetQuarterNotes,
   playbackSilenceBeforeNextAttackQuarters,
   pieceEndQuarterNotes,
+  resolveNotePlaybackDurationQuarterNotes,
+  shouldUnifyStepPlaybackDuration,
   PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
@@ -310,6 +312,60 @@ describe('playbackTiming', () => {
 
     expect(stepDurations[0]).toBeCloseTo(fermataHold, 5);
     expect(stepDurations[0]).toBeGreaterThan(chordToneHold);
+  });
+
+  it('does not lengthen shorter notes in non-fermata steps', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'C4',
+            midi: 60,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 240,
+          },
+          {
+            pitch: 'E4',
+            midi: 64,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 480,
+          },
+        ],
+      },
+    ];
+    const divisionsPerQuarter = 480;
+    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
+      script,
+      divisionsPerQuarter,
+    );
+    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+    );
+
+    const shortHold = playbackDurationQuarterNotes(0.5);
+
+    expect(shouldUnifyStepPlaybackDuration(script[0])).toBe(false);
+    expect(stepDurations[0]).toBeCloseTo(1, 5);
+    expect(
+      resolveNotePlaybackDurationQuarterNotes(
+        0,
+        script[0].notes[0],
+        script[0],
+        stepDurations,
+        divisionsPerQuarter,
+        finalNoteKeys,
+        consecutiveSameNoteKeys,
+      ),
+    ).toBeCloseTo(shortHold, 5);
   });
 
   it('shifts subsequent attacks after a fermata so they do not overlap the extended release', () => {
