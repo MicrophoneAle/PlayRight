@@ -141,13 +141,24 @@ export class PlaybackEngine {
   }
 
   resume(): void {
-    if (!this.isPlaying || this.isPaused) {
+    if (!this.isPlaying || !this.isPaused) {
       return;
     }
 
     if (this.hasFinishedPiece) {
       void this.play();
       return;
+    }
+
+    if (this.scheduledEventIds.length === 0) {
+      const { currentStepIndex, script } = useEngineStore.getState();
+      if (script) {
+        const resumeIndex = Math.min(
+          Math.max(currentStepIndex, 0),
+          script.length - 1,
+        );
+        this.scheduleFromStep(resumeIndex);
+      }
     }
 
     getTransport().start();
@@ -230,7 +241,12 @@ export class PlaybackEngine {
       return;
     }
 
+    if (this.isPlaying) {
+      this.scheduleFromStep(stepIndex);
+    }
+
     getTransport().pause();
+    this.isPaused = true;
     actions.setPlaybackPaused(true);
   }
 
@@ -319,10 +335,6 @@ export class PlaybackEngine {
       useEngineStore.getState();
     if (!script || stepIndex < 0 || stepIndex >= script.length) {
       return;
-    }
-
-    if (playMode) {
-      this.clearPlayingNotes();
     }
 
     const displayNotes = getDisplayNotesForStep(

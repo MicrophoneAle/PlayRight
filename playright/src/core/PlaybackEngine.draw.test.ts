@@ -7,6 +7,7 @@ const transportScheduleOnce = vi.hoisted(() =>
     return transportScheduleOnce.mock.calls.length;
   }),
 );
+const transportStart = vi.hoisted(() => vi.fn());
 const scheduleAttackRelease = vi.hoisted(() => vi.fn());
 
 vi.mock('tone', () => ({
@@ -14,7 +15,7 @@ vi.mock('tone', () => ({
     PPQ: 480,
     bpm: { value: 120 },
     ticks: 0,
-    start: vi.fn(),
+    start: transportStart,
     stop: vi.fn(),
     pause: vi.fn(),
     scheduleOnce: transportScheduleOnce,
@@ -35,6 +36,7 @@ import { useEngineStore } from '../store/useEngineStore.ts';
 describe('PlaybackEngine playback visuals', () => {
   beforeEach(() => {
     transportScheduleOnce.mockClear();
+    transportStart.mockClear();
     scheduleAttackRelease.mockClear();
 
     const script: PlaybackScript = [
@@ -89,7 +91,7 @@ describe('PlaybackEngine playback visuals', () => {
     expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
   });
 
-  it('clears highlights at each step boundary and on release', async () => {
+  it('releases highlights before the next attack via relative scheduling', async () => {
     const script: PlaybackScript = [
       {
         order: 0,
@@ -101,18 +103,20 @@ describe('PlaybackEngine playback visuals', () => {
         order: 1,
         onset: 480,
         measureNumber: 1,
-        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 1, durationDivisions: 480 }],
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
       },
     ];
 
     useEngineStore.setState({ script });
 
+    const firedTimes: string[] = [];
     let scheduleCallCount = 0;
     transportScheduleOnce.mockImplementation((callback, time) => {
       scheduleCallCount += 1;
       const tickTime = String(time);
+      firedTimes.push(tickTime);
 
-      if (tickTime === '0i' || tickTime === '480i') {
+      if (tickTime === '0i') {
         callback(0);
       } else if (tickTime.startsWith('+')) {
         callback(0);
@@ -130,7 +134,54 @@ describe('PlaybackEngine playback visuals', () => {
 
     await engine.play();
 
+    expect(firedTimes.some((time) => time.startsWith('+'))).toBe(true);
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
+  });
+
+  it('reschedules and resumes after seek while paused', async () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+
+    useEngineStore.setState({ script });
+
+    transportScheduleOnce.mockImplementation((callback, time) => {
+      if (String(time) === '0i') {
+        callback(0);
+      }
+
+      return transportScheduleOnce.mock.calls.length;
+    });
+
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+    } as never);
+
+    await engine.play();
+    engine.pause();
+    transportScheduleOnce.mockClear();
+    transportStart.mockClear();
+
+    engine.seekToStep(1);
+    expect(transportScheduleOnce).toHaveBeenCalled();
+
+    engine.resume();
+    expect(transportStart).toHaveBeenCalled();
+    expect(useEngineStore.getState().isPlaybackPaused).toBe(false);
   });
 });
