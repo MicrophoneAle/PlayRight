@@ -2,14 +2,14 @@ import * as Tone from 'tone';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildFinalNoteKeySet,
+  buildPlaybackFermataOffsetsByStep,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
-  playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
-  stepOnsetQuarterNotes,
+  scheduledPlaybackAttackQuarterNotes,
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
@@ -73,9 +73,16 @@ export class PlaybackEngine {
     const startIndex = restartingFromEnd
       ? 0
       : Math.min(Math.max(currentStepIndex, 0), script.length - 1);
-    const startOnsetQuarters = stepOnsetQuarterNotes(
+    const finalNoteKeys = buildFinalNoteKeySet(script, scoreTiming.divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      scoreTiming.divisionsPerQuarter,
+      finalNoteKeys,
+    );
+    const startOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
       script[startIndex].onset,
       scoreTiming.divisionsPerQuarter,
+      fermataOffsets[startIndex],
     );
 
     this.clearScheduledEvents();
@@ -168,9 +175,16 @@ export class PlaybackEngine {
     }
 
     const wasPlaying = this.isPlaying && !this.isPaused;
-    const onsetQuarters = stepOnsetQuarterNotes(
+    const finalNoteKeys = buildFinalNoteKeySet(script, scoreTiming.divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      scoreTiming.divisionsPerQuarter,
+      finalNoteKeys,
+    );
+    const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
       script[stepIndex].onset,
       scoreTiming.divisionsPerQuarter,
+      fermataOffsets[stepIndex],
     );
 
     this.clearScheduledEvents();
@@ -264,10 +278,19 @@ export class PlaybackEngine {
     const { divisionsPerQuarter } = scoreTiming;
     const ppq = this.transportPpq();
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+    );
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
-      const onsetQuarters = stepOnsetQuarterNotes(step.onset, divisionsPerQuarter);
+      const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
+        step.onset,
+        divisionsPerQuarter,
+        fermataOffsets[stepIndex],
+      );
       const transportTime = quartersToTransportTickTime(onsetQuarters, ppq);
 
       const eventId = transport.scheduleOnce((time) => {
@@ -294,12 +317,7 @@ export class PlaybackEngine {
             durationOptions,
           );
           const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
-          const releaseQuarters = playbackReleaseOnsetQuarterNotes(
-            onsetQuarters,
-            writtenQuarters,
-            note.tiedToNext ?? false,
-            durationOptions,
-          );
+          const releaseQuarters = onsetQuarters + playedQuarters;
           const pressId = this.playingPressTracker.allocatePressId();
 
           Tone.Draw.schedule(() => {

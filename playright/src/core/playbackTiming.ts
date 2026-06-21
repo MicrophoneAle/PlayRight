@@ -54,6 +54,81 @@ function applyFermataHoldFactor(
   return playedQuarterNotes * PLAYBACK_FERMATA_HOLD_FACTOR;
 }
 
+/** Extra play-mode hold added by a fermata over the non-fermata playback duration. */
+export function fermataExtensionDeltaQuarterNotes(
+  writtenQuarterNotes: number,
+  tiedToNext = false,
+  options: Pick<PlaybackDurationOptions, 'isFinalNote'> = {},
+): number {
+  const withoutFermata = playbackDurationQuarterNotes(
+    writtenQuarterNotes,
+    tiedToNext,
+    options,
+  );
+  const withFermata = playbackDurationQuarterNotes(writtenQuarterNotes, tiedToNext, {
+    ...options,
+    hasFermata: true,
+  });
+
+  return withFermata - withoutFermata;
+}
+
+/** Play-mode cumulative shift applied before each step's written onset after prior fermatas. */
+export function buildPlaybackFermataOffsetsByStep(
+  script: PlaybackScript,
+  divisionsPerQuarter: number,
+  finalNoteKeys: Set<string> = buildFinalNoteKeySet(script, divisionsPerQuarter),
+): number[] {
+  const offsets: number[] = [];
+  let runningOffset = 0;
+
+  for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
+    offsets.push(runningOffset);
+
+    const step = script[stepIndex];
+    let stepExtension = 0;
+
+    for (const note of step.notes) {
+      if (!note.hasFermata) {
+        continue;
+      }
+
+      const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+      const writtenQuarters = noteDurationQuarterNotes(
+        durationDivisions,
+        divisionsPerQuarter,
+      );
+      const isFinalNote = finalNoteKeys.has(
+        playbackNoteKey(stepIndex, note.hand, note.midi),
+      );
+      stepExtension = Math.max(
+        stepExtension,
+        fermataExtensionDeltaQuarterNotes(
+          writtenQuarters,
+          note.tiedToNext ?? false,
+          { isFinalNote },
+        ),
+      );
+    }
+
+    runningOffset += stepExtension;
+  }
+
+  return offsets;
+}
+
+/** Play-mode attack time in quarter notes, including fermata timeline shifts. */
+export function scheduledPlaybackAttackQuarterNotes(
+  writtenOnsetDivisions: number,
+  divisionsPerQuarter: number,
+  fermataOffsetQuarterNotes: number,
+): number {
+  return (
+    stepOnsetQuarterNotes(writtenOnsetDivisions, divisionsPerQuarter) +
+    fermataOffsetQuarterNotes
+  );
+}
+
 /** Gap before the next attack, scaled by note length with min/max clamps. */
 export function articulationGapQuarterNotes(writtenQuarterNotes: number): number {
   if (writtenQuarterNotes <= 0) {
@@ -204,11 +279,20 @@ export function pieceEndQuarterNotes(
   divisionsPerQuarter: number,
 ): number {
   const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+  const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+    script,
+    divisionsPerQuarter,
+    finalNoteKeys,
+  );
   let endQuarters = 0;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
     const step = script[stepIndex];
-    const onsetQuarters = stepOnsetQuarterNotes(step.onset, divisionsPerQuarter);
+    const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
+      step.onset,
+      divisionsPerQuarter,
+      fermataOffsets[stepIndex],
+    );
 
     for (const note of step.notes) {
       const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;

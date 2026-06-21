@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   articulationGapQuarterNotes,
   buildFinalNoteKeySet,
+  buildPlaybackFermataOffsetsByStep,
   latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -15,6 +16,7 @@ import {
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
+  scheduledPlaybackAttackQuarterNotes,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 import type { PlaybackScript } from '../types/index.ts';
@@ -182,5 +184,66 @@ describe('playbackTiming', () => {
     expect(playbackReleaseOnsetQuarterNotes(0, writtenQuarters, false, {
       hasFermata: true,
     })).toBeCloseTo(fermataPlayback, 5);
+  });
+
+  it('shifts subsequent attacks after a fermata so they do not overlap the extended release', () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'C4',
+            midi: 60,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 480,
+            hasFermata: true,
+          },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'D4',
+            midi: 62,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 480,
+          },
+        ],
+      },
+    ];
+    const divisionsPerQuarter = 480;
+    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+    );
+    const writtenQuarters = 1;
+
+    const fermataAttack = scheduledPlaybackAttackQuarterNotes(
+      script[0].onset,
+      divisionsPerQuarter,
+      fermataOffsets[0],
+    );
+    const fermataRelease =
+      fermataAttack +
+      playbackDurationQuarterNotes(writtenQuarters, false, { hasFermata: true });
+    const nextAttack = scheduledPlaybackAttackQuarterNotes(
+      script[1].onset,
+      divisionsPerQuarter,
+      fermataOffsets[1],
+    );
+    const writtenNextAttack = stepOnsetQuarterNotes(script[1].onset, divisionsPerQuarter);
+
+    expect(fermataOffsets[1]).toBeGreaterThan(0);
+    expect(nextAttack).toBeGreaterThan(writtenNextAttack);
+    expect(nextAttack).toBeGreaterThanOrEqual(fermataRelease - 1e-9);
   });
 });
