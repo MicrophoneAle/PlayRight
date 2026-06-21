@@ -4,7 +4,6 @@ import {
   buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
-  buildPlaybackHandSyncOnsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
   noteDurationQuarterNotes,
@@ -91,9 +90,8 @@ export class PlaybackEngine {
       scoreTiming.divisionsPerQuarter,
       finalNoteKeys,
     );
-    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
     const startOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      handSyncOnsets[startIndex],
+      script[startIndex].onset,
       scoreTiming.divisionsPerQuarter,
       fermataOffsets[startIndex],
     );
@@ -207,9 +205,8 @@ export class PlaybackEngine {
       scoreTiming.divisionsPerQuarter,
       finalNoteKeys,
     );
-    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
     const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      handSyncOnsets[stepIndex],
+      script[stepIndex].onset,
       scoreTiming.divisionsPerQuarter,
       fermataOffsets[stepIndex],
     );
@@ -410,12 +407,10 @@ export class PlaybackEngine {
       finalNoteKeys,
       consecutiveSameNoteKeys,
     );
-    const handSyncOnsets = buildPlaybackHandSyncOnsetsByStep(script);
-
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
       const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-        handSyncOnsets[stepIndex],
+        step.onset,
         divisionsPerQuarter,
         fermataOffsets[stepIndex],
       );
@@ -449,7 +444,6 @@ export class PlaybackEngine {
           divisionsPerQuarter,
           finalNoteKeys,
           consecutiveSameNoteKeys,
-          handSyncOnsets,
         );
         const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
         const pressId = this.playingPressTracker.allocatePressId();
