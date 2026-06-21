@@ -116,7 +116,7 @@ export function collectParseWarnings(rawXmlObj: unknown): string[] {
   }
 
   const partEntries = scorePartwise.filter(
-    (entry) => isRecord(entry) && entry.part != null,
+    (entry): entry is RawRecord => isRecord(entry) && entry.part != null,
   );
   const partCount = partEntries.length;
 
