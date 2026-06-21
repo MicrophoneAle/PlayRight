@@ -442,15 +442,37 @@ export const useEngineStore = create<EngineState>((set) => ({
         enabled ? 'true' : 'false',
       );
 
-      if (enabled) {
-        void import('../core/PracticeEngine.ts').then(({ practiceEngine }) => {
-          practiceEngine.stop();
-        });
-      } else {
-        stopPlaybackSession();
-      }
+      set((state) => {
+        if (state.playMode === enabled) {
+          return state;
+        }
 
-      set({ playMode: enabled });
+        if (enabled) {
+          void import('../core/PracticeEngine.ts').then(({ practiceEngine }) => {
+            practiceEngine.stop();
+          });
+        } else {
+          stopPlaybackSession();
+        }
+
+        return {
+          playMode: enabled,
+          currentStepIndex: 0,
+          expectedMidiNotes: [],
+          playingMidiNotes: [],
+          playingPlaybackNotes: [],
+          ...(enabled
+            ? {
+                isPracticeActive: false,
+                hasPracticeStarted: false,
+              }
+            : {
+                isPlaybackActive: false,
+                isPlaybackFinished: false,
+                isPlaybackPaused: false,
+              }),
+        };
+      });
     },
     setTempoFactor: (factor) => {
       const tempoFactor = clampTempoFactor(factor);

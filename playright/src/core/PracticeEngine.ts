@@ -33,6 +33,11 @@ export class PracticeEngine {
         return;
       }
 
+      if (state.playMode !== prevState.playMode && state.script) {
+        this.syncAfterPlayModeChange(state.playMode);
+        return;
+      }
+
       if (state.engineMode !== prevState.engineMode && state.script) {
         this.hitNoteIndices.clear();
         this.loadCurrentStep({
@@ -329,6 +334,18 @@ export class PracticeEngine {
     this.loadCurrentStep({
       alignScope: useEngineStore.getState().script !== null,
     });
+  }
+
+  private syncAfterPlayModeChange(playMode: boolean): void {
+    this.cancelCompletionCheck();
+    this.hitNoteIndices.clear();
+    this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
+    this.releaseAllSoundingNotes();
+
+    if (!playMode) {
+      this.loadCurrentStep({ alignScope: true });
+    }
   }
 
   loadCurrentStep(options: { alignScope?: boolean; exactStep?: boolean } = {}): void {

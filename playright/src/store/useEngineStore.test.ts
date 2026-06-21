@@ -148,4 +148,45 @@ describe('useEngineStore settings and mode', () => {
     expect(after.isPracticeActive).toBe(true);
     expect(after.hasPracticeStarted).toBe(true);
   });
+
+  it('resets currentStepIndex and clears stale expected notes when toggling playMode', () => {
+    useEngineStore.setState({
+      currentStepIndex: 1,
+      expectedMidiNotes: [62],
+      playingMidiNotes: [60],
+      playingPlaybackNotes: [{ pressId: 1, stepIndex: 1, midi: 60, hand: 'R' }],
+      isPracticeActive: true,
+      hasPracticeStarted: true,
+    });
+
+    useEngineStore.getState().actions.setPlayMode(true);
+
+    let state = useEngineStore.getState();
+    expect(state.playMode).toBe(true);
+    expect(state.currentStepIndex).toBe(0);
+    expect(state.expectedMidiNotes).toEqual([]);
+    expect(state.hasPracticeStarted).toBe(false);
+    expect(state.isPracticeActive).toBe(false);
+
+    useEngineStore.setState({
+      currentStepIndex: 1,
+      expectedMidiNotes: [62],
+      playingMidiNotes: [64],
+      playingPlaybackNotes: [{ pressId: 2, stepIndex: 1, midi: 64, hand: 'R' }],
+      isPlaybackActive: true,
+      isPlaybackPaused: true,
+    });
+
+    useEngineStore.getState().actions.setPlayMode(false);
+
+    state = useEngineStore.getState();
+    expect(state.playMode).toBe(false);
+    expect(state.currentStepIndex).toBe(0);
+    expect(state.expectedMidiNotes).toEqual([]);
+    expect(state.playingMidiNotes).toEqual([]);
+    expect(state.playingPlaybackNotes).toEqual([]);
+    expect(state.isPlaybackActive).toBe(false);
+    expect(state.isPlaybackPaused).toBe(false);
+    expect(state.isPlaybackFinished).toBe(false);
+  });
 });

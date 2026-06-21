@@ -41,6 +41,11 @@ export class PlaybackEngine {
         state.scoreTiming !== prevState.scoreTiming
       ) {
         this.stop();
+        return;
+      }
+
+      if (state.playMode !== prevState.playMode) {
+        this.syncAfterPlayModeChange(state.playMode);
       }
     });
   }
@@ -228,6 +233,24 @@ export class PlaybackEngine {
     this.stop();
     this.audioEngine = null;
     this.storeSubscriptionInitialized = false;
+  }
+
+  private syncAfterPlayModeChange(playMode: boolean): void {
+    this.clearScheduledEvents();
+    transport.stop();
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.hasFinishedPiece = false;
+    this.clearPlayingNotes();
+    transport.ticks = 0;
+    this.audioEngine?.releaseAll();
+
+    if (!playMode) {
+      const { actions } = useEngineStore.getState();
+      actions.setPlaybackActive(false);
+      actions.setPlaybackFinished(false);
+      actions.setPlaybackPaused(false);
+    }
   }
 
   private transportPpq(): number {
