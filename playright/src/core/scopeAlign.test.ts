@@ -1,44 +1,51 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { alignScopeToMidis } from './scopeAlign.ts';
 import {
-  getDynamicKeyMap,
+  getEffectiveKeyMap,
+  getExtensionMidis,
   getScopeKeyMap,
   midisFitScopeKeyMap,
 } from './InputManager.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+
+function noteUsesExtensionKey(scopeStart: number, midi: number): boolean {
+  return getExtensionMidis(getEffectiveKeyMap(scopeStart, 0)).has(midi);
+}
 
 describe('alignScopeToMidis', () => {
   beforeEach(() => {
     useEngineStore.setState({ scopeStartMidi: 60, scopeTranspose: 0 });
   });
 
-  it('keeps the current scope when notes fit between A and ;', () => {
+  it('keeps scope when notes fit the core without using extension keys', () => {
     alignScopeToMidis([60, 64, 76]);
 
     expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+    for (const midi of [60, 64, 76]) {
+      expect(noteUsesExtensionKey(60, midi)).toBe(false);
+    }
   });
 
-  it('prefers the core A through ; window before using extensions', () => {
-    alignScopeToMidis([64, 67]);
+  it('re-centers notes from extension keys into the core when possible', () => {
+    alignScopeToMidis([59]);
 
-    const map = getDynamicKeyMap(useEngineStore.getState().scopeStartMidi);
-    expect(map.KeyA).toBeLessThanOrEqual(64);
-    expect(map.Semicolon).toBeGreaterThanOrEqual(67);
+    expect(useEngineStore.getState().scopeStartMidi).toBe(59);
+    expect(noteUsesExtensionKey(59, 59)).toBe(false);
   });
 
-  it('expands to include extensions only when notes fall outside the core window', () => {
+  it('re-centers low notes into the core instead of leaving them on Shift or Tab', () => {
     alignScopeToMidis([58]);
 
-    const map = getDynamicKeyMap(useEngineStore.getState().scopeStartMidi);
-    const values = Object.values(map);
-    expect(values.length).toBeGreaterThan(0);
-    expect(Math.min(...values)).toBeLessThanOrEqual(58);
+    const scopeStart = useEngineStore.getState().scopeStartMidi;
+    expect(noteUsesExtensionKey(scopeStart, 58)).toBe(false);
   });
 
-  it('keeps scope when notes fit the display window even outside A through ;', () => {
+  it('uses extension keys when the interval is wider than the core', () => {
     alignScopeToMidis([60, 78]);
 
     expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+    expect(midisFitScopeKeyMap([60, 78], 60, 0)).toBe(true);
+    expect(noteUsesExtensionKey(60, 78)).toBe(true);
   });
 
   it('moves the scope when practice notes sit above the current Semicolon anchor', () => {
