@@ -63,7 +63,7 @@ describe('PlaybackEngine playback visuals', () => {
     });
   });
 
-  it('updates playing notes from transport callbacks, not Tone.Draw', async () => {
+  it('pre-schedules attack and release on the transport timeline', async () => {
     const engine = new PlaybackEngine();
     engine.attachAudioEngine({
       warm: async () => {},
@@ -73,17 +73,18 @@ describe('PlaybackEngine playback visuals', () => {
 
     await engine.play();
 
+    expect(transportScheduleOnce.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(scheduleAttackRelease).toHaveBeenCalled();
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });
 
-  it('clears playingMidiNotes after the scheduled release transport callback', async () => {
+  it('clears playingMidiNotes after the pre-scheduled release callback', async () => {
     const deferredCallbacks: Array<() => void> = [];
     let scheduleCallCount = 0;
     transportScheduleOnce.mockImplementation((callback, _time) => {
       scheduleCallCount += 1;
-      if (scheduleCallCount === 1) {
+      if (scheduleCallCount <= 2) {
         callback(0);
       } else {
         deferredCallbacks.push(() => callback(0));
@@ -101,9 +102,6 @@ describe('PlaybackEngine playback visuals', () => {
     await engine.play();
 
     expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
-    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([
-      expect.objectContaining({ stepIndex: 0, midi: 60, hand: 'R' }),
-    ]);
 
     for (const callback of deferredCallbacks) {
       callback();
@@ -111,5 +109,51 @@ describe('PlaybackEngine playback visuals', () => {
 
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
+  });
+
+  it('drops stale highlights when advancing to a later step', async () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+
+    useEngineStore.setState({ script });
+
+    let scheduleCallCount = 0;
+    transportScheduleOnce.mockImplementation((callback, time) => {
+      scheduleCallCount += 1;
+      const tickTime = String(time);
+      const firesImmediately = tickTime === '0i' || tickTime === '480i';
+
+      if (firesImmediately) {
+        callback(0);
+      }
+
+      return scheduleCallCount;
+    });
+
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+    } as never);
+
+    await engine.play();
+
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([62]);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([
+      expect.objectContaining({ stepIndex: 1, midi: 62, hand: 'R' }),
+    ]);
   });
 });

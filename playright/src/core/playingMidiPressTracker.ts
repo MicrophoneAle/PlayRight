@@ -49,4 +49,20 @@ export class PlayingMidiPressTracker {
     this.activePressIds.clear();
     this.pressIdToNote.clear();
   }
+
+  releaseMatching(
+    predicate: (note: PlayingPlaybackNote) => boolean,
+  ): boolean {
+    let changed = false;
+
+    for (const pressId of [...this.activePressIds]) {
+      const note = this.pressIdToNote.get(pressId);
+      if (note !== undefined && predicate(note)) {
+        this.release(pressId);
+        changed = true;
+      }
+    }
+
+    return changed;
+  }
 }

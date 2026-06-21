@@ -14,9 +14,27 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
-import type { Hand } from '../types/index.ts';
+import type { Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 
 const transport = Tone.getTransport();
+
+function isPlaybackTieContinuation(
+  script: PlaybackScript,
+  stepIndex: number,
+  note: ScriptNote,
+): boolean {
+  if (stepIndex === 0) {
+    return false;
+  }
+
+  const previousStep = script[stepIndex - 1];
+  return previousStep.notes.some(
+    (previous) =>
+      previous.midi === note.midi &&
+      previous.hand === note.hand &&
+      previous.tiedToNext,
+  );
+}
 
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
@@ -291,6 +309,58 @@ export class PlaybackEngine {
     actions.setPlayingPlaybackNotes([]);
   }
 
+  private applyStepVisual(stepIndex: number): void {
+    const { script, engineMode, activeHand, playMode, actions } =
+      useEngineStore.getState();
+    if (!script || stepIndex < 0 || stepIndex >= script.length) {
+      return;
+    }
+
+    if (playMode) {
+      this.releaseStalePlaybackVisuals(script, stepIndex);
+    }
+
+    const displayNotes = getDisplayNotesForStep(
+      script[stepIndex],
+      playMode,
+      engineMode,
+      activeHand,
+    );
+
+    actions.setStepIndex(stepIndex);
+    actions.setExpectedNotes(displayNotes.map((note) => note.midi));
+  }
+
+  private releaseStalePlaybackVisuals(
+    script: PlaybackScript,
+    currentStepIndex: number,
+  ): void {
+    const changed = this.playingPressTracker.releaseMatching((press) => {
+      if (press.stepIndex >= currentStepIndex) {
+        return false;
+      }
+
+      const step = script[press.stepIndex];
+      const note = step?.notes.find(
+        (candidate) =>
+          candidate.midi === press.midi && candidate.hand === press.hand,
+      );
+
+      if (
+        note?.tiedToNext &&
+        currentStepIndex === press.stepIndex + 1
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (changed) {
+      this.syncPlayingNotes();
+    }
+  }
+
   private scheduleFromStep(fromStepIndex: number): void {
     const { script, scoreTiming } = useEngineStore.getState();
     const engine = this.audioEngine;
@@ -316,42 +386,50 @@ export class PlaybackEngine {
       );
       const transportTime = quartersToTransportTickTime(onsetQuarters, ppq);
 
-      const eventId = transport.scheduleOnce((time) => {
+      const stepVisualId = transport.scheduleOnce(() => {
         this.applyStepVisual(stepIndex);
+      }, transportTime);
+      this.scheduledEventIds.push(stepVisualId);
 
-        for (const note of step.notes) {
-          const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-          const writtenQuarters = noteDurationQuarterNotes(
-            durationDivisions,
-            divisionsPerQuarter,
-          );
-          const isFinalNote = finalNoteKeys.has(
-            `${stepIndex}:${note.hand}:${note.midi}`,
-          );
-          const durationOptions = {
-            isFinalNote,
-            hasFermata: note.hasFermata ?? false,
-          };
-          const playedQuarters = playbackDurationQuarterNotes(
-            writtenQuarters,
-            note.tiedToNext ?? false,
-            durationOptions,
-          );
-          const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
-          const releaseQuarters = onsetQuarters + playedQuarters;
-          const pressId = this.playingPressTracker.allocatePressId();
+      for (const note of step.notes) {
+        if (isPlaybackTieContinuation(script, stepIndex, note)) {
+          continue;
+        }
 
+        const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+        const writtenQuarters = noteDurationQuarterNotes(
+          durationDivisions,
+          divisionsPerQuarter,
+        );
+        const isFinalNote = finalNoteKeys.has(
+          `${stepIndex}:${note.hand}:${note.midi}`,
+        );
+        const durationOptions = {
+          isFinalNote,
+          hasFermata: note.hasFermata ?? false,
+        };
+        const playedQuarters = playbackDurationQuarterNotes(
+          writtenQuarters,
+          note.tiedToNext ?? false,
+          durationOptions,
+        );
+        const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
+        const releaseQuarters = onsetQuarters + playedQuarters;
+        const pressId = this.playingPressTracker.allocatePressId();
+
+        const attackId = transport.scheduleOnce((time) => {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
           this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+        }, transportTime);
+        this.scheduledEventIds.push(attackId);
 
-          const releaseEventId = transport.scheduleOnce(() => {
+        if (!note.tiedToNext) {
+          const releaseId = transport.scheduleOnce(() => {
             this.releasePlayingNote(pressId);
           }, quartersToTransportTickTime(releaseQuarters, ppq));
-          this.scheduledEventIds.push(releaseEventId);
+          this.scheduledEventIds.push(releaseId);
         }
-      }, transportTime);
-
-      this.scheduledEventIds.push(eventId);
+      }
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
@@ -373,24 +451,6 @@ export class PlaybackEngine {
     const { actions } = useEngineStore.getState();
     actions.setPlaybackFinished(true);
     actions.setPlaybackPaused(true);
-  }
-
-  private applyStepVisual(stepIndex: number): void {
-    const { script, engineMode, activeHand, playMode, actions } =
-      useEngineStore.getState();
-    if (!script || stepIndex < 0 || stepIndex >= script.length) {
-      return;
-    }
-
-    const displayNotes = getDisplayNotesForStep(
-      script[stepIndex],
-      playMode,
-      engineMode,
-      activeHand,
-    );
-
-    actions.setStepIndex(stepIndex);
-    actions.setExpectedNotes(displayNotes.map((note) => note.midi));
   }
 
   private clearScheduledEvents(): void {
