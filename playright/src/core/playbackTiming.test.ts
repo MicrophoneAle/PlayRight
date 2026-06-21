@@ -5,7 +5,6 @@ import {
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
-  capPlaybackDurationToNextSameHandAttackQuarterNotes,
   latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -369,40 +368,59 @@ describe('playbackTiming', () => {
     ).toBeCloseTo(shortHold, 5);
   });
 
-  it('caps an over-long note at the next same-hand attack', () => {
+  it('keeps a bass half note length when shorter left-hand notes follow in the same measure', () => {
     const script: PlaybackScript = [
       {
         order: 0,
         onset: 0,
-        measureNumber: 3,
+        measureNumber: 20,
         notes: [
           {
-            pitch: 'A2',
-            midi: 45,
+            pitch: 'E2',
+            midi: 40,
             hand: 'L',
             finger: null,
-            durationDivisions: 3840,
+            durationDivisions: 960,
           },
         ],
       },
       {
         order: 1,
+        onset: 240,
+        measureNumber: 20,
+        notes: [{ pitch: 'F#2', midi: 42, hand: 'L', finger: null, durationDivisions: 240 }],
+      },
+      {
+        order: 2,
         onset: 960,
-        measureNumber: 4,
-        notes: [{ pitch: 'B2', midi: 47, hand: 'L', finger: null, durationDivisions: 480 }],
+        measureNumber: 20,
+        notes: [{ pitch: 'E2', midi: 40, hand: 'L', finger: null, durationDivisions: 240 }],
       },
     ];
-
-    const capped = capPlaybackDurationToNextSameHandAttackQuarterNotes(
+    const divisionsPerQuarter = 480;
+    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
+      script,
+      divisionsPerQuarter,
+    );
+    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+    );
+    const halfNoteHold = resolveNotePlaybackDurationQuarterNotes(
       0,
       script[0].notes[0],
-      0,
       script,
-      480,
-      8,
+      stepDurations,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
     );
 
-    expect(capped).toBeCloseTo(2, 5);
+    expect(halfNoteHold).toBeGreaterThan(1);
+    expect(halfNoteHold).not.toBeCloseTo(0.5, 1);
   });
 
   it('schedules attacks from each step written onset', () => {

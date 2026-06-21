@@ -134,59 +134,6 @@ export function scheduledPlaybackAttackQuarterNotes(
   );
 }
 
-export function nextSameHandWrittenOnsetDivisions(
-  script: PlaybackScript,
-  fromStepIndex: number,
-  hand: Hand,
-  attackOnsetDivisions: number,
-): number | null {
-  for (let stepIndex = fromStepIndex + 1; stepIndex < script.length; stepIndex += 1) {
-    const step = script[stepIndex];
-    if (!step.notes.some((note) => note.hand === hand)) {
-      continue;
-    }
-
-    if (step.onset <= attackOnsetDivisions) {
-      continue;
-    }
-
-    return step.onset;
-  }
-
-  return null;
-}
-
-export function capPlaybackDurationToNextSameHandAttackQuarterNotes(
-  stepIndex: number,
-  note: ScriptNote,
-  attackOnsetDivisions: number,
-  script: PlaybackScript,
-  divisionsPerQuarter: number,
-  playedQuarterNotes: number,
-): number {
-  if (note.tiedToNext) {
-    return playedQuarterNotes;
-  }
-
-  const nextOnsetDivisions = nextSameHandWrittenOnsetDivisions(
-    script,
-    stepIndex,
-    note.hand,
-    attackOnsetDivisions,
-  );
-  if (nextOnsetDivisions === null) {
-    return playedQuarterNotes;
-  }
-
-  const maxQuarterNotes =
-    (nextOnsetDivisions - attackOnsetDivisions) / divisionsPerQuarter;
-  if (maxQuarterNotes <= 0) {
-    return playedQuarterNotes;
-  }
-
-  return Math.min(playedQuarterNotes, maxQuarterNotes);
-}
-
 /** Gap before the next attack, scaled by note length with min/max clamps. */
 export function articulationGapQuarterNotes(
   writtenQuarterNotes: number,
@@ -528,34 +475,20 @@ export function resolveNotePlaybackDurationQuarterNotes(
   consecutiveSameNoteKeys: Set<string>,
 ): number {
   const step = script[stepIndex];
-  let playedQuarterNotes: number;
 
   if (shouldUnifyStepPlaybackDuration(step)) {
-    playedQuarterNotes = stepDurations[stepIndex];
-  } else {
-    playedQuarterNotes = notePlaybackDurationQuarterNotes(
-      note,
-      divisionsPerQuarter,
-      notePlaybackDurationOptions(
-        stepIndex,
-        note,
-        finalNoteKeys,
-        consecutiveSameNoteKeys,
-      ),
-    );
+    return stepDurations[stepIndex];
   }
 
-  if (shouldUnifyStepPlaybackDuration(step)) {
-    return playedQuarterNotes;
-  }
-
-  return capPlaybackDurationToNextSameHandAttackQuarterNotes(
-    stepIndex,
+  return notePlaybackDurationQuarterNotes(
     note,
-    step.onset,
-    script,
     divisionsPerQuarter,
-    playedQuarterNotes,
+    notePlaybackDurationOptions(
+      stepIndex,
+      note,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+    ),
   );
 }
 
