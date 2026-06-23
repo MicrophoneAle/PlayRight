@@ -113,7 +113,7 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   return phrases;
 }
 
-/** Ideal right-hand pitch distance in semitones (lower finger → higher finger). */
+/** Legacy pair spans used by chord scoring fallbacks. */
 export const IDEAL: Record<string, number> = {
   '1-2': 4,
   '1-3': 7,
@@ -130,18 +130,24 @@ export const IDEAL: Record<string, number> = {
 export const SAME_FINGER_REPEATED_COST = 0;
 export const SAME_FINGER_LIFT_BASE = 2;
 export const SAME_FINGER_LIFT_PER_SEMITONE = 0.4;
-export const DEVIATION_COEFFICIENT = 0.6;
+export const DEVIATION_COEFFICIENT = 0.55;
 export const LEGAL_CROSSING_COST = 1.0;
 export const CONTRACTION_BASE = 5.0;
 export const CONTRACTION_PER_SEMITONE = 0.5;
 export const WEAK_FINGER_PENALTY = 0.5;
 export const THUMB_ON_BLACK_PENALTY = 1.5;
+export const AWKWARD_THUMB_CROSSING_PENALTY = 2.5;
 export const PHRASE_START_BIAS = 1.5;
-export const REGISTER_BIAS_WEIGHT = 0.9;
+export const REGISTER_BIAS_WEIGHT = 1.1;
 export const HIGH_REGISTER_MIDI_RH = 76;
 export const LOW_REGISTER_MIDI_LH = 48;
-export const REPEAT_PITCH_FINGER_MISMATCH = 5;
-export const OCTAVE_PAIR_BONUS = 2.5;
+export const HIGH_REGISTER_THUMB_PENALTY = 9;
+export const REPEAT_PITCH_FINGER_MISMATCH = 6;
+export const OCTAVE_PAIR_BONUS = 3;
+export const LARGE_LEAP_OUTER_FINGER_PENALTY = 8;
+export const CHORD_MAX_PAIR_SPAN = 4;
+export const CHORD_SPAN_OVERFLOW_COEFF = 2.5;
+export const SCALE_THUMB_UNDER_BONUS = 1.25;
 
 /** Resting midi per finger with thumb on middle C (C4). */
 export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
@@ -168,11 +174,144 @@ function isBlackKey(midi: number): boolean {
   return BLACK_KEY_PITCH_CLASSES.has(midi % 12);
 }
 
-function idealDistance(fPrev: Finger, fCur: Finger): number {
-  const lo = Math.min(fPrev, fCur) as Finger;
-  const hi = Math.max(fPrev, fCur) as Finger;
-  const magnitude = IDEAL[`${lo}-${hi}`];
-  return fCur > fPrev ? magnitude : -magnitude;
+function isWhiteKey(midi: number): boolean {
+  return !isBlackKey(midi);
+}
+
+/** Keyboard-adjacent white keys (E–F, B–C at 1 semitone; others at 2). */
+function areAdjacentWhiteKeys(lowerMidi: number, higherMidi: number): boolean {
+  if (lowerMidi >= higherMidi) {
+    return areAdjacentWhiteKeys(higherMidi, lowerMidi);
+  }
+
+  if (!isWhiteKey(lowerMidi) || !isWhiteKey(higherMidi)) {
+    return false;
+  }
+
+  const span = higherMidi - lowerMidi;
+  return span === 1 || span === 2;
+}
+
+/** Preferred finger-number gap for a melodic interval (rules 2, 5, 8). */
+export function preferredFingerGap(
+  absInterval: number,
+): { ideal: number; min: number; max: number } {
+  if (absInterval === 0) {
+    return { ideal: 0, min: 0, max: 0 };
+  }
+
+  if (absInterval >= 12) {
+    return { ideal: 4, min: 4, max: 4 };
+  }
+
+  if (absInterval <= 2) {
+    return { ideal: 1, min: 1, max: 1 };
+  }
+
+  if (absInterval === 3) {
+    return { ideal: 1, min: 1, max: 2 };
+  }
+
+  if (absInterval === 4) {
+    return { ideal: 1, min: 1, max: 2 };
+  }
+
+  if (absInterval === 5) {
+    return { ideal: 2, min: 1, max: 3 };
+  }
+
+  if (absInterval <= 7) {
+    return { ideal: 2, min: 1, max: 3 };
+  }
+
+  if (absInterval <= 9) {
+    return { ideal: 3, min: 2, max: 4 };
+  }
+
+  return { ideal: 3, min: 2, max: 4 };
+}
+
+function scaledFingerGapRange(
+  absInterval: number,
+  spanScale: number,
+): { ideal: number; min: number; max: number } {
+  const base = preferredFingerGap(absInterval);
+  const reachBonus = Math.max(0, spanScale - 1);
+
+  return {
+    ideal: base.ideal,
+    min: base.min,
+    max: Math.min(4, base.max + Math.round(reachBonus * 2)),
+  };
+}
+
+function gapDeviationCost(
+  fingerGap: number,
+  idealGap: number,
+  minGap: number,
+  maxGap: number,
+): number {
+  if (fingerGap < minGap || fingerGap > maxGap) {
+    return (
+      CONTRACTION_BASE * 0.35 +
+      DEVIATION_COEFFICIENT * Math.abs(fingerGap - idealGap) * 2
+    );
+  }
+
+  return DEVIATION_COEFFICIENT * Math.abs(fingerGap - idealGap);
+}
+
+function isAwkwardThumbCrossing(
+  hand: Hand,
+  fPrev: Finger,
+  pPrev: number,
+  fCur: Finger,
+  pCur: number,
+  pitchAscending: boolean,
+): boolean {
+  if (hand === 'R') {
+    if (fCur === 1 && pitchAscending && isWhiteKey(pPrev) && isBlackKey(pCur)) {
+      return true;
+    }
+
+    if (
+      fPrev === 1 &&
+      !pitchAscending &&
+      isWhiteKey(pCur) &&
+      isBlackKey(pPrev)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  if (fCur === 1 && !pitchAscending && isWhiteKey(pPrev) && isBlackKey(pCur)) {
+    return true;
+  }
+
+  if (
+    fPrev === 1 &&
+    pitchAscending &&
+    isWhiteKey(pCur) &&
+    isBlackKey(pPrev)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function motionAligned(
+  hand: Hand,
+  pitchAscending: boolean,
+  fPrev: Finger,
+  fCur: Finger,
+): boolean {
+  const fingerAscending = fCur > fPrev;
+  return hand === 'R'
+    ? pitchAscending === fingerAscending
+    : pitchAscending === !fingerAscending;
 }
 
 function isLegalCrossing(
@@ -201,6 +340,8 @@ export function transitionCost(
   spanScale = 1,
 ): number {
   const interval = signedInterval(hand, pPrev, pCur);
+  const absInterval = Math.abs(interval);
+  const pitchAscending = pCur > pPrev;
 
   if (fCur === fPrev) {
     if (interval === 0) {
@@ -208,39 +349,60 @@ export function transitionCost(
     }
 
     return (
-      SAME_FINGER_LIFT_BASE + SAME_FINGER_LIFT_PER_SEMITONE * Math.abs(interval)
+      SAME_FINGER_LIFT_BASE + SAME_FINGER_LIFT_PER_SEMITONE * absInterval
     );
   }
 
-  const ideal = idealDistance(fPrev, fCur) * spanScale;
-  const expectedAscending = fCur > fPrev;
-  const actuallyAscending = interval > 0;
+  const fingerGap = Math.abs(fCur - fPrev);
+  const { ideal: idealGap, min: minGap, max: maxGap } = scaledFingerGapRange(
+    absInterval,
+    spanScale,
+  );
+
+  if (absInterval >= 12) {
+    const isOuterPair =
+      (fPrev === 1 && fCur === 5) || (fPrev === 5 && fCur === 1);
+    let cost = gapDeviationCost(fingerGap, idealGap, minGap, maxGap);
+
+    if (isOuterPair) {
+      cost -= OCTAVE_PAIR_BONUS;
+    } else {
+      cost += LARGE_LEAP_OUTER_FINGER_PENALTY;
+    }
+
+    return cost;
+  }
+
+  if (isLegalCrossing(hand, fPrev, fCur, pitchAscending)) {
+    let cost = LEGAL_CROSSING_COST;
+
+    const isScaleRotation =
+      absInterval === 1 &&
+      fingerGap >= 2 &&
+      ((hand === 'R' &&
+        ((fCur === 1 && pitchAscending) || (fPrev === 1 && !pitchAscending))) ||
+        (hand === 'L' &&
+          ((fCur === 1 && !pitchAscending) || (fPrev === 1 && pitchAscending))));
+
+    if (isAwkwardThumbCrossing(hand, fPrev, pPrev, fCur, pCur, pitchAscending)) {
+      cost += AWKWARD_THUMB_CROSSING_PENALTY;
+    } else if (isScaleRotation) {
+      cost -= SCALE_THUMB_UNDER_BONUS + 0.08 * (fingerGap - 2);
+    }
+
+    return cost;
+  }
 
   let cost = 0;
 
-  if (expectedAscending === actuallyAscending || interval === 0) {
-    const deviation = Math.abs(interval - ideal);
-    cost += DEVIATION_COEFFICIENT * deviation;
-  } else if (isLegalCrossing(hand, fPrev, fCur, actuallyAscending)) {
-    cost += LEGAL_CROSSING_COST;
+  if (motionAligned(hand, pitchAscending, fPrev, fCur)) {
+    cost += gapDeviationCost(fingerGap, idealGap, minGap, maxGap);
   } else {
-    cost += CONTRACTION_BASE + CONTRACTION_PER_SEMITONE * Math.abs(interval);
+    cost += CONTRACTION_BASE + CONTRACTION_PER_SEMITONE * absInterval;
   }
 
   if ((fPrev === 4 && fCur === 5) || (fPrev === 5 && fCur === 4)) {
     cost += WEAK_FINGER_PENALTY;
-  }
-
-  const absInterval = Math.abs(interval);
-  if (absInterval === 12) {
-    const isPreferredOctavePair =
-      (hand === 'R' &&
-        ((fPrev === 1 && fCur === 5) || (fPrev === 5 && fCur === 1))) ||
-      (hand === 'L' &&
-        ((fPrev === 5 && fCur === 1) || (fPrev === 1 && fCur === 5)));
-    if (isPreferredOctavePair) {
-      cost -= OCTAVE_PAIR_BONUS;
-    }
   }
 
   return cost;
@@ -254,13 +416,9 @@ export function localCost(finger: Finger, midi: number): number {
   return 0;
 }
 
-/** Prefer outer fingers (pinky/thumb) in extreme registers. */
+/** Prefer pinky over thumb in the high right-hand register. */
 export function registerFingerBias(hand: Hand, finger: Finger, midi: number): number {
   if (hand === 'R' && midi >= HIGH_REGISTER_MIDI_RH) {
-    return (finger - 1) * REGISTER_BIAS_WEIGHT;
-  }
-
-  if (hand === 'L' && midi <= LOW_REGISTER_MIDI_LH) {
     return (5 - finger) * REGISTER_BIAS_WEIGHT;
   }
 
@@ -268,7 +426,13 @@ export function registerFingerBias(hand: Hand, finger: Finger, midi: number): nu
 }
 
 export function noteFingerCost(hand: Hand, finger: Finger, midi: number): number {
-  return localCost(finger, midi) + registerFingerBias(hand, finger, midi);
+  let cost = localCost(finger, midi) + registerFingerBias(hand, finger, midi);
+
+  if (hand === 'R' && midi >= HIGH_REGISTER_MIDI_RH && finger === 1) {
+    cost += HIGH_REGISTER_THUMB_PENALTY;
+  }
+
+  return cost;
 }
 
 /** Bias the first note of a phrase toward a natural hand position (pinky on high RH, etc.). */
@@ -316,6 +480,98 @@ export function phraseStartCost(
   }
 
   return 0;
+}
+
+function phraseTransitionCost(
+  notes: NoteEvent[],
+  fingers: Finger[],
+  hand: Hand,
+  spanScale: number,
+): number {
+  let cost = 0;
+
+  for (let index = 0; index < notes.length; index += 1) {
+    cost += noteFingerCost(hand, fingers[index], notes[index].midi);
+
+    if (index === 0) {
+      cost += phraseStartCost(hand, fingers[index], notes[index], notes);
+      continue;
+    }
+
+    cost += transitionCost(
+      hand,
+      fingers[index - 1],
+      notes[index - 1].midi,
+      fingers[index],
+      notes[index].midi,
+      spanScale,
+    );
+  }
+
+  return cost;
+}
+
+/** Rule 4: unify finger choice for repeated pitches within a phrase. */
+export function unifyRepeatedPitchFingers(
+  notes: NoteEvent[],
+  fingers: Finger[],
+  hand: Hand,
+  spanScale = 1,
+): Finger[] {
+  const result = [...fingers];
+  const indicesByMidi = new Map<number, number[]>();
+
+  notes.forEach((note, index) => {
+    if (note.authoredFinger !== null) {
+      return;
+    }
+
+    const indices = indicesByMidi.get(note.midi) ?? [];
+    indices.push(index);
+    indicesByMidi.set(note.midi, indices);
+  });
+
+  for (const indices of indicesByMidi.values()) {
+    if (indices.length < 2) {
+      continue;
+    }
+
+    let bestFinger = result[indices[0]];
+    let bestCost = Infinity;
+
+    for (const candidate of FINGERS) {
+      if (
+        indices.some(
+          (index) =>
+            notes[index].authoredFinger !== null &&
+            notes[index].authoredFinger !== candidate,
+        )
+      ) {
+        continue;
+      }
+
+      const trial = [...result];
+      for (const index of indices) {
+        if (notes[index].authoredFinger === null) {
+          trial[index] = candidate;
+        }
+      }
+
+      const cost = phraseTransitionCost(notes, trial, hand, spanScale);
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestFinger = candidate;
+      }
+    }
+
+    for (const index of indices) {
+      if (notes[index].authoredFinger === null) {
+        result[index] = bestFinger;
+      }
+    }
+  }
+
+  return result;
 }
 
 function argminFinger(
@@ -426,7 +682,7 @@ export function fingerPhrase(
     finger = back[index][finger] ?? finger;
   }
 
-  return out;
+  return unifyRepeatedPitchFingers(notes, out, hand, spanScale);
 }
 
 function chordPairDeviation(
@@ -435,12 +691,23 @@ function chordPairDeviation(
   midiSpan: number,
   spanScale = 1,
 ): number {
-  const lo = Math.min(fLower, fHigher);
-  const hi = Math.max(fLower, fHigher);
-  const ideal = IDEAL[`${lo}-${hi}`] * spanScale;
-  let deviation = Math.abs(midiSpan - ideal);
+  if (midiSpan > CHORD_MAX_PAIR_SPAN) {
+    return (
+      (midiSpan - CHORD_MAX_PAIR_SPAN) * CHORD_SPAN_OVERFLOW_COEFF +
+      gapDeviationCost(
+        Math.abs(fHigher - fLower),
+        preferredFingerGap(midiSpan).ideal,
+        preferredFingerGap(midiSpan).min,
+        preferredFingerGap(midiSpan).max,
+      )
+    );
+  }
 
-  if (midiSpan > 0 && midiSpan <= 2 && hi - lo === 1) {
+  const fingerGap = Math.abs(fHigher - fLower);
+  const { ideal, min, max } = scaledFingerGapRange(midiSpan, spanScale);
+  let deviation = gapDeviationCost(fingerGap, ideal, min, max);
+
+  if (midiSpan > 0 && midiSpan <= 2 && fingerGap === 1) {
     deviation *= 0.35;
   }
 
@@ -625,6 +892,40 @@ function assignChordFingersToPlayableNotes(
   return bestAssignment;
 }
 
+/** Rule 7: unassigned notes in large chords share a finger with adjacent white-key neighbors. */
+function shareAdjacentWhiteKeysInLargeChord(
+  chord: NoteEvent[],
+  fingers: (Finger | null)[],
+): (Finger | null)[] {
+  const result = [...fingers];
+
+  for (let index = 0; index < chord.length; index += 1) {
+    if (result[index] !== null) {
+      continue;
+    }
+
+    for (const partnerIndex of [index - 1, index + 1]) {
+      if (partnerIndex < 0 || partnerIndex >= chord.length) {
+        continue;
+      }
+
+      const partnerFinger = result[partnerIndex];
+      if (partnerFinger === null) {
+        continue;
+      }
+
+      const low = Math.min(chord[index].midi, chord[partnerIndex].midi);
+      const high = Math.max(chord[index].midi, chord[partnerIndex].midi);
+      if (areAdjacentWhiteKeys(low, high)) {
+        result[index] = partnerFinger;
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
 export function assignChordFingers(
   chord: NoteEvent[],
   hand: Hand,
@@ -652,7 +953,7 @@ export function assignChordFingers(
       result[chordIndex] = playableFingers[playableIndex];
     });
 
-    return result;
+    return shareAdjacentWhiteKeysInLargeChord(chord, result);
   }
 
   return assignChordFingersToPlayableNotes(chord, hand, spanScale);
