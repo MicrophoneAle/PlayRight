@@ -78,27 +78,6 @@ function usesThumbUnderAt(
   return curFinger === 1 && interval < 0 && prevFinger < curFinger;
 }
 
-function usesFingerOverAt(
-  hand: Hand,
-  notes: NoteEvent[],
-  fingers: Finger[],
-  index: number,
-): boolean {
-  if (index <= 0) {
-    return false;
-  }
-
-  const prevFinger = fingers[index - 1];
-  const curFinger = fingers[index];
-  const interval = notes[index].midi - notes[index - 1].midi;
-
-  if (hand === 'R') {
-    return prevFinger === 1 && interval < 0 && curFinger > prevFinger;
-  }
-
-  return prevFinger === 1 && interval > 0 && curFinger < prevFinger;
-}
-
 describe('fingerPhrase', () => {
   const cMajorAscRhMidis = [60, 62, 64, 65, 67, 69, 71, 72];
   const cMajorAscRh = cMajorAscRhMidis.map((midi, stepIndex) =>
