@@ -8,7 +8,6 @@ import {
   HOME_POSITION,
   LEGAL_CROSSING_COST,
   type NoteEvent,
-  PHRASE_LARGE_LEAP_SEMITONES,
   PHRASE_MIN_ONSET_GAP_DIVISIONS,
   predictFingering,
   prepareScriptWithFingering,
@@ -189,18 +188,28 @@ describe('assignChordFingers', () => {
 });
 
 describe('segmentIntoPhrases', () => {
-  it('splits on a large leap and on a large onset gap', () => {
+  it('splits when the hand frame would exceed 14 semitones or on a large onset gap', () => {
+    const frameTimeline: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(1, 67, 1),
+      noteEvent(2, 76, 2),
+    ];
     const leapTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
-      noteEvent(1, 60 + PHRASE_LARGE_LEAP_SEMITONES, 1),
+      noteEvent(1, 75, 1),
     ];
     const gapTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
       noteEvent(1, 62, PHRASE_MIN_ONSET_GAP_DIVISIONS),
     ];
 
+    const framePhrases = segmentIntoPhrases(frameTimeline);
     const leapPhrases = segmentIntoPhrases(leapTimeline);
     const gapPhrases = segmentIntoPhrases(gapTimeline);
+
+    expect(framePhrases).toHaveLength(2);
+    expect(framePhrases[0].map((event) => event.midi)).toEqual([60, 67]);
+    expect(framePhrases[1].map((event) => event.midi)).toEqual([76]);
 
     expect(leapPhrases).toHaveLength(2);
     expect(gapPhrases).toHaveLength(2);
