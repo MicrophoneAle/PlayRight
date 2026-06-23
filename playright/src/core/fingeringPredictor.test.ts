@@ -139,6 +139,17 @@ describe('fingerPhrase', () => {
     expect(fingers[0]).toBeLessThan(fingers[1]);
     expect(fingers[2]).toBeGreaterThan(fingers[1]);
   });
+
+  it('unifies E arpeggio pitches within one scope', () => {
+    const midis = [64, 68, 71, 76, 76, 71, 68, 64];
+    const phrase = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
+    );
+
+    const fingers = fingerPhrase(phrase, 'R');
+    expect(fingers[0]).toBe(fingers[7]);
+    expect(fingers[3]).toBe(fingers[4]);
+  });
 });
 
 describe('assignChordFingers', () => {
@@ -178,7 +189,7 @@ describe('assignChordFingers', () => {
     );
 
     expect(right).toEqual([1, 2, 3]);
-    expect(left).toEqual([4, 3, 2]);
+    expect(left).toEqual([3, 2, 1]);
     expect(new Set(right).size).toBe(3);
     expect(new Set(left).size).toBe(3);
     expect(isMonotonicFingers('R', right)).toBe(true);
@@ -228,6 +239,26 @@ describe('segmentIntoPhrases', () => {
     expect(phrases).toHaveLength(1);
     expect(phrases[0]).toHaveLength(3);
     expect(phrases[0].map((event) => event.stepIndex)).toEqual([0, 0, 1]);
+  });
+
+  it('keeps long directional runs in one phrase when the hand frame fits', () => {
+    const midis = [64, 66, 68, 70, 72, 74, 76, 74, 72, 70];
+    const timeline = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
+    );
+
+    expect(segmentIntoPhrases(timeline)).toHaveLength(1);
+  });
+
+  it('prefers thumb on the top note for left-hand intervals', () => {
+    const interval: NoteEvent[] = [
+      noteEvent(0, 50, 0),
+      noteEvent(0, 57, 0),
+    ];
+
+    const fingers = assignChordFingers(interval, 'L');
+    expect(fingers[1]).toBe(1);
+    expect(fingers[0]).toBeGreaterThan(fingers[1]);
   });
 });
 
@@ -329,7 +360,7 @@ describe('predictFingering', () => {
       noteEvent(1, 36, 480),
     ];
 
-    expect(fingerPhrase(phrase, 'L')).toEqual([5, 1]);
+    expect(fingerPhrase(phrase, 'L')).toEqual([1, 5]);
   });
 
   it('uses neighboring fingers for semitone steps on inner fingers', () => {
@@ -390,7 +421,7 @@ describe('predictFingering', () => {
         [noteEvent(0, 48, 0), noteEvent(1, 36, 480)],
         'L',
       ),
-    ).toEqual([5, 1]);
+    ).toEqual([1, 5]);
   });
 });
 

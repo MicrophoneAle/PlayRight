@@ -51,7 +51,10 @@ export const PHRASE_MAX_FRAME_SPAN = 14;
 /** @deprecated Use PHRASE_MAX_FRAME_SPAN bounding-box segmentation instead. */
 export const PHRASE_LARGE_LEAP_SEMITONES = 12;
 
-/** Max consecutive monophonic steps in one direction before a thumb tuck phrase break. */
+/**
+ * @deprecated Directional exhaustion splits are disabled; scopes stay as long as the
+ * hand frame and rest gaps allow so repeated pitches keep the same finger.
+ */
 export const PHRASE_MAX_DIRECTIONAL_RUN = 5;
 
 /**
@@ -74,6 +77,9 @@ export const REPEAT_PITCH_FINGER_MISMATCH = 6;
 export const FRAME_ANCHOR_MISMATCH = 100;
 export const GAP_DEVIATION_PENALTY_SCALE = 50;
 export const SCALE_THUMB_UNDER_BONUS = 1.25;
+export const DIRECTIONAL_FRAME_WEIGHT = 1.8;
+export const LH_TOP_THUMB_BONUS = 2.0;
+export const LH_TOP_THUMB_PENALTY = 3.0;
 
 export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
   R: { 1: 60, 2: 62, 3: 64, 4: 65, 5: 67 },
@@ -179,18 +185,22 @@ function onsetGroupSpan(
   return groupMax - groupMin;
 }
 
-function monophonicContourMidi(group: NoteEvent[]): number | null {
-  if (group.length !== 1) {
-    return null;
-  }
+export type PhraseContour = 'up' | 'down' | 'flat';
 
-  return group[0].midi;
+export interface PhraseRegisterContext {
+  minMidi: number;
+  maxMidi: number;
+  contour: PhraseContour;
 }
 
-type ContourDirection = 'up' | 'down';
+export interface ScopeContext {
+  minMidi: number;
+  maxMidi: number;
+  contour: PhraseContour;
+}
 
 /**
- * Pillar 3: bounding-box framing, rest gaps, directional exhaustion, chord anchors.
+ * Pillar 3: bounding-box framing and rest gaps only — keep scopes as long as possible.
  */
 export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   if (timeline.length === 0) {
@@ -207,18 +217,11 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   let minMidi = Math.min(...onsetGroups[0].map((event) => event.midi));
   let maxMidi = Math.max(...onsetGroups[0].map((event) => event.midi));
 
-  let contourDirection: ContourDirection | null = null;
-  let directionalRun = 0;
-  let lastContourMidi: number | null = monophonicContourMidi(onsetGroups[0]);
-
   const startNewPhrase = (fromIndex: number): void => {
     phrases.push(phraseGroups.flat());
     phraseGroups = [onsetGroups[fromIndex]];
     minMidi = Math.min(...onsetGroups[fromIndex].map((event) => event.midi));
     maxMidi = Math.max(...onsetGroups[fromIndex].map((event) => event.midi));
-    contourDirection = null;
-    directionalRun = 0;
-    lastContourMidi = monophonicContourMidi(onsetGroups[fromIndex]);
   };
 
   for (let index = 1; index < onsetGroups.length; index += 1) {
@@ -229,32 +232,7 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
     const exceedsFrame = expandedSpan > PHRASE_MAX_FRAME_SPAN;
     const exceedsRestGap = onsetGap >= PHRASE_MIN_ONSET_GAP_DIVISIONS;
 
-    const nextContourMidi = monophonicContourMidi(next);
-    let exceedsDirectionalRun = false;
-
-    if (nextContourMidi !== null && lastContourMidi !== null) {
-      const stepDirection: ContourDirection =
-        nextContourMidi > lastContourMidi ? 'up' : 'down';
-
-      if (nextContourMidi === lastContourMidi) {
-        // Repeated pitch does not advance the directional run.
-      } else if (stepDirection !== contourDirection) {
-        contourDirection = stepDirection;
-        directionalRun = 1;
-      } else {
-        directionalRun += 1;
-        if (directionalRun > PHRASE_MAX_DIRECTIONAL_RUN) {
-          exceedsDirectionalRun = true;
-        }
-      }
-    }
-
-    if (next.length > 1) {
-      contourDirection = null;
-      directionalRun = 0;
-    }
-
-    if (exceedsFrame || exceedsRestGap || exceedsDirectionalRun) {
+    if (exceedsFrame || exceedsRestGap) {
       startNewPhrase(index);
       continue;
     }
@@ -264,14 +242,182 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
       minMidi = Math.min(minMidi, event.midi);
       maxMidi = Math.max(maxMidi, event.midi);
     }
-
-    if (nextContourMidi !== null) {
-      lastContourMidi = nextContourMidi;
-    }
   }
 
   phrases.push(phraseGroups.flat());
-  return phrases;
+  return mergeAdjacentPhrases(phrases);
+}
+
+function mergeAdjacentPhrases(phrases: NoteEvent[][]): NoteEvent[][] {
+  if (phrases.length <= 1) {
+    return phrases;
+  }
+
+  const merged: NoteEvent[][] = [phrases[0]];
+
+  for (let index = 1; index < phrases.length; index += 1) {
+    const previous = merged[merged.length - 1];
+    const current = phrases[index];
+    const onsetGap = current[0].onset - previous[previous.length - 1].onset;
+
+    if (onsetGap >= PHRASE_MIN_ONSET_GAP_DIVISIONS) {
+      merged.push(current);
+      continue;
+    }
+
+    let minMidi = previous[0].midi;
+    let maxMidi = previous[0].midi;
+
+    for (const event of previous) {
+      minMidi = Math.min(minMidi, event.midi);
+      maxMidi = Math.max(maxMidi, event.midi);
+    }
+
+    for (const event of current) {
+      minMidi = Math.min(minMidi, event.midi);
+      maxMidi = Math.max(maxMidi, event.midi);
+    }
+
+    if (maxMidi - minMidi <= PHRASE_MAX_FRAME_SPAN) {
+      merged[merged.length - 1] = [...previous, ...current];
+      continue;
+    }
+
+    merged.push(current);
+  }
+
+  return merged;
+}
+
+export function computePhraseRegisterContext(
+  notes: NoteEvent[],
+): PhraseRegisterContext {
+  let minMidi = notes[0].midi;
+  let maxMidi = notes[0].midi;
+
+  for (const note of notes) {
+    minMidi = Math.min(minMidi, note.midi);
+    maxMidi = Math.max(maxMidi, note.midi);
+  }
+
+  const firstMidi = notes[0].midi;
+  const lastMidi = notes[notes.length - 1].midi;
+  let contour: PhraseContour = 'flat';
+
+  if (lastMidi > firstMidi) {
+    contour = 'up';
+  } else if (lastMidi < firstMidi) {
+    contour = 'down';
+  }
+
+  return { minMidi, maxMidi, contour };
+}
+
+function precomputeScopeContexts(notes: NoteEvent[]): ScopeContext[] {
+  if (notes.length === 0) {
+    return [];
+  }
+
+  const scopes: ScopeContext[] = new Array(notes.length);
+  let scopeStart = 0;
+  let scopeContour: PhraseContour = 'flat';
+
+  for (let index = 0; index < notes.length; index += 1) {
+    if (index > 0) {
+      const prevMidi = notes[index - 1].midi;
+      const curMidi = notes[index].midi;
+
+      if (curMidi !== prevMidi) {
+        const stepContour: PhraseContour = curMidi > prevMidi ? 'up' : 'down';
+
+        if (scopeContour === 'flat') {
+          scopeContour = stepContour;
+        } else if (stepContour !== scopeContour) {
+          scopeStart = index;
+          scopeContour = stepContour;
+        }
+      }
+    }
+
+    let minMidi = notes[scopeStart].midi;
+    let maxMidi = notes[scopeStart].midi;
+
+    for (let scopeIndex = scopeStart; scopeIndex <= index; scopeIndex += 1) {
+      minMidi = Math.min(minMidi, notes[scopeIndex].midi);
+      maxMidi = Math.max(maxMidi, notes[scopeIndex].midi);
+    }
+
+    for (let scopeIndex = index + 1; scopeIndex < notes.length; scopeIndex += 1) {
+      const prevMidi = notes[scopeIndex - 1].midi;
+      const curMidi = notes[scopeIndex].midi;
+
+      if (curMidi === prevMidi) {
+        minMidi = Math.min(minMidi, curMidi);
+        maxMidi = Math.max(maxMidi, curMidi);
+        continue;
+      }
+
+      const stepContour: PhraseContour = curMidi > prevMidi ? 'up' : 'down';
+      if (scopeContour !== 'flat' && stepContour !== scopeContour) {
+        break;
+      }
+
+      minMidi = Math.min(minMidi, curMidi);
+      maxMidi = Math.max(maxMidi, curMidi);
+    }
+
+    scopes[index] = {
+      minMidi,
+      maxMidi,
+      contour: scopeContour,
+    };
+  }
+
+  return scopes;
+}
+
+function isScopeRescopePoint(
+  index: number,
+  scopeContexts: ScopeContext[],
+): boolean {
+  if (index === 0) {
+    return true;
+  }
+
+  const previousScope = scopeContexts[index - 1];
+  const currentScope = scopeContexts[index];
+  return previousScope.contour !== currentScope.contour;
+}
+
+/**
+ * RH: pinky anchors the top of the scope, thumb the bottom.
+ * LH: reversed — thumb on top, pinky on bottom.
+ */
+export function directionalFrameCost(
+  hand: Hand,
+  finger: Finger,
+  midi: number,
+  context: PhraseRegisterContext | ScopeContext,
+): number {
+  const { minMidi, maxMidi } = context;
+
+  if (maxMidi === minMidi) {
+    return 0;
+  }
+
+  const registerPosition = (midi - minMidi) / (maxMidi - minMidi);
+
+  if (hand === 'R') {
+    return (
+      registerPosition * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT +
+      (1 - registerPosition) * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT
+    );
+  }
+
+  return (
+    registerPosition * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT +
+    (1 - registerPosition) * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT
+  );
 }
 
 function isOuterFingerPair(fPrev: Finger, fCur: Finger): boolean {
@@ -481,9 +627,17 @@ export function phraseStartCost(
   finger: Finger,
   note: NoteEvent,
   phraseNotes: NoteEvent[],
+  phraseContext?: PhraseRegisterContext,
 ): number {
   if (note.authoredFinger !== null) {
     return 0;
+  }
+
+  const context = phraseContext ?? computePhraseRegisterContext(phraseNotes);
+  const span = context.maxMidi - context.minMidi;
+
+  if (span >= 4) {
+    return directionalFrameCost(hand, finger, note.midi, context);
   }
 
   if (phraseNotes.length === 1) {
@@ -517,7 +671,7 @@ export function phraseStartCost(
     }
   }
 
-  return 0;
+  return directionalFrameCost(hand, finger, note.midi, context);
 }
 
 function copyAnchorMap(source: Map<number, Finger>): Map<number, Finger> {
@@ -556,36 +710,43 @@ export function fingerPhrase(
   hand: Hand,
   spanScale = 1,
   startHome?: Record<Finger, number>,
-  repeatFinger?: Finger,
+  priorFingerByMidi?: Map<number, Finger>,
 ): Finger[] {
   if (notes.length === 0) {
     return [];
   }
 
+  const phraseContext = computePhraseRegisterContext(notes);
+  const scopeContexts = precomputeScopeContexts(notes);
   const dp: Partial<Record<Finger, DpCell>>[] = [];
 
   for (let index = 0; index < notes.length; index += 1) {
     const note = notes[index];
     const allowed = allowedFingers(note);
     const row: Partial<Record<Finger, DpCell>> = {};
+    const scopeContext = scopeContexts[index];
 
     for (const finger of allowed) {
-      const local = noteFingerCost(hand, finger, note.midi);
+      const rescopeCost = isScopeRescopePoint(index, scopeContexts)
+        ? directionalFrameCost(hand, finger, note.midi, scopeContext)
+        : 0;
+      const local = noteFingerCost(hand, finger, note.midi) + rescopeCost;
 
       if (index === 0) {
-        let cost = local + phraseStartCost(hand, finger, note, notes);
+        let cost = local + phraseStartCost(hand, finger, note, notes, phraseContext);
 
         if (startHome !== undefined) {
           cost +=
             HOME_START_WEIGHT * Math.abs(startHome[finger] - notes[0].midi);
         }
 
+        const priorFinger = priorFingerByMidi?.get(note.midi);
         if (
-          repeatFinger !== undefined &&
+          priorFinger !== undefined &&
           note.authoredFinger === null &&
-          finger !== repeatFinger
+          finger !== priorFinger
         ) {
-          cost += REPEAT_PITCH_FINGER_MISMATCH;
+          cost += FRAME_ANCHOR_MISMATCH;
         }
 
         row[finger] = {
@@ -619,12 +780,22 @@ export function fingerPhrase(
         }
 
         let anchorPenalty = 0;
-        if (
-          note.authoredFinger === null &&
-          prevCell.anchors.has(note.midi) &&
-          prevCell.anchors.get(note.midi) !== finger
-        ) {
-          anchorPenalty = FRAME_ANCHOR_MISMATCH;
+        if (note.authoredFinger === null) {
+          if (
+            prevCell.anchors.has(note.midi) &&
+            prevCell.anchors.get(note.midi) !== finger
+          ) {
+            anchorPenalty = FRAME_ANCHOR_MISMATCH;
+          } else {
+            const priorFinger = priorFingerByMidi?.get(note.midi);
+            if (
+              priorFinger !== undefined &&
+              !prevCell.anchors.has(note.midi) &&
+              finger !== priorFinger
+            ) {
+              anchorPenalty = FRAME_ANCHOR_MISMATCH;
+            }
+          }
         }
 
         const total = prevCell.cost + transition + local + anchorPenalty;
@@ -741,6 +912,15 @@ function scoreChordFingerAssignment(
     }
 
     cost += pairCost;
+  }
+
+  if (hand === 'L' && chord.length >= 2) {
+    const topIndex = chord.length - 1;
+    if (fingers[topIndex] === 1) {
+      cost -= LH_TOP_THUMB_BONUS;
+    } else {
+      cost += LH_TOP_THUMB_PENALTY;
+    }
   }
 
   return cost;
@@ -1088,7 +1268,7 @@ export function fingerPhraseWithChords(
   hand: Hand,
   spanScale = 1,
   startHome?: Record<Finger, number>,
-  repeatFinger?: Finger,
+  priorFingerByMidi?: Map<number, Finger>,
 ): (Finger | null)[] {
   if (phrase.length === 0) {
     return [];
@@ -1128,7 +1308,7 @@ export function fingerPhraseWithChords(
     hand,
     spanScale,
     startHome,
-    repeatFinger,
+    priorFingerByMidi,
   );
 
   representatives.forEach((representative, index) => {
@@ -1168,13 +1348,12 @@ function predictFingersForHand(
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
     const phrase = phrases[phraseIndex];
     const startHome = phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
-    const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
     const phraseFingers = fingerPhraseWithChords(
       phrase,
       hand,
       spanScale,
       startHome,
-      repeatFinger,
+      lastFingerByMidi,
     );
 
     phrase.forEach((note, index) => {
