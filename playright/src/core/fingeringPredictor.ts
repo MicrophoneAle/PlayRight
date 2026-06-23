@@ -137,6 +137,11 @@ export const CONTRACTION_PER_SEMITONE = 0.5;
 export const WEAK_FINGER_PENALTY = 0.5;
 export const THUMB_ON_BLACK_PENALTY = 1.5;
 export const PHRASE_START_BIAS = 1.5;
+export const REGISTER_BIAS_WEIGHT = 0.9;
+export const HIGH_REGISTER_MIDI_RH = 76;
+export const LOW_REGISTER_MIDI_LH = 48;
+export const REPEAT_PITCH_FINGER_MISMATCH = 5;
+export const OCTAVE_PAIR_BONUS = 2.5;
 
 /** Resting midi per finger with thumb on middle C (C4). */
 export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
@@ -226,6 +231,18 @@ export function transitionCost(
     cost += WEAK_FINGER_PENALTY;
   }
 
+  const absInterval = Math.abs(interval);
+  if (absInterval === 12) {
+    const isPreferredOctavePair =
+      (hand === 'R' &&
+        ((fPrev === 1 && fCur === 5) || (fPrev === 5 && fCur === 1))) ||
+      (hand === 'L' &&
+        ((fPrev === 5 && fCur === 1) || (fPrev === 1 && fCur === 5)));
+    if (isPreferredOctavePair) {
+      cost -= OCTAVE_PAIR_BONUS;
+    }
+  }
+
   return cost;
 }
 
@@ -235,6 +252,23 @@ export function localCost(finger: Finger, midi: number): number {
   }
 
   return 0;
+}
+
+/** Prefer outer fingers (pinky/thumb) in extreme registers. */
+export function registerFingerBias(hand: Hand, finger: Finger, midi: number): number {
+  if (hand === 'R' && midi >= HIGH_REGISTER_MIDI_RH) {
+    return (finger - 1) * REGISTER_BIAS_WEIGHT;
+  }
+
+  if (hand === 'L' && midi <= LOW_REGISTER_MIDI_LH) {
+    return (5 - finger) * REGISTER_BIAS_WEIGHT;
+  }
+
+  return 0;
+}
+
+export function noteFingerCost(hand: Hand, finger: Finger, midi: number): number {
+  return localCost(finger, midi) + registerFingerBias(hand, finger, midi);
 }
 
 /** Bias the first note of a phrase toward a natural hand position (pinky on high RH, etc.). */
@@ -309,6 +343,7 @@ export function fingerPhrase(
   hand: Hand,
   spanScale = 1,
   startHome?: Record<Finger, number>,
+  repeatFinger?: Finger,
 ): Finger[] {
   if (notes.length === 0) {
     return [];
@@ -324,7 +359,7 @@ export function fingerPhrase(
     const backRow: Partial<Record<Finger, Finger | null>> = {};
 
     for (const finger of allowed) {
-      const local = localCost(finger, note.midi);
+      const local = noteFingerCost(hand, finger, note.midi);
 
       if (index === 0) {
         let cost = local + phraseStartCost(hand, finger, note, notes);
@@ -332,6 +367,13 @@ export function fingerPhrase(
           cost +=
             HOME_START_WEIGHT *
             Math.abs(startHome[finger] - notes[0].midi);
+        }
+        if (
+          repeatFinger !== undefined &&
+          note.authoredFinger === null &&
+          finger !== repeatFinger
+        ) {
+          cost += REPEAT_PITCH_FINGER_MISMATCH;
         }
         row[finger] = cost;
         backRow[finger] = null;
@@ -396,7 +438,13 @@ function chordPairDeviation(
   const lo = Math.min(fLower, fHigher);
   const hi = Math.max(fLower, fHigher);
   const ideal = IDEAL[`${lo}-${hi}`] * spanScale;
-  return Math.abs(midiSpan - ideal);
+  let deviation = Math.abs(midiSpan - ideal);
+
+  if (midiSpan > 0 && midiSpan <= 2 && hi - lo === 1) {
+    deviation *= 0.35;
+  }
+
+  return deviation;
 }
 
 function scoreChordFingerAssignment(
@@ -634,6 +682,7 @@ export function fingerPhraseWithChords(
   hand: Hand,
   spanScale = 1,
   startHome?: Record<Finger, number>,
+  repeatFinger?: Finger,
 ): (Finger | null)[] {
   if (phrase.length === 0) {
     return [];
@@ -668,7 +717,13 @@ export function fingerPhraseWithChords(
   }
 
   const solvedByStep = new Map<number, Finger>();
-  const solved = fingerPhrase(representatives, hand, spanScale, startHome);
+  const solved = fingerPhrase(
+    representatives,
+    hand,
+    spanScale,
+    startHome,
+    repeatFinger,
+  );
 
   representatives.forEach((representative, index) => {
     solvedByStep.set(representative.stepIndex, solved[index]);
@@ -702,18 +757,29 @@ function predictFingersForHand(
   const timeline = extractHandTimelines(script)[hand];
   const phrases = segmentIntoPhrases(timeline);
   const fingers: (Finger | null)[] = [];
+  const lastFingerByMidi = new Map<number, Finger>();
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
+    const phrase = phrases[phraseIndex];
     const startHome =
       phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
-    fingers.push(
-      ...fingerPhraseWithChords(
-        phrases[phraseIndex],
-        hand,
-        spanScale,
-        startHome,
-      ),
+    const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
+    const phraseFingers = fingerPhraseWithChords(
+      phrase,
+      hand,
+      spanScale,
+      startHome,
+      repeatFinger,
     );
+
+    phrase.forEach((note, index) => {
+      const finger = phraseFingers[index];
+      if (finger !== null) {
+        lastFingerByMidi.set(note.midi, finger);
+      }
+    });
+
+    fingers.push(...phraseFingers);
   }
 
   return fingers;

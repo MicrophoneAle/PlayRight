@@ -298,6 +298,57 @@ describe('predictFingering', () => {
     expect(firstPhraseFinger).toBe(3);
     expect(firstPhraseFinger).not.toBe(1);
   });
+
+  it('assigns high right-hand E to pinky (BracketLeft key)', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(76, 'R', null)]),
+    ];
+
+    const predicted = predictFingering(script);
+    expect(predicted[0].notes[0].finger).toBe(5);
+  });
+
+  it('keeps the same finger for repeated pitches across phrase gaps', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(76, 'R', null)]),
+      step(1, PHRASE_MIN_ONSET_GAP_DIVISIONS, [scriptNote(76, 'R', null)]),
+    ];
+
+    const predicted = predictFingering(script);
+    const first = predicted[0].notes[0].finger;
+    const second = predicted[1].notes[0].finger;
+
+    expect(first).toBe(5);
+    expect(second).toBe(first);
+  });
+
+  it('prefers thumb and pinky for right-hand octaves', () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 64, 0),
+      noteEvent(1, 76, 480),
+    ];
+
+    expect(fingerPhrase(phrase, 'R')).toEqual([1, 5]);
+  });
+
+  it('prefers pinky and thumb for left-hand octaves', () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 48, 0),
+      noteEvent(1, 36, 480),
+    ];
+
+    expect(fingerPhrase(phrase, 'L')).toEqual([5, 1]);
+  });
+
+  it('uses neighboring fingers for semitone steps on inner fingers', () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 66, 0),
+      noteEvent(1, 67, 480),
+    ];
+
+    const fingers = fingerPhrase(phrase, 'R');
+    expect(Math.abs(fingers[1] - fingers[0])).toBe(1);
+  });
 });
 
 describe('manual fingering identity', () => {
