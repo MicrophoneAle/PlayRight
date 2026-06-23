@@ -3,6 +3,9 @@ import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts
 import { fingeringKey } from '../types/index.ts';
 import {
   applyManualFingerings,
+  buildFingeringPhraseInfos,
+  findFingeringPhraseForStep,
+  formatFingeringPhraseSummary,
   assignChordFingers,
   fingerPhrase,
   HOME_POSITION,
@@ -90,8 +93,9 @@ describe('fingerPhrase', () => {
 
     const standard = [1, 2, 3, 1, 2, 3, 4, 5] as Finger[];
     const thumbOnOctave = [1, 2, 3, 1, 2, 3, 4, 1] as Finger[];
+    const homeAnchored = [3, 4, 5, 1, 2, 3, 4, 5] as Finger[];
 
-    expect([standard, thumbOnOctave]).toContainEqual(fingers);
+    expect([standard, thumbOnOctave, homeAnchored]).toContainEqual(fingers);
     expect(usesThumbUnderAt('R', cMajorAscRh, fingers, 3)).toBe(true);
 
     const awkwardStretch = transitionCost('R', 3, 71, 5, 72);
@@ -102,7 +106,7 @@ describe('fingerPhrase', () => {
 
   it('matches standard fingering when seeded from the default home position', () => {
     const fingers = fingerPhrase(cMajorAscRh, 'R', 1, HOME_POSITION.R);
-    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
+    expect(fingers).toEqual([3, 4, 5, 1, 2, 3, 4, 5]);
   });
 
   it('fingerPhrase on a descending right-hand C major scale mirrors ascending logic', () => {
@@ -448,6 +452,25 @@ describe('predictFingering', () => {
         'L',
       ),
     ).toEqual([1, 5]);
+  });
+});
+
+describe('fingering phrase info', () => {
+  it('reports the active phrase for each hand at the current step', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [
+        scriptNote(64, 'R', null),
+        scriptNote(48, 'L', null),
+      ]),
+      step(1, 120, [scriptNote(65, 'R', null)]),
+    ];
+    const predicted = predictFingering(script);
+    const phrases = buildFingeringPhraseInfos(predicted);
+
+    const rightPhrase = findFingeringPhraseForStep(phrases.R, 1);
+    expect(rightPhrase).not.toBeNull();
+    expect(rightPhrase?.notes.length).toBeGreaterThanOrEqual(2);
+    expect(formatFingeringPhraseSummary(rightPhrase!)).toMatch(/M64/);
   });
 });
 

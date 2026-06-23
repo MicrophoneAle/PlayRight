@@ -435,8 +435,8 @@ function isScopeRescopePoint(
 }
 
 /**
- * RH: pinky anchors the top of the scope, thumb the bottom.
- * LH: reversed — thumb on top, pinky on bottom.
+ * RH ascending scope: pinky at the top. RH descending: thumb at the bottom.
+ * LH: reversed (thumb on top when ascending, pinky on bottom when descending).
  */
 export function directionalFrameCost(
   hand: Hand,
@@ -444,25 +444,27 @@ export function directionalFrameCost(
   midi: number,
   context: PhraseRegisterContext | ScopeContext,
 ): number {
-  const { minMidi, maxMidi } = context;
+  const { minMidi, maxMidi, contour } = context;
 
-  if (maxMidi === minMidi) {
+  if (maxMidi === minMidi || contour === 'flat') {
     return 0;
   }
 
   const registerPosition = (midi - minMidi) / (maxMidi - minMidi);
 
   if (hand === 'R') {
-    return (
-      registerPosition * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT +
-      (1 - registerPosition) * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT
-    );
+    if (contour === 'up') {
+      return registerPosition * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT;
+    }
+
+    return (1 - registerPosition) * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT;
   }
 
-  return (
-    registerPosition * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT +
-    (1 - registerPosition) * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT
-  );
+  if (contour === 'up') {
+    return registerPosition * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT;
+  }
+
+  return (1 - registerPosition) * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT;
 }
 
 function isOuterFingerPair(fPrev: Finger, fCur: Finger): boolean {
@@ -1474,6 +1476,48 @@ export function fingerPhraseWithChords(
 
 const HANDS: Hand[] = ['L', 'R'];
 
+function computePhraseHomeAnchor(
+  hand: Hand,
+  anchorMidi: number,
+): Record<Finger, number> {
+  const defaultHome = HOME_POSITION[hand];
+  const shift = anchorMidi - defaultHome[3];
+
+  return {
+    1: defaultHome[1] + shift,
+    2: defaultHome[2] + shift,
+    3: defaultHome[3] + shift,
+    4: defaultHome[4] + shift,
+    5: defaultHome[5] + shift,
+  };
+}
+
+function buildPhraseCrossPrior(
+  phrase: NoteEvent[],
+  previousPhrase: NoteEvent[] | undefined,
+  lastFingerByMidi: Map<number, Finger>,
+): Map<number, Finger> | undefined {
+  if (previousPhrase === undefined || previousPhrase.length === 0) {
+    return undefined;
+  }
+
+  const phraseMidis = new Set(phrase.map((event) => event.midi));
+  const prior = new Map<number, Finger>();
+
+  for (const event of previousPhrase) {
+    if (!phraseMidis.has(event.midi)) {
+      continue;
+    }
+
+    const finger = lastFingerByMidi.get(event.midi);
+    if (finger !== undefined) {
+      prior.set(event.midi, finger);
+    }
+  }
+
+  return prior.size > 0 ? prior : undefined;
+}
+
 function isFingeringAnchor(note: ScriptNote): boolean {
   return note.fingerSource === 'score' || note.fingerSource === 'manual';
 }
@@ -1490,13 +1534,19 @@ function predictFingersForHand(
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
     const phrase = phrases[phraseIndex];
-    const startHome = phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
+    const previousPhrase = phraseIndex > 0 ? phrases[phraseIndex - 1] : undefined;
+    const crossPhrasePrior = buildPhraseCrossPrior(
+      phrase,
+      previousPhrase,
+      lastFingerByMidi,
+    );
+    const startHome = computePhraseHomeAnchor(hand, phrase[0].midi);
     const phraseFingers = fingerPhraseWithChords(
       phrase,
       hand,
       spanScale,
       startHome,
-      lastFingerByMidi,
+      crossPhrasePrior,
     );
 
     phrase.forEach((note, index) => {
@@ -1566,6 +1616,98 @@ export function predictFingering(
       ),
     };
   });
+}
+
+export interface FingeringPhraseNote {
+  stepIndex: number;
+  midi: number;
+  finger: Finger | null;
+  pitch: string;
+}
+
+export interface FingeringPhraseInfo {
+  phraseIndex: number;
+  hand: Hand;
+  minMidi: number;
+  maxMidi: number;
+  span: number;
+  notes: FingeringPhraseNote[];
+}
+
+export function buildFingeringPhraseInfos(
+  script: PlaybackScript,
+): Record<Hand, FingeringPhraseInfo[]> {
+  const result: Record<Hand, FingeringPhraseInfo[]> = { L: [], R: [] };
+
+  for (const hand of HANDS) {
+    const timeline = extractHandTimelines(script)[hand];
+    const phrases = segmentIntoPhrases(timeline);
+
+    phrases.forEach((phrase, index) => {
+      const notes: FingeringPhraseNote[] = phrase.map((event) => {
+        const step = script[event.stepIndex];
+        const scriptNote = step?.notes.find(
+          (note) => note.hand === hand && note.midi === event.midi,
+        );
+
+        return {
+          stepIndex: event.stepIndex,
+          midi: event.midi,
+          finger: scriptNote?.finger ?? null,
+          pitch: scriptNote?.pitch ?? `M${event.midi}`,
+        };
+      });
+
+      const midis = phrase.map((event) => event.midi);
+      const minMidi = Math.min(...midis);
+      const maxMidi = Math.max(...midis);
+
+      result[hand].push({
+        phraseIndex: index + 1,
+        hand,
+        minMidi,
+        maxMidi,
+        span: maxMidi - minMidi,
+        notes,
+      });
+    });
+  }
+
+  return result;
+}
+
+export function findFingeringPhraseForStep(
+  phrases: FingeringPhraseInfo[],
+  stepIndex: number,
+): FingeringPhraseInfo | null {
+  return (
+    phrases.find((phrase) =>
+      phrase.notes.some((note) => note.stepIndex === stepIndex),
+    ) ?? null
+  );
+}
+
+const FINGER_KEY_BY_HAND: Record<Hand, Record<Finger, string>> = {
+  L: { 5: 'q', 4: 'w', 3: 'e', 2: 'r', 1: 'v' },
+  R: { 1: 'n', 2: 'i', 3: 'o', 4: 'p', 5: '[' },
+};
+
+export function formatFingeringPhraseNote(
+  note: FingeringPhraseNote,
+  hand: Hand,
+): string {
+  if (note.finger === null) {
+    return `${note.pitch}(?)`;
+  }
+
+  const key = FINGER_KEY_BY_HAND[hand][note.finger];
+  return `${note.pitch} ${note.finger}${key}`;
+}
+
+export function formatFingeringPhraseSummary(phrase: FingeringPhraseInfo): string {
+  return phrase.notes
+    .map((note) => formatFingeringPhraseNote(note, phrase.hand))
+    .join(' · ');
 }
 
 export function applyManualFingerings(
