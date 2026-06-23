@@ -256,7 +256,9 @@ describe('segmentIntoPhrases', () => {
       noteEvent(0, 57, 0),
     ];
 
-    const fingers = assignChordFingers(interval, 'L');
+    const fingers = assignChordFingers(interval, 'L').filter(
+      (finger): finger is Finger => finger !== null,
+    );
     expect(fingers[1]).toBe(1);
     expect(fingers[0]).toBeGreaterThan(fingers[1]);
   });
