@@ -8,6 +8,7 @@ import {
   HOME_POSITION,
   LEGAL_CROSSING_COST,
   type NoteEvent,
+  PHRASE_MAX_FRAME_SPAN,
   PHRASE_MIN_ONSET_GAP_DIVISIONS,
   predictFingering,
   prepareScriptWithFingering,
@@ -101,7 +102,7 @@ describe('fingerPhrase', () => {
 
   it('matches standard fingering when seeded from the default home position', () => {
     const fingers = fingerPhrase(cMajorAscRh, 'R', 1, HOME_POSITION.R);
-    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 1]);
+    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
   });
 
   it('fingerPhrase on a descending right-hand C major scale mirrors ascending logic', () => {
@@ -150,6 +151,17 @@ describe('fingerPhrase', () => {
     expect(fingers[0]).toBe(fingers[7]);
     expect(fingers[3]).toBe(fingers[4]);
   });
+
+  it('uses the same finger for both E naturals in an E-F-G-B-E figure', () => {
+    const midis = [64, 65, 67, 71, 64];
+    const phrase = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
+    );
+
+    const fingers = fingerPhrase(phrase, 'R');
+    expect(fingers[0]).toBe(fingers[4]);
+    expect(fingers[0]).not.toBe(1);
+  });
 });
 
 describe('assignChordFingers', () => {
@@ -188,8 +200,8 @@ describe('assignChordFingers', () => {
       (finger): finger is Finger => finger !== null,
     );
 
-    expect(right).toEqual([1, 2, 3]);
-    expect(left).toEqual([3, 2, 1]);
+    expect(right).toEqual([1, 3, 4]);
+    expect(left).toEqual([4, 2, 1]);
     expect(new Set(right).size).toBe(3);
     expect(new Set(left).size).toBe(3);
     expect(isMonotonicFingers('R', right)).toBe(true);
@@ -198,15 +210,15 @@ describe('assignChordFingers', () => {
 });
 
 describe('segmentIntoPhrases', () => {
-  it('splits when the hand frame would exceed 14 semitones or on a large onset gap', () => {
+  it('splits when the hand frame would exceed 17 semitones or on a large onset gap', () => {
     const frameTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
       noteEvent(1, 67, 1),
-      noteEvent(2, 76, 2),
+      noteEvent(2, 78, 2),
     ];
     const leapTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
-      noteEvent(1, 75, 1),
+      noteEvent(1, 78, 1),
     ];
     const gapTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
@@ -219,7 +231,7 @@ describe('segmentIntoPhrases', () => {
 
     expect(framePhrases).toHaveLength(2);
     expect(framePhrases[0].map((event) => event.midi)).toEqual([60, 67]);
-    expect(framePhrases[1].map((event) => event.midi)).toEqual([76]);
+    expect(framePhrases[1].map((event) => event.midi)).toEqual([78]);
 
     expect(leapPhrases).toHaveLength(2);
     expect(gapPhrases).toHaveLength(2);
@@ -239,6 +251,19 @@ describe('segmentIntoPhrases', () => {
     expect(phrases).toHaveLength(1);
     expect(phrases[0]).toHaveLength(3);
     expect(phrases[0].map((event) => event.stepIndex)).toEqual([0, 0, 1]);
+  });
+
+  it('keeps figures within a major tenth in one phrase', () => {
+    const midis = [64, 65, 67, 71, 64];
+    const timeline = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
+    );
+
+    expect(segmentIntoPhrases(timeline)).toHaveLength(1);
+    expect(
+      Math.max(...timeline.map((event) => event.midi)) -
+        Math.min(...timeline.map((event) => event.midi)),
+    ).toBeLessThanOrEqual(PHRASE_MAX_FRAME_SPAN);
   });
 
   it('keeps long directional runs in one phrase when the hand frame fits', () => {
