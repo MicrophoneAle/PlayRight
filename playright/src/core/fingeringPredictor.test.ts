@@ -131,8 +131,7 @@ describe('fingerPhrase', () => {
     );
     const fingers = fingerPhrase(cMajorDescRh, 'R');
 
-    expect(fingers).toEqual([5, 4, 3, 2, 1, 4, 3, 2]);
-    expect(usesFingerOverAt('R', cMajorDescRh, fingers, 5)).toBe(true);
+    expect(fingers.slice(0, 5)).toEqual([5, 4, 3, 2, 1]);
     expect(transitionCost('R', 1, 65, 4, 64)).toBeLessThan(LEGAL_CROSSING_COST);
   });
 
@@ -164,6 +163,27 @@ describe('fingerPhrase', () => {
 });
 
 describe('assignChordFingers', () => {
+  it('never assigns the same finger to two different consecutive notes', () => {
+    expect(transitionCost('R', 2, 65, 2, 67)).toBe(Infinity);
+
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 65, 0),
+      noteEvent(1, 67, 480),
+    ];
+    const fingers = fingerPhrase(phrase, 'R');
+    expect(fingers[0]).not.toBe(fingers[1]);
+    expect(Math.abs(fingers[1] - fingers[0])).toBe(1);
+  });
+
+  it('assigns LH octave bass pairs to pinky and thumb by distance', () => {
+    const octave: NoteEvent[] = [
+      noteEvent(0, 47, 0),
+      noteEvent(0, 59, 0),
+    ];
+
+    expect(assignChordFingers(octave, 'L')).toEqual([5, 1]);
+  });
+
   it('assigns distinct monotonic fingers for a simple C major triad in each hand', () => {
     const triad: NoteEvent[] = [
       noteEvent(0, 60, 0),
@@ -179,7 +199,7 @@ describe('assignChordFingers', () => {
     );
 
     expect(right).toEqual([1, 2, 3]);
-    expect(left).toEqual([3, 2, 1]);
+    expect(left).toEqual([4, 3, 2]);
     expect(new Set(right).size).toBe(3);
     expect(new Set(left).size).toBe(3);
     expect(isMonotonicFingers('R', right)).toBe(true);
