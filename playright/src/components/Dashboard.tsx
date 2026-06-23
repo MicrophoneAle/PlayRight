@@ -2,7 +2,6 @@ import { useLayoutEffect } from 'react';
 import { Lid } from './Lid.tsx';
 import { PianoKeyboard } from './PianoKeyboard.tsx';
 import { SheetMusicDisplay } from './SheetMusicDisplay.tsx';
-import { FingeringPhraseStatus } from './FingeringPhraseStatus.tsx';
 import {
   countCompletedPracticeSteps,
   countPracticeSteps,
@@ -61,12 +60,6 @@ export function Dashboard() {
                             : ''
                         }`}
                   </p>
-                  {!isComplete ? (
-                    <FingeringPhraseStatus
-                      script={script}
-                      stepIndex={currentStepIndex}
-                    />
-                  ) : null}
                 </>
               ) : null}
             </div>

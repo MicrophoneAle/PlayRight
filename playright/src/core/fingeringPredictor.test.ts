@@ -3,9 +3,6 @@ import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts
 import { fingeringKey } from '../types/index.ts';
 import {
   applyManualFingerings,
-  buildFingeringPhraseInfos,
-  findFingeringPhraseForStep,
-  formatFingeringPhraseSummary,
   assignChordFingers,
   CONSECUTIVE_SAME_FINGER_PENALTY,
   fingerPhrase,
@@ -455,25 +452,6 @@ describe('predictFingering', () => {
         'L',
       ),
     ).toEqual([5, 1]);
-  });
-});
-
-describe('fingering phrase info', () => {
-  it('reports the active phrase for each hand at the current step', () => {
-    const script: PlaybackScript = [
-      step(0, 0, [
-        scriptNote(64, 'R', null),
-        scriptNote(48, 'L', null),
-      ]),
-      step(1, 120, [scriptNote(65, 'R', null)]),
-    ];
-    const predicted = predictFingering(script);
-    const phrases = buildFingeringPhraseInfos(predicted);
-
-    const rightPhrase = findFingeringPhraseForStep(phrases.R, 1);
-    expect(rightPhrase).not.toBeNull();
-    expect(rightPhrase?.notes.length).toBeGreaterThanOrEqual(2);
-    expect(formatFingeringPhraseSummary(rightPhrase!)).toMatch(/M64/);
   });
 });
 
