@@ -45,19 +45,13 @@ export function extractHandTimelines(
   return timelines;
 }
 
-/** Maximum comfortable hand frame span (major 10th = 16 semitones; allow 17). */
+/** Maximum hand-frame span before starting a new fingering phrase (major 10th). */
 export const PHRASE_MAX_FRAME_SPAN = 17;
-
-/** Phrase spans at or below this use relaxed gap tiers for returning pitches. */
-export const PHRASE_MAJOR_TENTH = 17;
 
 /** @deprecated Use PHRASE_MAX_FRAME_SPAN bounding-box segmentation instead. */
 export const PHRASE_LARGE_LEAP_SEMITONES = 12;
 
-/**
- * @deprecated Directional exhaustion splits are disabled; scopes stay as long as the
- * hand frame and rest gaps allow so repeated pitches keep the same finger.
- */
+/** Break a phrase after this many consecutive monophonic steps in one direction. */
 export const PHRASE_MAX_DIRECTIONAL_RUN = 5;
 
 /**
@@ -65,133 +59,6 @@ export const PHRASE_MAX_DIRECTIONAL_RUN = 5;
  * MusicXML divisions (one quarter note when divisions=480).
  */
 export const PHRASE_MIN_ONSET_GAP_DIVISIONS = 480;
-
-export const IMPOSSIBLE = Infinity;
-
-export const SAME_FINGER_REPEATED_COST = 0;
-export const LEGAL_CROSSING_COST = 1.0;
-export const THUMB_ON_BLACK_PENALTY = 1.5;
-export const PHRASE_START_BIAS = 1.5;
-export const REGISTER_BIAS_WEIGHT = 1.1;
-export const HIGH_REGISTER_MIDI_RH = 76;
-export const LOW_REGISTER_MIDI_LH = 48;
-export const HIGH_REGISTER_THUMB_PENALTY = 9;
-export const REPEAT_PITCH_FINGER_MISMATCH = 6;
-export const FRAME_ANCHOR_MISMATCH = 100;
-export const GAP_DEVIATION_PENALTY_SCALE = 50;
-export const SCALE_THUMB_UNDER_BONUS = 1.25;
-export const DIRECTIONAL_FRAME_WEIGHT = 1.8;
-export const LH_TOP_THUMB_BONUS = 2.0;
-export const LH_TOP_THUMB_PENALTY = 3.0;
-export const LH_OPEN_HAND_INTERVAL_BONUS = 2.5;
-export const LH_CRAMPED_INNER_INTERVAL_PENALTY = 3.0;
-export const PHRASE_TOP_THUMB_PENALTY = 14;
-export const PHRASE_UPPER_INNER_PENALTY = 5;
-
-export interface FingerGapTier {
-  ideal: number;
-  min: number;
-  max: number;
-}
-
-export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
-  R: { 1: 60, 2: 62, 3: 64, 4: 65, 5: 67 },
-  L: { 1: 60, 2: 59, 3: 57, 4: 55, 5: 53 },
-};
-
-export const HOME_START_WEIGHT = 0.4;
-
-const FINGERS: Finger[] = [1, 2, 3, 4, 5];
-
-const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
-
-function allowedFingers(note: NoteEvent): Finger[] {
-  return note.authoredFinger !== null ? [note.authoredFinger] : FINGERS;
-}
-
-function isBlackKey(midi: number): boolean {
-  return BLACK_KEY_PITCH_CLASSES.has(midi % 12);
-}
-
-function isWhiteKey(midi: number): boolean {
-  return !isBlackKey(midi);
-}
-
-/** Keyboard-adjacent white keys (E–F, B–C at 1 semitone; others at 2). */
-export function areAdjacentWhiteKeys(lowerMidi: number, higherMidi: number): boolean {
-  if (lowerMidi >= higherMidi) {
-    return areAdjacentWhiteKeys(higherMidi, lowerMidi);
-  }
-
-  if (!isWhiteKey(lowerMidi) || !isWhiteKey(higherMidi)) {
-    return false;
-  }
-
-  const span = higherMidi - lowerMidi;
-  return span === 1 || span === 2;
-}
-
-/**
- * Comfort mapping for first-time / forward motion within a major-10th phrase.
- * 1–3 sem → neighbors | 4–5 → one between | 6–8 → two between | 9–10 → 1↔5 span
- */
-export function preferredFingerGapStandard(absInterval: number): FingerGapTier {
-  if (absInterval <= 0) {
-    return { ideal: 0, min: 0, max: 0 };
-  }
-
-  if (absInterval <= 3) {
-    return { ideal: 1, min: 1, max: 1 };
-  }
-
-  if (absInterval <= 5) {
-    return { ideal: 2, min: 2, max: 2 };
-  }
-
-  if (absInterval <= 8) {
-    return { ideal: 3, min: 3, max: 3 };
-  }
-
-  return { ideal: 4, min: 4, max: 4 };
-}
-
-/**
- * Relaxed comfort mapping when either pitch was already anchored in the phrase.
- * 1–4 sem → neighbors | 5–8 → one between | 9–11 → two between | 12+ → 1↔5 span
- */
-export function preferredFingerGapReturning(absInterval: number): FingerGapTier {
-  if (absInterval <= 0) {
-    return { ideal: 0, min: 0, max: 0 };
-  }
-
-  if (absInterval <= 4) {
-    return { ideal: 1, min: 1, max: 1 };
-  }
-
-  if (absInterval <= 8) {
-    return { ideal: 2, min: 2, max: 2 };
-  }
-
-  if (absInterval <= 11) {
-    return { ideal: 3, min: 3, max: 3 };
-  }
-
-  return { ideal: 4, min: 4, max: 4 };
-}
-
-/** Default gap tier (standard comfort mapping). */
-export function preferredFingerGap(absInterval: number): FingerGapTier {
-  return preferredFingerGapStandard(absInterval);
-}
-
-function selectFingerGapTier(
-  absInterval: number,
-  useReturningMapping: boolean,
-): FingerGapTier {
-  return useReturningMapping
-    ? preferredFingerGapReturning(absInterval)
-    : preferredFingerGapStandard(absInterval);
-}
 
 function groupTimelineOnsets(timeline: NoteEvent[]): NoteEvent[][] {
   if (timeline.length === 0) {
@@ -230,23 +97,10 @@ function onsetGroupSpan(
   return groupMax - groupMin;
 }
 
-export type PhraseContour = 'up' | 'down' | 'flat';
-
-export interface PhraseRegisterContext {
-  minMidi: number;
-  maxMidi: number;
-  contour: PhraseContour;
+function monophonicContourMidi(group: NoteEvent[]): number | null {
+  return group.length === 1 ? group[0].midi : null;
 }
 
-export interface ScopeContext {
-  minMidi: number;
-  maxMidi: number;
-  contour: PhraseContour;
-}
-
-/**
- * Pillar 3: bounding-box framing and rest gaps only — keep scopes as long as possible.
- */
 export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   if (timeline.length === 0) {
     return [];
@@ -262,11 +116,18 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   let minMidi = Math.min(...onsetGroups[0].map((event) => event.midi));
   let maxMidi = Math.max(...onsetGroups[0].map((event) => event.midi));
 
+  let contourDirection: 'up' | 'down' | null = null;
+  let directionalRun = 0;
+  let lastContourMidi: number | null = monophonicContourMidi(onsetGroups[0]);
+
   const startNewPhrase = (fromIndex: number): void => {
     phrases.push(phraseGroups.flat());
     phraseGroups = [onsetGroups[fromIndex]];
     minMidi = Math.min(...onsetGroups[fromIndex].map((event) => event.midi));
     maxMidi = Math.max(...onsetGroups[fromIndex].map((event) => event.midi));
+    contourDirection = null;
+    directionalRun = 0;
+    lastContourMidi = monophonicContourMidi(onsetGroups[fromIndex]);
   };
 
   for (let index = 1; index < onsetGroups.length; index += 1) {
@@ -277,7 +138,32 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
     const exceedsFrame = expandedSpan > PHRASE_MAX_FRAME_SPAN;
     const exceedsRestGap = onsetGap >= PHRASE_MIN_ONSET_GAP_DIVISIONS;
 
-    if (exceedsFrame || exceedsRestGap) {
+    const nextContourMidi = monophonicContourMidi(next);
+    let exceedsDirectionalRun = false;
+
+    if (nextContourMidi !== null && lastContourMidi !== null) {
+      const stepDirection: 'up' | 'down' =
+        nextContourMidi > lastContourMidi ? 'up' : 'down';
+
+      if (nextContourMidi === lastContourMidi) {
+        // Repeated pitch does not advance the directional run.
+      } else if (stepDirection !== contourDirection) {
+        contourDirection = stepDirection;
+        directionalRun = 1;
+      } else {
+        directionalRun += 1;
+        if (directionalRun > PHRASE_MAX_DIRECTIONAL_RUN) {
+          exceedsDirectionalRun = true;
+        }
+      }
+    }
+
+    if (next.length > 1) {
+      contourDirection = null;
+      directionalRun = 0;
+    }
+
+    if (exceedsFrame || exceedsRestGap || exceedsDirectionalRun) {
       startNewPhrase(index);
       continue;
     }
@@ -287,354 +173,135 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
       minMidi = Math.min(minMidi, event.midi);
       maxMidi = Math.max(maxMidi, event.midi);
     }
+
+    if (nextContourMidi !== null) {
+      lastContourMidi = nextContourMidi;
+    }
   }
 
   phrases.push(phraseGroups.flat());
-  return mergeAdjacentPhrases(phrases);
+  return phrases;
 }
 
-function mergeAdjacentPhrases(phrases: NoteEvent[][]): NoteEvent[][] {
-  if (phrases.length <= 1) {
-    return phrases;
-  }
+/** Ideal right-hand pitch distance in semitones (lower finger → higher finger). */
+export const IDEAL: Record<string, number> = {
+  '1-2': 4,
+  '1-3': 7,
+  '1-4': 9,
+  '1-5': 12,
+  '2-3': 2,
+  '2-4': 4,
+  '2-5': 7,
+  '3-4': 2,
+  '3-5': 4,
+  '4-5': 2,
+};
 
-  const merged: NoteEvent[][] = [phrases[0]];
+export const SAME_FINGER_REPEATED_COST = 0;
+export const CONSECUTIVE_SAME_FINGER_PENALTY = 50_000;
+export const LEGAL_CROSSING_COST = 1.0;
+export const CONTRACTION_BASE = 5.0;
+export const CONTRACTION_PER_SEMITONE = 0.5;
+export const INNER_FINGER_RETREAT_PENALTY = 150;
+export const WEAK_FINGER_PENALTY = 0.5;
+export const THUMB_ON_BLACK_PENALTY = 1.5;
+export const PHRASE_START_BIAS = 1.5;
+export const REGISTER_BIAS_WEIGHT = 0.9;
+export const HIGH_REGISTER_MIDI_RH = 76;
+export const LOW_REGISTER_MIDI_LH = 48;
+export const REPEAT_PITCH_FINGER_MISMATCH = 5;
+export const RETURNING_PITCH_FINGER_MISMATCH = 2000;
+export const OCTAVE_PAIR_BONUS = 2.5;
+export const OPEN_FRAME_PAIR_BONUS = 250;
+export const GAP_DEVIATION_PENALTY_SCALE = 100;
 
-  for (let index = 1; index < phrases.length; index += 1) {
-    const previous = merged[merged.length - 1];
-    const current = phrases[index];
-    const onsetGap = current[0].onset - previous[previous.length - 1].onset;
+/** Resting midi per finger with thumb on middle C (C4). */
+export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
+  R: { 1: 60, 2: 62, 3: 64, 4: 65, 5: 67 },
+  L: { 1: 60, 2: 59, 3: 57, 4: 55, 5: 53 },
+};
 
-    if (onsetGap >= PHRASE_MIN_ONSET_GAP_DIVISIONS) {
-      merged.push(current);
-      continue;
-    }
+/** Cost per semitone between a finger's home key and the phrase-opening note. */
+export const HOME_START_WEIGHT = 0.4;
 
-    let minMidi = previous[0].midi;
-    let maxMidi = previous[0].midi;
+const FINGERS: Finger[] = [1, 2, 3, 4, 5];
 
-    for (const event of previous) {
-      minMidi = Math.min(minMidi, event.midi);
-      maxMidi = Math.max(maxMidi, event.midi);
-    }
+const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
 
-    for (const event of current) {
-      minMidi = Math.min(minMidi, event.midi);
-      maxMidi = Math.max(maxMidi, event.midi);
-    }
-
-    if (maxMidi - minMidi <= PHRASE_MAX_FRAME_SPAN) {
-      merged[merged.length - 1] = [...previous, ...current];
-      continue;
-    }
-
-    merged.push(current);
-  }
-
-  return merged;
+function signedInterval(hand: Hand, pPrev: number, pCur: number): number {
+  return hand === 'L' ? pPrev - pCur : pCur - pPrev;
 }
 
-export function computePhraseRegisterContext(
-  notes: NoteEvent[],
-): PhraseRegisterContext {
-  let minMidi = notes[0].midi;
-  let maxMidi = notes[0].midi;
-
-  for (const note of notes) {
-    minMidi = Math.min(minMidi, note.midi);
-    maxMidi = Math.max(maxMidi, note.midi);
-  }
-
-  const firstMidi = notes[0].midi;
-  const lastMidi = notes[notes.length - 1].midi;
-  let contour: PhraseContour = 'flat';
-
-  if (lastMidi > firstMidi) {
-    contour = 'up';
-  } else if (lastMidi < firstMidi) {
-    contour = 'down';
-  }
-
-  return { minMidi, maxMidi, contour };
+function allowedFingers(note: NoteEvent): Finger[] {
+  return note.authoredFinger !== null ? [note.authoredFinger] : FINGERS;
 }
 
-function precomputeScopeContexts(notes: NoteEvent[]): ScopeContext[] {
-  if (notes.length === 0) {
-    return [];
-  }
-
-  const scopes: ScopeContext[] = new Array(notes.length);
-  let scopeStart = 0;
-  let scopeContour: PhraseContour = 'flat';
-
-  for (let index = 0; index < notes.length; index += 1) {
-    if (index > 0) {
-      const prevMidi = notes[index - 1].midi;
-      const curMidi = notes[index].midi;
-
-      if (curMidi !== prevMidi) {
-        const stepContour: PhraseContour = curMidi > prevMidi ? 'up' : 'down';
-
-        if (scopeContour === 'flat') {
-          scopeContour = stepContour;
-        } else if (stepContour !== scopeContour) {
-          scopeStart = index;
-          scopeContour = stepContour;
-        }
-      }
-    }
-
-    let minMidi = notes[scopeStart].midi;
-    let maxMidi = notes[scopeStart].midi;
-
-    for (let scopeIndex = scopeStart; scopeIndex <= index; scopeIndex += 1) {
-      minMidi = Math.min(minMidi, notes[scopeIndex].midi);
-      maxMidi = Math.max(maxMidi, notes[scopeIndex].midi);
-    }
-
-    for (let scopeIndex = index + 1; scopeIndex < notes.length; scopeIndex += 1) {
-      const prevMidi = notes[scopeIndex - 1].midi;
-      const curMidi = notes[scopeIndex].midi;
-
-      if (curMidi === prevMidi) {
-        minMidi = Math.min(minMidi, curMidi);
-        maxMidi = Math.max(maxMidi, curMidi);
-        continue;
-      }
-
-      const stepContour: PhraseContour = curMidi > prevMidi ? 'up' : 'down';
-      if (scopeContour !== 'flat' && stepContour !== scopeContour) {
-        break;
-      }
-
-      minMidi = Math.min(minMidi, curMidi);
-      maxMidi = Math.max(maxMidi, curMidi);
-    }
-
-    scopes[index] = {
-      minMidi,
-      maxMidi,
-      contour: scopeContour,
-    };
-  }
-
-  return scopes;
+function isBlackKey(midi: number): boolean {
+  return BLACK_KEY_PITCH_CLASSES.has(midi % 12);
 }
 
-function isScopeRescopePoint(
-  index: number,
-  scopeContexts: ScopeContext[],
-): boolean {
-  if (index === 0) {
-    return true;
-  }
-
-  const previousScope = scopeContexts[index - 1];
-  const currentScope = scopeContexts[index];
-  return previousScope.contour !== currentScope.contour;
-}
-
-/**
- * RH ascending scope: pinky at the top. RH descending: thumb at the bottom.
- * LH: reversed (thumb on top when ascending, pinky on bottom when descending).
- */
-export function directionalFrameCost(
-  hand: Hand,
-  finger: Finger,
-  midi: number,
-  context: PhraseRegisterContext | ScopeContext,
-): number {
-  const { minMidi, maxMidi, contour } = context;
-
-  if (maxMidi === minMidi || contour === 'flat') {
+/** Tiered ideal finger gap from semitone distance (1–4→1, 5–8→2, 9–11→3, 12+→4). */
+export function preferredIdealFingerGap(absInterval: number): number {
+  if (absInterval <= 0) {
     return 0;
   }
 
-  const registerPosition = (midi - minMidi) / (maxMidi - minMidi);
-
-  if (hand === 'R') {
-    if (contour === 'up') {
-      return registerPosition * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT;
-    }
-
-    return (1 - registerPosition) * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT;
+  if (absInterval <= 4) {
+    return 1;
   }
 
-  if (contour === 'up') {
-    return registerPosition * (finger - 1) * DIRECTIONAL_FRAME_WEIGHT;
+  if (absInterval <= 8) {
+    return 2;
   }
 
-  return (1 - registerPosition) * (5 - finger) * DIRECTIONAL_FRAME_WEIGHT;
+  if (absInterval <= 11) {
+    return 3;
+  }
+
+  return 4;
 }
 
-function isOuterFingerPair(fPrev: Finger, fCur: Finger): boolean {
-  return (fPrev === 1 && fCur === 5) || (fPrev === 5 && fCur === 1);
-}
-
-function isInnerFinger(f: Finger): boolean {
-  return f >= 2 && f <= 5;
-}
-
-/** Fingers 2–5 must not cross over each other. */
-function isInnerFingerCrossing(
-  hand: Hand,
-  fPrev: Finger,
-  fCur: Finger,
-  pitchAscending: boolean,
-): boolean {
-  if (!isInnerFinger(fPrev) || !isInnerFinger(fCur)) {
-    return false;
+function gapDeviationPenalty(fingerGap: number, idealGap: number): number {
+  if (idealGap === 0) {
+    return 0;
   }
 
-  if (hand === 'R') {
-    if (pitchAscending && fCur < fPrev) {
-      return true;
-    }
-
-    if (!pitchAscending && fCur > fPrev) {
-      return true;
-    }
-
-    return false;
-  }
-
-  if (pitchAscending && fCur > fPrev) {
-    return true;
-  }
-
-  if (!pitchAscending && fCur < fPrev) {
-    return true;
-  }
-
-  return false;
-}
-
-function isAwkwardThumbCrossing(
-  hand: Hand,
-  fPrev: Finger,
-  pPrev: number,
-  fCur: Finger,
-  pCur: number,
-  pitchAscending: boolean,
-): boolean {
-  if (hand === 'R') {
-    if (fCur === 1 && pitchAscending && isWhiteKey(pPrev) && isBlackKey(pCur)) {
-      return true;
-    }
-
-    if (
-      fPrev === 1 &&
-      !pitchAscending &&
-      isWhiteKey(pCur) &&
-      isBlackKey(pPrev)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  if (fCur === 1 && !pitchAscending && isWhiteKey(pPrev) && isBlackKey(pCur)) {
-    return true;
-  }
-
-  if (
-    fPrev === 1 &&
-    pitchAscending &&
-    isWhiteKey(pCur) &&
-    isBlackKey(pPrev)
-  ) {
-    return true;
-  }
-
-  return false;
+  return Math.pow(Math.abs(fingerGap - idealGap), 3) * GAP_DEVIATION_PENALTY_SCALE;
 }
 
 function isLegalCrossing(
   hand: Hand,
   fPrev: Finger,
   fCur: Finger,
-  pitchAscending: boolean,
+  actuallyAscending: boolean,
 ): boolean {
   const thumbUnder =
     hand === 'R'
-      ? fCur === 1 && pitchAscending
-      : fPrev === 1 && !pitchAscending;
+      ? fCur === 1 && actuallyAscending && fPrev >= 3
+      : fPrev === 1 && !actuallyAscending && fCur >= 3;
   const fingerOver =
     hand === 'R'
-      ? fPrev === 1 && !pitchAscending
-      : fCur === 1 && pitchAscending;
+      ? fPrev === 1 && !actuallyAscending && fCur >= 3
+      : fCur === 1 && actuallyAscending && fPrev >= 3;
   return thumbUnder || fingerOver;
 }
 
-function gapDeviationPenalty(fingerGap: number, idealGap: number): number {
-  return Math.pow(fingerGap - idealGap, 2) * GAP_DEVIATION_PENALTY_SCALE;
-}
-
-function isPhysicallyPossibleGap(
-  absInterval: number,
-  fingerGap: number,
-  useReturningMapping = false,
-): boolean {
-  const { min, max } = selectFingerGapTier(absInterval, useReturningMapping);
-  return fingerGap >= min && fingerGap <= max;
-}
-
-/**
- * Shared distance-to-gap evaluator for melodic transitions and chord pairs.
- */
-export function evaluateFingerPairCost(
-  hand: Hand,
+function openFramePairBonus(
   fPrev: Finger,
-  pPrev: number,
   fCur: Finger,
-  pCur: number,
-  useReturningMapping = false,
+  absInterval: number,
 ): number {
-  const absInterval = Math.abs(pCur - pPrev);
-  const pitchAscending = pCur > pPrev;
-  const fingerGap = Math.abs(fCur - fPrev);
-
-  // Pillar 1: consecutive different notes cannot reuse the same finger.
-  if (fCur === fPrev) {
-    return absInterval === 0 ? SAME_FINGER_REPEATED_COST : IMPOSSIBLE;
+  if (absInterval !== 7 && absInterval !== 12) {
+    return 0;
   }
 
-  if (isInnerFingerCrossing(hand, fPrev, fCur, pitchAscending)) {
-    return IMPOSSIBLE;
+  const lo = Math.min(fPrev, fCur);
+  const hi = Math.max(fPrev, fCur);
+  if (lo === 1 && hi === 5) {
+    return OPEN_FRAME_PAIR_BONUS;
   }
 
-  if (absInterval >= 12) {
-    return isOuterFingerPair(fPrev, fCur) ? 0 : IMPOSSIBLE;
-  }
-
-  if (isLegalCrossing(hand, fPrev, fCur, pitchAscending)) {
-    if (isAwkwardThumbCrossing(hand, fPrev, pPrev, fCur, pCur, pitchAscending)) {
-      return IMPOSSIBLE;
-    }
-
-    const isScaleRotation =
-      absInterval === 1 &&
-      fingerGap >= 2 &&
-      ((hand === 'R' &&
-        ((fCur === 1 && pitchAscending) || (fPrev === 1 && !pitchAscending))) ||
-        (hand === 'L' &&
-          ((fCur === 1 && !pitchAscending) || (fPrev === 1 && pitchAscending))));
-
-    if (isScaleRotation) {
-      return LEGAL_CROSSING_COST - SCALE_THUMB_UNDER_BONUS - 0.08 * (fingerGap - 2);
-    }
-
-    return LEGAL_CROSSING_COST;
-  }
-
-  const { ideal: idealGap } = selectFingerGapTier(absInterval, useReturningMapping);
-
-  if (!isPhysicallyPossibleGap(absInterval, fingerGap, useReturningMapping)) {
-    return IMPOSSIBLE;
-  }
-
-  return gapDeviationPenalty(fingerGap, idealGap);
+  return 0;
 }
 
 export function transitionCost(
@@ -644,16 +311,74 @@ export function transitionCost(
   fCur: Finger,
   pCur: number,
   _spanScale = 1,
-  useReturningMapping = false,
 ): number {
-  return evaluateFingerPairCost(
-    hand,
-    fPrev,
-    pPrev,
-    fCur,
-    pCur,
-    useReturningMapping,
-  );
+  const interval = signedInterval(hand, pPrev, pCur);
+  const absInterval = Math.abs(interval);
+  const fingerGap = Math.abs(fCur - fPrev);
+  const idealGap = preferredIdealFingerGap(absInterval);
+
+  if (fCur === fPrev) {
+    return absInterval === 0
+      ? SAME_FINGER_REPEATED_COST
+      : CONSECUTIVE_SAME_FINGER_PENALTY;
+  }
+
+  const expectedAscending = fCur > fPrev;
+  const actuallyAscending = interval > 0;
+  let cost = gapDeviationPenalty(fingerGap, idealGap);
+
+  if (expectedAscending !== actuallyAscending && interval !== 0) {
+    if (isLegalCrossing(hand, fPrev, fCur, actuallyAscending)) {
+      cost = LEGAL_CROSSING_COST;
+    } else {
+      cost += CONTRACTION_BASE + CONTRACTION_PER_SEMITONE * absInterval;
+    }
+  } else if (
+    hand === 'R' &&
+    actuallyAscending &&
+    fPrev >= 3 &&
+    fCur > 1 &&
+    fCur < fPrev &&
+    absInterval <= 2
+  ) {
+    cost += INNER_FINGER_RETREAT_PENALTY;
+  } else if (
+    hand === 'R' &&
+    actuallyAscending &&
+    fPrev >= 3 &&
+    fCur === 4 &&
+    absInterval === 1
+  ) {
+    cost += INNER_FINGER_RETREAT_PENALTY;
+  } else if (
+    hand === 'L' &&
+    !actuallyAscending &&
+    fPrev <= 3 &&
+    fCur < 5 &&
+    fCur > fPrev &&
+    absInterval <= 2
+  ) {
+    cost += INNER_FINGER_RETREAT_PENALTY;
+  }
+
+  cost -= openFramePairBonus(fPrev, fCur, absInterval);
+
+  if (absInterval >= 12) {
+    const isPreferredOctavePair =
+      (hand === 'R' &&
+        ((fPrev === 1 && fCur === 5) || (fPrev === 5 && fCur === 1))) ||
+      (hand === 'L' &&
+        ((fPrev === 5 && fCur === 1) || (fPrev === 1 && fCur === 5)));
+    if (isPreferredOctavePair) {
+      cost -= OCTAVE_PAIR_BONUS;
+    }
+  }
+
+  if ((fPrev === 4 && fCur === 5) || (fPrev === 5 && fCur === 4)) {
+    cost += WEAK_FINGER_PENALTY;
+  }
+
+  return cost;
 }
 
 export function localCost(finger: Finger, midi: number): number {
@@ -664,8 +389,13 @@ export function localCost(finger: Finger, midi: number): number {
   return 0;
 }
 
+/** Prefer outer fingers (pinky/thumb) in extreme registers. */
 export function registerFingerBias(hand: Hand, finger: Finger, midi: number): number {
   if (hand === 'R' && midi >= HIGH_REGISTER_MIDI_RH) {
+    return (5 - finger) * REGISTER_BIAS_WEIGHT;
+  }
+
+  if (hand === 'L' && midi <= LOW_REGISTER_MIDI_LH) {
     return (5 - finger) * REGISTER_BIAS_WEIGHT;
   }
 
@@ -673,116 +403,58 @@ export function registerFingerBias(hand: Hand, finger: Finger, midi: number): nu
 }
 
 export function noteFingerCost(hand: Hand, finger: Finger, midi: number): number {
-  let cost = localCost(finger, midi) + registerFingerBias(hand, finger, midi);
-
-  if (hand === 'R' && midi >= HIGH_REGISTER_MIDI_RH && finger === 1) {
-    cost += HIGH_REGISTER_THUMB_PENALTY;
-  }
-
-  return cost;
+  return localCost(finger, midi) + registerFingerBias(hand, finger, midi);
 }
 
-function phraseRegisterFingerCost(
-  hand: Hand,
-  finger: Finger,
-  midi: number,
-  phraseContext: PhraseRegisterContext,
-): number {
-  const span = phraseContext.maxMidi - phraseContext.minMidi;
-  if (span === 0) {
-    return 0;
-  }
-
-  const registerT = (midi - phraseContext.minMidi) / span;
-
-  if (hand === 'R') {
-    if (registerT >= 0.7) {
-      if (finger === 1) {
-        return PHRASE_TOP_THUMB_PENALTY;
-      }
-
-      if (finger === 2) {
-        return PHRASE_UPPER_INNER_PENALTY;
-      }
-
-      return (5 - finger) * REGISTER_BIAS_WEIGHT;
-    }
-
-    if (registerT >= 0.5 && finger === 1) {
-      return HIGH_REGISTER_THUMB_PENALTY;
-    }
-  }
-
-  if (hand === 'L' && registerT <= 0.3 && finger === 5 && span > 8) {
-    return (finger - 3) * REGISTER_BIAS_WEIGHT;
-  }
-
-  return 0;
-}
-
+/** Bias the first note of a phrase toward a natural hand position (pinky on high RH, etc.). */
 export function phraseStartCost(
   hand: Hand,
   finger: Finger,
   note: NoteEvent,
   phraseNotes: NoteEvent[],
-  phraseContext?: PhraseRegisterContext,
 ): number {
   if (note.authoredFinger !== null) {
     return 0;
   }
 
-  const context = phraseContext ?? computePhraseRegisterContext(phraseNotes);
-  const span = context.maxMidi - context.minMidi;
+  if (phraseNotes.length === 1) {
+    if (hand === 'R') {
+      return note.midi >= 72
+        ? (5 - finger) * PHRASE_START_BIAS
+        : (finger - 1) * PHRASE_START_BIAS;
+    }
 
-  if (span <= PHRASE_MAJOR_TENTH) {
-    if (phraseNotes.length === 1 && hand === 'R' && note.midi >= HIGH_REGISTER_MIDI_RH) {
+    return note.midi <= 48
+      ? (5 - finger) * PHRASE_START_BIAS
+      : (finger - 1) * PHRASE_START_BIAS;
+  }
+
+  const nextMidi = phraseNotes[1].midi;
+  const interval = signedInterval(hand, note.midi, nextMidi);
+
+  if (hand === 'R') {
+    if (interval < 0) {
       return (5 - finger) * PHRASE_START_BIAS;
     }
 
-    return Math.abs(finger - 3) * PHRASE_START_BIAS * 0.65;
-  }
+    if (interval > 0) {
+      if (note.midi <= 62) {
+        return (finger - 1) * PHRASE_START_BIAS;
+      }
 
-  return directionalFrameCost(hand, finger, note.midi, context);
-}
-
-function phraseHasRepeatedPitch(notes: NoteEvent[]): boolean {
-  const seen = new Set<number>();
-
-  for (const note of notes) {
-    if (seen.has(note.midi)) {
-      return true;
+      return Math.abs(finger - 2) * PHRASE_START_BIAS;
+    }
+  } else {
+    if (interval > 0) {
+      return (5 - finger) * PHRASE_START_BIAS;
     }
 
-    seen.add(note.midi);
+    if (interval < 0) {
+      return (finger - 1) * PHRASE_START_BIAS;
+    }
   }
 
-  return false;
-}
-
-function repeatedPitchPhraseBias(
-  hand: Hand,
-  finger: Finger,
-  notes: NoteEvent[],
-): number {
-  if (!phraseHasRepeatedPitch(notes)) {
-    return 0;
-  }
-
-  if (hand === 'R' && finger === 1) {
-    return PHRASE_TOP_THUMB_PENALTY;
-  }
-
-  return Math.abs(finger - 3) * PHRASE_START_BIAS * 0.25;
-}
-
-function copyAnchorMap(source: Map<number, Finger>): Map<number, Finger> {
-  return new Map(source);
-}
-
-interface DpCell {
-  cost: number;
-  backFinger: Finger | null;
-  anchors: Map<number, Finger>;
+  return 0;
 }
 
 function argminFinger(
@@ -790,11 +462,11 @@ function argminFinger(
   costs: Partial<Record<Finger, number>>,
 ): Finger {
   let best = candidates[0];
-  let bestCost = costs[best] ?? IMPOSSIBLE;
+  let bestCost = costs[best] ?? Infinity;
 
   for (let index = 1; index < candidates.length; index += 1) {
     const finger = candidates[index];
-    const cost = costs[finger] ?? IMPOSSIBLE;
+    const cost = costs[finger] ?? Infinity;
 
     if (cost < bestCost || (cost === bestCost && finger < best)) {
       best = finger;
@@ -805,62 +477,54 @@ function argminFinger(
   return best;
 }
 
-/** Pillar 4: Viterbi DP with frame anchors for returning pitches. */
+interface DpCell {
+  cost: number;
+  backFinger: Finger | null;
+  firstFingerByMidi: Map<number, Finger>;
+}
+
+function copyFirstFingerMap(source: Map<number, Finger>): Map<number, Finger> {
+  return new Map(source);
+}
+
 export function fingerPhrase(
   notes: NoteEvent[],
   hand: Hand,
   spanScale = 1,
   startHome?: Record<Finger, number>,
-  priorFingerByMidi?: Map<number, Finger>,
+  repeatFinger?: Finger,
 ): Finger[] {
   if (notes.length === 0) {
     return [];
   }
 
-  const phraseContext = computePhraseRegisterContext(notes);
-  const phraseSpan = phraseContext.maxMidi - phraseContext.minMidi;
-  const scopeContexts = precomputeScopeContexts(notes);
   const dp: Partial<Record<Finger, DpCell>>[] = [];
 
   for (let index = 0; index < notes.length; index += 1) {
     const note = notes[index];
     const allowed = allowedFingers(note);
     const row: Partial<Record<Finger, DpCell>> = {};
-    const scopeContext = scopeContexts[index];
 
     for (const finger of allowed) {
-      const rescopeCost = isScopeRescopePoint(index, scopeContexts)
-        ? directionalFrameCost(hand, finger, note.midi, scopeContext)
-        : 0;
-      const local =
-        noteFingerCost(hand, finger, note.midi) +
-        phraseRegisterFingerCost(hand, finger, note.midi, phraseContext) +
-        rescopeCost;
+      const local = noteFingerCost(hand, finger, note.midi);
 
       if (index === 0) {
-        let cost =
-          local +
-          phraseStartCost(hand, finger, note, notes, phraseContext) +
-          repeatedPitchPhraseBias(hand, finger, notes);
-
+        let cost = local + phraseStartCost(hand, finger, note, notes);
         if (startHome !== undefined) {
           cost +=
             HOME_START_WEIGHT * Math.abs(startHome[finger] - notes[0].midi);
         }
-
-        const priorFinger = priorFingerByMidi?.get(note.midi);
         if (
-          priorFinger !== undefined &&
+          repeatFinger !== undefined &&
           note.authoredFinger === null &&
-          finger !== priorFinger
+          finger !== repeatFinger
         ) {
-          cost += FRAME_ANCHOR_MISMATCH;
+          cost += RETURNING_PITCH_FINGER_MISMATCH;
         }
-
         row[finger] = {
           cost,
           backFinger: null,
-          anchors: new Map([[note.midi, finger]]),
+          firstFingerByMidi: new Map([[note.midi, finger]]),
         };
         continue;
       }
@@ -870,14 +534,9 @@ export function fingerPhrase(
 
       for (const fPrev of prevAllowed) {
         const prevCell = dp[index - 1][fPrev];
-        if (prevCell === undefined || !Number.isFinite(prevCell.cost)) {
+        if (prevCell === undefined) {
           continue;
         }
-
-        const useReturningMapping =
-          phraseSpan <= PHRASE_MAJOR_TENTH &&
-          (prevCell.anchors.has(note.midi) ||
-            prevCell.anchors.has(notes[index - 1].midi));
 
         const transition = transitionCost(
           hand,
@@ -886,33 +545,27 @@ export function fingerPhrase(
           finger,
           note.midi,
           spanScale,
-          useReturningMapping,
         );
 
-        if (!Number.isFinite(transition)) {
-          continue;
+        let returningPenalty = 0;
+        if (
+          note.authoredFinger === null &&
+          prevCell.firstFingerByMidi.has(note.midi) &&
+          prevCell.firstFingerByMidi.get(note.midi) !== finger
+        ) {
+          returningPenalty = RETURNING_PITCH_FINGER_MISMATCH;
         }
 
-        if (note.authoredFinger === null) {
-          if (prevCell.anchors.has(note.midi)) {
-            if (prevCell.anchors.get(note.midi) !== finger) {
-              continue;
-            }
-          } else {
-            const priorFinger = priorFingerByMidi?.get(note.midi);
-            if (priorFinger !== undefined && finger !== priorFinger) {
-              continue;
-            }
-          }
-        }
-
-        const total = prevCell.cost + transition + local;
+        const total = prevCell.cost + transition + local + returningPenalty;
         const nextCell: DpCell = {
           cost: total,
           backFinger: fPrev,
-          anchors: copyAnchorMap(prevCell.anchors),
+          firstFingerByMidi: copyFirstFingerMap(prevCell.firstFingerByMidi),
         };
-        nextCell.anchors.set(note.midi, finger);
+
+        if (!nextCell.firstFingerByMidi.has(note.midi)) {
+          nextCell.firstFingerByMidi.set(note.midi, finger);
+        }
 
         if (
           bestCell === null ||
@@ -934,7 +587,7 @@ export function fingerPhrase(
   const lastIndex = notes.length - 1;
   const lastCosts: Partial<Record<Finger, number>> = {};
   for (const finger of allowedFingers(notes[lastIndex])) {
-    lastCosts[finger] = dp[lastIndex][finger]?.cost ?? IMPOSSIBLE;
+    lastCosts[finger] = dp[lastIndex][finger]?.cost ?? Infinity;
   }
 
   let finger = argminFinger(allowedFingers(notes[lastIndex]), lastCosts);
@@ -948,104 +601,74 @@ export function fingerPhrase(
   return out;
 }
 
-function chordPairCost(
-  hand: Hand,
-  fLower: Finger,
-  fHigher: Finger,
-  lowerMidi: number,
-  higherMidi: number,
-): number {
-  return evaluateFingerPairCost(
-    hand,
-    fLower,
-    lowerMidi,
-    fHigher,
-    higherMidi,
-  );
-}
-
-function isValidChordAssignment(
-  chord: NoteEvent[],
-  fingers: Finger[],
-): boolean {
-  const innerCounts = new Map<Finger, number>();
-  const thumbIndices: number[] = [];
-
-  for (let index = 0; index < fingers.length; index += 1) {
-    const finger = fingers[index];
-    if (finger === 1) {
-      thumbIndices.push(index);
-      continue;
-    }
-
-    innerCounts.set(finger, (innerCounts.get(finger) ?? 0) + 1);
-    if ((innerCounts.get(finger) ?? 0) > 1) {
-      return false;
-    }
+function chordIdealFingerGap(midiSpan: number): number {
+  const span = Math.abs(midiSpan);
+  if (span === 7) {
+    return 4;
   }
 
-  if (thumbIndices.length <= 1) {
-    return true;
+  if (span <= 2) {
+    return 1;
   }
 
-  if (thumbIndices.length > 2) {
-    return false;
+  if (span <= 4) {
+    return 2;
   }
 
-  const [leftIndex, rightIndex] = thumbIndices;
-  return areAdjacentWhiteKeys(
-    chord[leftIndex].midi,
-    chord[rightIndex].midi,
-  );
+  return preferredIdealFingerGap(span);
 }
 
 function scoreChordFingerAssignment(
   chord: NoteEvent[],
   fingers: Finger[],
-  hand: Hand,
+  _spanScale = 1,
 ): number {
   let cost = 0;
 
   for (let index = 0; index < fingers.length - 1; index += 1) {
-    const pairCost = chordPairCost(
-      hand,
-      fingers[index],
-      fingers[index + 1],
-      chord[index].midi,
-      chord[index + 1].midi,
-    );
-
-    if (!Number.isFinite(pairCost)) {
-      return IMPOSSIBLE;
-    }
-
-    cost += pairCost;
-  }
-
-  if (hand === 'L' && chord.length >= 2) {
-    const topIndex = chord.length - 1;
-    if (fingers[topIndex] === 1) {
-      cost -= LH_TOP_THUMB_BONUS;
-
-      if (chord.length === 2) {
-        const span = chord[topIndex].midi - chord[0].midi;
-        if (span >= 5 && span <= 11) {
-          if (fingers[0] === 5) {
-            cost -= LH_OPEN_HAND_INTERVAL_BONUS;
-          } else if (fingers[0] === 2) {
-            cost += LH_CRAMPED_INNER_INTERVAL_PENALTY;
-          }
-        }
-      }
-    } else {
-      cost += LH_TOP_THUMB_PENALTY;
-    }
+    const midiSpan = chord[index + 1].midi - chord[index].midi;
+    const fingerGap = Math.abs(fingers[index + 1] - fingers[index]);
+    const idealGap = chordIdealFingerGap(midiSpan);
+    cost += gapDeviationPenalty(fingerGap, idealGap);
+    cost -= openFramePairBonus(fingers[index], fingers[index + 1], Math.abs(midiSpan));
   }
 
   return cost;
 }
 
-function satisfiesChordAnchors(chord: NoteEvent[], fingers: Finger[]): boolean {
+function chordFingerSpread(fingers: Finger[]): number {
+  return Math.max(...fingers) - Math.min(...fingers);
+}
+
+function chordAssignmentBeats(
+  left: Finger[],
+  leftCost: number,
+  right: Finger[],
+  rightCost: number,
+): boolean {
+  if (leftCost !== rightCost) {
+    return leftCost < rightCost;
+  }
+
+  const leftSpread = chordFingerSpread(left);
+  const rightSpread = chordFingerSpread(right);
+  if (leftSpread !== rightSpread) {
+    return leftSpread < rightSpread;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return left[index] < right[index];
+    }
+  }
+
+  return false;
+}
+
+function satisfiesChordAnchors(
+  chord: NoteEvent[],
+  fingers: Finger[],
+): boolean {
   for (let index = 0; index < chord.length; index += 1) {
     const anchor = chord[index].authoredFinger;
     if (anchor !== null && fingers[index] !== anchor) {
@@ -1093,210 +716,7 @@ function* monotonicChordFingerAssignments(
   yield* build(hand === 'R' ? 1 : 5, count, []);
 }
 
-function octavePairForHand(hand: Hand): [Finger, Finger] {
-  return hand === 'R' ? [1, 5] : [5, 1];
-}
-
-function* generateStrictChordAssignments(
-  chord: NoteEvent[],
-  hand: Hand,
-): Generator<Finger[]> {
-  const noteCount = chord.length;
-
-  if (noteCount === 0) {
-    return;
-  }
-
-  if (noteCount === 1) {
-    yield [chord[0].authoredFinger ?? 1];
-    return;
-  }
-
-  if (noteCount === 2) {
-    const span = chord[1].midi - chord[0].midi;
-    if (span >= 12) {
-      const [lowerFinger, upperFinger] = octavePairForHand(hand);
-      yield [lowerFinger, upperFinger];
-    }
-  }
-
-  for (const assignment of monotonicChordFingerAssignments(hand, noteCount)) {
-    if (isValidChordAssignment(chord, assignment)) {
-      yield assignment;
-    }
-  }
-
-  for (let leftIndex = 0; leftIndex < noteCount - 1; leftIndex += 1) {
-    const rightIndex = leftIndex + 1;
-    if (!areAdjacentWhiteKeys(chord[leftIndex].midi, chord[rightIndex].midi)) {
-      continue;
-    }
-
-    for (const base of monotonicChordFingerAssignments(hand, noteCount - 1)) {
-      const assignment: Finger[] = [];
-      let baseIndex = 0;
-
-      for (let noteIndex = 0; noteIndex < noteCount; noteIndex += 1) {
-        if (noteIndex === leftIndex || noteIndex === rightIndex) {
-          assignment.push(1);
-        } else {
-          assignment.push(base[baseIndex]);
-          baseIndex += 1;
-        }
-      }
-
-      if (isValidChordAssignment(chord, assignment)) {
-        yield assignment;
-      }
-    }
-  }
-}
-
-function chordAssignmentBeats(
-  left: Finger[],
-  leftCost: number,
-  right: Finger[],
-  rightCost: number,
-  hand: Hand,
-  chordSpan: number,
-): boolean {
-  if (leftCost !== rightCost) {
-    return leftCost < rightCost;
-  }
-
-  if (hand === 'L' && left.length === 2 && left[0] !== right[0]) {
-    return left[0] > right[0];
-  }
-
-  const { ideal: idealSpread } = preferredFingerGapStandard(chordSpan);
-  const leftSpread = Math.max(...left) - Math.min(...left);
-  const rightSpread = Math.max(...right) - Math.min(...right);
-  const leftSpreadDeviation = Math.abs(leftSpread - idealSpread);
-  const rightSpreadDeviation = Math.abs(rightSpread - idealSpread);
-
-  if (leftSpreadDeviation !== rightSpreadDeviation) {
-    return leftSpreadDeviation < rightSpreadDeviation;
-  }
-
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) {
-      return left[index] < right[index];
-    }
-  }
-
-  return false;
-}
-
-function assignChordFingersToPlayableNotes(
-  chord: NoteEvent[],
-  hand: Hand,
-): Finger[] {
-  let bestAssignment: Finger[] | null = null;
-  let bestCost = IMPOSSIBLE;
-  const chordSpan =
-    chord.length >= 2 ? chord[chord.length - 1].midi - chord[0].midi : 0;
-
-  for (const assignment of generateStrictChordAssignments(chord, hand)) {
-    if (!satisfiesChordAnchors(chord, assignment)) {
-      continue;
-    }
-
-    const cost = scoreChordFingerAssignment(chord, assignment, hand);
-    if (
-      Number.isFinite(cost) &&
-      (bestAssignment === null ||
-        chordAssignmentBeats(
-          assignment,
-          cost,
-          bestAssignment,
-          bestCost,
-          hand,
-          chordSpan,
-        ))
-    ) {
-      bestAssignment = assignment;
-      bestCost = cost;
-    }
-  }
-
-  if (bestAssignment === null) {
-    for (const assignment of generateStrictChordAssignments(chord, hand)) {
-      const cost = scoreChordFingerAssignment(chord, assignment, hand);
-      if (
-        Number.isFinite(cost) &&
-        (bestAssignment === null ||
-          chordAssignmentBeats(
-            assignment,
-            cost,
-            bestAssignment,
-            bestCost,
-            hand,
-            chordSpan,
-          ))
-      ) {
-        bestAssignment = assignment;
-        bestCost = cost;
-      }
-    }
-  }
-
-  if (bestAssignment === null) {
-    return (
-      monotonicChordFingerAssignments(hand, chord.length).next().value ?? (
-        [1, 2, 3, 4, 5].slice(0, chord.length) as Finger[]
-      )
-    );
-  }
-
-  return bestAssignment;
-}
-
-function selectPlayableChordIndices(
-  chord: NoteEvent[],
-  hand: Hand,
-): number[] {
-  const noteCount = chord.length;
-  if (noteCount <= 5) {
-    return chord.map((_, index) => index);
-  }
-
-  let bestIndices: number[] = [];
-  let bestCost = IMPOSSIBLE;
-
-  const choose = (start: number, picked: number[]): void => {
-    if (picked.length === 5) {
-      const playableNotes = picked.map((index) => chord[index]);
-      const assignment = assignChordFingersToPlayableNotes(playableNotes, hand);
-      const cost = scoreChordFingerAssignment(playableNotes, assignment, hand);
-      const isBetter =
-        Number.isFinite(cost) &&
-        (cost < bestCost ||
-          (cost === bestCost && picked.join(',') < bestIndices.join(',')) ||
-          (!Number.isFinite(bestCost) && picked.length > bestIndices.length));
-
-      if (isBetter) {
-        bestCost = cost;
-        bestIndices = [...picked];
-      }
-      return;
-    }
-
-    for (
-      let index = start;
-      index <= noteCount - (5 - picked.length);
-      index += 1
-    ) {
-      picked.push(index);
-      choose(index + 1, picked);
-      picked.pop();
-    }
-  };
-
-  choose(0, []);
-  return bestIndices.length > 0 ? bestIndices : selectWidestFiveIndices(chord);
-}
-
-function selectWidestFiveIndices(chord: NoteEvent[]): number[] {
+function selectBestFiveChordIndices(chord: NoteEvent[]): number[] {
   const noteCount = chord.length;
   let bestIndices: number[] = [];
   let bestSpan = -1;
@@ -1304,7 +724,12 @@ function selectWidestFiveIndices(chord: NoteEvent[]): number[] {
   const choose = (start: number, picked: number[]): void => {
     if (picked.length === 5) {
       const span = chord[picked[4]].midi - chord[picked[0]].midi;
-      if (span > bestSpan) {
+      const isBetter =
+        span > bestSpan ||
+        (span === bestSpan &&
+          picked.join(',') < bestIndices.join(','));
+
+      if (isBetter) {
         bestSpan = span;
         bestIndices = [...picked];
       }
@@ -1326,41 +751,53 @@ function selectWidestFiveIndices(chord: NoteEvent[]): number[] {
   return bestIndices;
 }
 
-function applyThumbOverflowSharing(
+function assignChordFingersToPlayableNotes(
   chord: NoteEvent[],
-  fingers: (Finger | null)[],
-): (Finger | null)[] {
-  const result = [...fingers];
+  hand: Hand,
+  spanScale = 1,
+): Finger[] {
+  let bestAssignment: Finger[] | null = null;
+  let bestCost = Infinity;
 
-  for (let index = 0; index < chord.length; index += 1) {
-    if (result[index] !== null) {
+  for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
+    if (!satisfiesChordAnchors(chord, assignment)) {
       continue;
     }
 
-    for (const partnerIndex of [index - 1, index + 1]) {
-      if (partnerIndex < 0 || partnerIndex >= chord.length) {
-        continue;
-      }
+    const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
+    if (
+      bestAssignment === null ||
+      chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
+    ) {
+      bestAssignment = assignment;
+      bestCost = cost;
+    }
+  }
 
-      const partnerFinger = result[partnerIndex];
-      if (partnerFinger !== 1) {
-        continue;
-      }
-
-      if (areAdjacentWhiteKeys(chord[index].midi, chord[partnerIndex].midi)) {
-        result[index] = 1;
-        break;
+  if (bestAssignment === null) {
+    for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
+      const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
+      if (
+        bestAssignment === null ||
+        chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
+      ) {
+        bestAssignment = assignment;
+        bestCost = cost;
       }
     }
   }
 
-  return result;
+  if (bestAssignment === null) {
+    return chord.map((_, index) => (index + 1) as Finger);
+  }
+
+  return bestAssignment;
 }
 
 export function assignChordFingers(
   chord: NoteEvent[],
   hand: Hand,
-  _spanScale = 1,
+  spanScale = 1,
 ): (Finger | null)[] {
   if (chord.length === 0) {
     return [];
@@ -1371,11 +808,12 @@ export function assignChordFingers(
   }
 
   if (chord.length > 5) {
-    const playableIndices = selectPlayableChordIndices(chord, hand);
+    const playableIndices = selectBestFiveChordIndices(chord);
     const playableNotes = playableIndices.map((index) => chord[index]);
     const playableFingers = assignChordFingersToPlayableNotes(
       playableNotes,
       hand,
+      spanScale,
     );
     const result: (Finger | null)[] = chord.map(() => null);
 
@@ -1383,10 +821,10 @@ export function assignChordFingers(
       result[chordIndex] = playableFingers[playableIndex];
     });
 
-    return applyThumbOverflowSharing(chord, result);
+    return result;
   }
 
-  return assignChordFingersToPlayableNotes(chord, hand);
+  return assignChordFingersToPlayableNotes(chord, hand, spanScale);
 }
 
 function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
@@ -1413,7 +851,7 @@ export function fingerPhraseWithChords(
   hand: Hand,
   spanScale = 1,
   startHome?: Record<Finger, number>,
-  priorFingerByMidi?: Map<number, Finger>,
+  repeatFinger?: Finger,
 ): (Finger | null)[] {
   if (phrase.length === 0) {
     return [];
@@ -1453,7 +891,7 @@ export function fingerPhraseWithChords(
     hand,
     spanScale,
     startHome,
-    priorFingerByMidi,
+    repeatFinger,
   );
 
   representatives.forEach((representative, index) => {
@@ -1476,48 +914,6 @@ export function fingerPhraseWithChords(
 
 const HANDS: Hand[] = ['L', 'R'];
 
-function computePhraseHomeAnchor(
-  hand: Hand,
-  anchorMidi: number,
-): Record<Finger, number> {
-  const defaultHome = HOME_POSITION[hand];
-  const shift = anchorMidi - defaultHome[3];
-
-  return {
-    1: defaultHome[1] + shift,
-    2: defaultHome[2] + shift,
-    3: defaultHome[3] + shift,
-    4: defaultHome[4] + shift,
-    5: defaultHome[5] + shift,
-  };
-}
-
-function buildPhraseCrossPrior(
-  phrase: NoteEvent[],
-  previousPhrase: NoteEvent[] | undefined,
-  lastFingerByMidi: Map<number, Finger>,
-): Map<number, Finger> | undefined {
-  if (previousPhrase === undefined || previousPhrase.length === 0) {
-    return undefined;
-  }
-
-  const phraseMidis = new Set(phrase.map((event) => event.midi));
-  const prior = new Map<number, Finger>();
-
-  for (const event of previousPhrase) {
-    if (!phraseMidis.has(event.midi)) {
-      continue;
-    }
-
-    const finger = lastFingerByMidi.get(event.midi);
-    if (finger !== undefined) {
-      prior.set(event.midi, finger);
-    }
-  }
-
-  return prior.size > 0 ? prior : undefined;
-}
-
 function isFingeringAnchor(note: ScriptNote): boolean {
   return note.fingerSource === 'score' || note.fingerSource === 'manual';
 }
@@ -1534,19 +930,15 @@ function predictFingersForHand(
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
     const phrase = phrases[phraseIndex];
-    const previousPhrase = phraseIndex > 0 ? phrases[phraseIndex - 1] : undefined;
-    const crossPhrasePrior = buildPhraseCrossPrior(
-      phrase,
-      previousPhrase,
-      lastFingerByMidi,
-    );
-    const startHome = computePhraseHomeAnchor(hand, phrase[0].midi);
+    const startHome =
+      phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
+    const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
     const phraseFingers = fingerPhraseWithChords(
       phrase,
       hand,
       spanScale,
       startHome,
-      crossPhrasePrior,
+      repeatFinger,
     );
 
     phrase.forEach((note, index) => {
@@ -1788,21 +1180,4 @@ export function prepareScriptWithFingering(
   const withManual = applyManualFingerings(script, manualFingerings);
 
   return applyFingeringSettings(withManual, autoFingering, spanScale);
-}
-
-/** @deprecated Use evaluateFingerPairCost / chordPairCost instead. */
-export function chordPairDeviation(
-  fLower: Finger,
-  fHigher: Finger,
-  midiSpan: number,
-  hand: Hand = 'R',
-): number {
-  const lowerMidi = 60;
-  return chordPairCost(
-    hand,
-    fLower,
-    fHigher,
-    lowerMidi,
-    lowerMidi + midiSpan,
-  );
 }

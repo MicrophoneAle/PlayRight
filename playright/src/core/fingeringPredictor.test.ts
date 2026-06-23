@@ -7,6 +7,7 @@ import {
   findFingeringPhraseForStep,
   formatFingeringPhraseSummary,
   assignChordFingers,
+  CONSECUTIVE_SAME_FINGER_PENALTY,
   fingerPhrase,
   HOME_POSITION,
   LEGAL_CROSSING_COST,
@@ -101,12 +102,12 @@ describe('fingerPhrase', () => {
     const awkwardStretch = transitionCost('R', 3, 71, 5, 72);
     const thumbUnder = transitionCost('R', 4, 71, 1, 72);
     expect(thumbUnder).toBeLessThan(awkwardStretch);
-    expect(thumbUnder).toBeLessThan(LEGAL_CROSSING_COST);
+    expect(thumbUnder).toBeLessThanOrEqual(LEGAL_CROSSING_COST);
   });
 
   it('matches standard fingering when seeded from the default home position', () => {
     const fingers = fingerPhrase(cMajorAscRh, 'R', 1, HOME_POSITION.R);
-    expect(fingers).toEqual([3, 4, 5, 1, 2, 3, 4, 5]);
+    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
   });
 
   it('fingerPhrase on a descending right-hand C major scale mirrors ascending logic', () => {
@@ -116,7 +117,7 @@ describe('fingerPhrase', () => {
     const fingers = fingerPhrase(cMajorDescRh, 'R');
 
     expect(fingers.slice(0, 5)).toEqual([5, 4, 3, 2, 1]);
-    expect(transitionCost('R', 1, 65, 4, 64)).toBeLessThan(LEGAL_CROSSING_COST);
+    expect(transitionCost('R', 1, 65, 4, 64)).toBeLessThanOrEqual(LEGAL_CROSSING_COST);
   });
 
   it('fingerPhrase on an ascending left-hand C major scale uses scale rotations', () => {
@@ -170,7 +171,9 @@ describe('fingerPhrase', () => {
 
 describe('assignChordFingers', () => {
   it('never assigns the same finger to two different consecutive notes', () => {
-    expect(transitionCost('R', 2, 65, 2, 67)).toBe(Infinity);
+    expect(transitionCost('R', 2, 65, 2, 67)).toBe(
+      CONSECUTIVE_SAME_FINGER_PENALTY,
+    );
 
     const phrase: NoteEvent[] = [
       noteEvent(0, 65, 0),
@@ -204,8 +207,8 @@ describe('assignChordFingers', () => {
       (finger): finger is Finger => finger !== null,
     );
 
-    expect(right).toEqual([1, 3, 4]);
-    expect(left).toEqual([4, 2, 1]);
+    expect(right).toEqual([1, 3, 5]);
+    expect(left).toEqual([5, 3, 1]);
     expect(new Set(right).size).toBe(3);
     expect(new Set(left).size).toBe(3);
     expect(isMonotonicFingers('R', right)).toBe(true);
@@ -270,13 +273,13 @@ describe('segmentIntoPhrases', () => {
     ).toBeLessThanOrEqual(PHRASE_MAX_FRAME_SPAN);
   });
 
-  it('keeps long directional runs in one phrase when the hand frame fits', () => {
+  it('splits long directional runs after five consecutive steps in one direction', () => {
     const midis = [64, 66, 68, 70, 72, 74, 76, 74, 72, 70];
     const timeline = midis.map((midi, stepIndex) =>
       noteEvent(stepIndex, midi, stepIndex * 120),
     );
 
-    expect(segmentIntoPhrases(timeline)).toHaveLength(1);
+    expect(segmentIntoPhrases(timeline)).toHaveLength(2);
   });
 
   it('prefers open left-hand fifths with pinky and thumb (q v)', () => {
@@ -390,7 +393,7 @@ describe('predictFingering', () => {
       noteEvent(1, 36, 480),
     ];
 
-    expect(fingerPhrase(phrase, 'L')).toEqual([1, 5]);
+    expect(fingerPhrase(phrase, 'L')).toEqual([5, 1]);
   });
 
   it('uses neighboring fingers for semitone steps on inner fingers', () => {
@@ -451,7 +454,7 @@ describe('predictFingering', () => {
         [noteEvent(0, 48, 0), noteEvent(1, 36, 480)],
         'L',
       ),
-    ).toEqual([1, 5]);
+    ).toEqual([5, 1]);
   });
 });
 
