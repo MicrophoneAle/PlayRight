@@ -250,7 +250,7 @@ describe('segmentIntoPhrases', () => {
     expect(segmentIntoPhrases(timeline)).toHaveLength(1);
   });
 
-  it('prefers thumb on the top note for left-hand intervals', () => {
+  it('prefers open left-hand fifths with pinky and thumb (q v)', () => {
     const interval: NoteEvent[] = [
       noteEvent(0, 50, 0),
       noteEvent(0, 57, 0),
@@ -259,8 +259,7 @@ describe('segmentIntoPhrases', () => {
     const fingers = assignChordFingers(interval, 'L').filter(
       (finger): finger is Finger => finger !== null,
     );
-    expect(fingers[1]).toBe(1);
-    expect(fingers[0]).toBeGreaterThan(fingers[1]);
+    expect(fingers).toEqual([5, 1]);
   });
 });
 

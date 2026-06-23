@@ -80,6 +80,8 @@ export const SCALE_THUMB_UNDER_BONUS = 1.25;
 export const DIRECTIONAL_FRAME_WEIGHT = 1.8;
 export const LH_TOP_THUMB_BONUS = 2.0;
 export const LH_TOP_THUMB_PENALTY = 3.0;
+export const LH_OPEN_HAND_INTERVAL_BONUS = 2.5;
+export const LH_CRAMPED_INNER_INTERVAL_PENALTY = 3.0;
 
 export const HOME_POSITION: Record<Hand, Record<Finger, number>> = {
   R: { 1: 60, 2: 62, 3: 64, 4: 65, 5: 67 },
@@ -918,6 +920,17 @@ function scoreChordFingerAssignment(
     const topIndex = chord.length - 1;
     if (fingers[topIndex] === 1) {
       cost -= LH_TOP_THUMB_BONUS;
+
+      if (chord.length === 2) {
+        const span = chord[topIndex].midi - chord[0].midi;
+        if (span >= 5 && span <= 11) {
+          if (fingers[0] === 5) {
+            cost -= LH_OPEN_HAND_INTERVAL_BONUS;
+          } else if (fingers[0] === 2) {
+            cost += LH_CRAMPED_INNER_INTERVAL_PENALTY;
+          }
+        }
+      }
     } else {
       cost += LH_TOP_THUMB_PENALTY;
     }
@@ -1038,15 +1051,25 @@ function chordAssignmentBeats(
   leftCost: number,
   right: Finger[],
   rightCost: number,
+  hand: Hand,
+  chordSpan: number,
 ): boolean {
   if (leftCost !== rightCost) {
     return leftCost < rightCost;
   }
 
+  if (hand === 'L' && left.length === 2 && left[0] !== right[0]) {
+    return left[0] > right[0];
+  }
+
+  const { ideal: idealSpread } = preferredFingerGap(chordSpan);
   const leftSpread = Math.max(...left) - Math.min(...left);
   const rightSpread = Math.max(...right) - Math.min(...right);
-  if (leftSpread !== rightSpread) {
-    return leftSpread < rightSpread;
+  const leftSpreadDeviation = Math.abs(leftSpread - idealSpread);
+  const rightSpreadDeviation = Math.abs(rightSpread - idealSpread);
+
+  if (leftSpreadDeviation !== rightSpreadDeviation) {
+    return leftSpreadDeviation < rightSpreadDeviation;
   }
 
   for (let index = 0; index < left.length; index += 1) {
@@ -1064,6 +1087,8 @@ function assignChordFingersToPlayableNotes(
 ): Finger[] {
   let bestAssignment: Finger[] | null = null;
   let bestCost = IMPOSSIBLE;
+  const chordSpan =
+    chord.length >= 2 ? chord[chord.length - 1].midi - chord[0].midi : 0;
 
   for (const assignment of generateStrictChordAssignments(chord, hand)) {
     if (!satisfiesChordAnchors(chord, assignment)) {
@@ -1074,7 +1099,14 @@ function assignChordFingersToPlayableNotes(
     if (
       Number.isFinite(cost) &&
       (bestAssignment === null ||
-        chordAssignmentBeats(assignment, cost, bestAssignment, bestCost))
+        chordAssignmentBeats(
+          assignment,
+          cost,
+          bestAssignment,
+          bestCost,
+          hand,
+          chordSpan,
+        ))
     ) {
       bestAssignment = assignment;
       bestCost = cost;
@@ -1087,7 +1119,14 @@ function assignChordFingersToPlayableNotes(
       if (
         Number.isFinite(cost) &&
         (bestAssignment === null ||
-          chordAssignmentBeats(assignment, cost, bestAssignment, bestCost))
+          chordAssignmentBeats(
+            assignment,
+            cost,
+            bestAssignment,
+            bestCost,
+            hand,
+            chordSpan,
+          ))
       ) {
         bestAssignment = assignment;
         bestCost = cost;
