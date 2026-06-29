@@ -6,6 +6,7 @@ import {
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
+  isRepeatedPlaybackAttack,
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
@@ -298,8 +299,15 @@ export class PlaybackEngine {
     midi: number,
     hand: Hand,
     pressId: number,
+    isRepeatedAttack = false,
   ): void {
-    this.playingPressTracker.press({ pressId, stepIndex, midi, hand });
+    this.playingPressTracker.press({
+      pressId,
+      stepIndex,
+      midi,
+      hand,
+      isRepeatedAttack,
+    });
     this.syncPlayingNotes();
   }
 
@@ -465,7 +473,13 @@ export class PlaybackEngine {
 
         for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
-          this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+          this.pressPlayingNote(
+            stepIndex,
+            note.midi,
+            note.hand,
+            pressId,
+            isRepeatedPlaybackAttack(script, stepIndex, note),
+          );
         }
       }, transportTime);
 

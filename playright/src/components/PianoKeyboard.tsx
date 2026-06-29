@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import {
@@ -13,7 +13,9 @@ import {
   buildTwoHandExpectedMidis,
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandStepNotesByMidi,
+  type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
+import { getFingerMappingFromKeyboard } from '../core/twoHandMapping.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { Finger, Hand, ScriptNote } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
@@ -45,6 +47,27 @@ function isMidiActive(
 ): boolean {
   return Object.entries(keyMap).some(
     ([code, mappedMidi]) => mappedMidi === midi && activePhysicalKeys.has(code),
+  );
+}
+
+function twoHandFingerKey(hand: Hand, finger: Finger): string {
+  return `${hand}:${finger}`;
+}
+
+function isTwoHandMidiHeld(
+  midi: number,
+  stepNotesByMidi: Map<number, TwoHandStepNoteInfo[]> | null,
+  activeTwoHandFingers: ReadonlySet<string>,
+): boolean {
+  if (!stepNotesByMidi) {
+    return false;
+  }
+
+  const notes = stepNotesByMidi.get(midi) ?? [];
+  return notes.some(
+    (note) =>
+      note.finger !== null &&
+      activeTwoHandFingers.has(twoHandFingerKey(note.hand, note.finger)),
   );
 }
 
@@ -80,20 +103,22 @@ function getWhiteKeyClasses(
   isExpected: boolean,
   isActive: boolean,
   isSelected: boolean,
+  repressPulse: boolean,
 ): string {
   const base =
     'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-400' : '';
+  const repressClass = repressPulse ? ' animate-playback-key-repress-white' : '';
 
   if (isActive && isExpected) {
-    return `${base} translate-y-[3px] bg-emerald-300 shadow-[inset_0_3px_6px_rgba(5,150,105,0.45)] ring-2 ring-inset ring-emerald-500`;
+    return `${base}${repressClass} translate-y-[3px] bg-emerald-300 shadow-[inset_0_3px_6px_rgba(5,150,105,0.45)] ring-2 ring-inset ring-emerald-500`;
   }
   if (isActive) {
-    return `${base} translate-y-[3px] bg-zinc-300 shadow-inner`;
+    return `${base}${repressClass} translate-y-[3px] bg-zinc-300 shadow-inner`;
   }
   if (isExpected) {
-    return `${base} bg-emerald-100 ring-2 ring-inset ring-emerald-400${selectedRing}`;
+    return `${base}${repressClass} bg-emerald-100 ring-2 ring-inset ring-emerald-400${selectedRing}`;
   }
   if (inScope) {
     return `${base} bg-violet-100`;
@@ -106,20 +131,22 @@ function getBlackKeyClasses(
   isExpected: boolean,
   isActive: boolean,
   isSelected: boolean,
+  repressPulse: boolean,
 ): string {
   const base =
     'absolute z-10 rounded-b-sm shadow-md transition-[transform,box-shadow,background-color] duration-75';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-300' : '';
+  const repressClass = repressPulse ? ' animate-playback-key-repress-black' : '';
 
   if (isActive && isExpected) {
-    return `${base} translate-y-[2px] bg-emerald-950 shadow-[inset_0_4px_8px_rgba(6,78,59,0.8)] ring-2 ring-inset ring-emerald-400`;
+    return `${base}${repressClass} translate-y-[2px] bg-emerald-950 shadow-[inset_0_4px_8px_rgba(6,78,59,0.8)] ring-2 ring-inset ring-emerald-400`;
   }
   if (isActive) {
-    return `${base} translate-y-[2px] bg-zinc-600 shadow-inner`;
+    return `${base}${repressClass} translate-y-[2px] bg-zinc-600 shadow-inner`;
   }
   if (isExpected) {
-    return `${base} bg-emerald-800 ring-2 ring-inset ring-emerald-400${selectedRing}`;
+    return `${base}${repressClass} bg-emerald-800 ring-2 ring-inset ring-emerald-400${selectedRing}`;
   }
   if (inScope) {
     return `${base} bg-violet-900`;
@@ -173,6 +200,7 @@ export function PianoKeyboard() {
   const scopeTranspose = useEngineStore((state) => state.scopeTranspose);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
   const playingMidiNotes = useEngineStore((state) => state.playingMidiNotes);
+  const playingPlaybackNotes = useEngineStore((state) => state.playingPlaybackNotes);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const playMode = useEngineStore((state) => state.playMode);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
@@ -187,6 +215,9 @@ export function PianoKeyboard() {
   const { userId } = useAuth();
   const isTwoHand = engineMode === 'two-hand';
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [activeTwoHandFingers, setActiveTwoHandFingers] = useState<Set<string>>(
     () => new Set(),
   );
   const [selectedNote, setSelectedNote] = useState<SelectedStepNote | null>(
@@ -210,6 +241,60 @@ export function PianoKeyboard() {
     }
     return counts;
   }, [playingMidiNotes]);
+
+  const [repressPulseByMidi, setRepressPulseByMidi] = useState<Map<number, number>>(
+    () => new Map(),
+  );
+  const seenPlaybackPressIdsRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    if (!playMode || !isPlaybackActive) {
+      seenPlaybackPressIdsRef.current.clear();
+      setRepressPulseByMidi(new Map());
+      return;
+    }
+
+    const pulseUpdates: Array<{ midi: number; pressId: number }> = [];
+
+    for (const note of playingPlaybackNotes) {
+      const key = `${note.hand}:${note.midi}`;
+      const seenPressId = seenPlaybackPressIdsRef.current.get(key);
+
+      if (note.isRepeatedAttack && seenPressId !== note.pressId) {
+        pulseUpdates.push({ midi: note.midi, pressId: note.pressId });
+      }
+
+      seenPlaybackPressIdsRef.current.set(key, note.pressId);
+    }
+
+    if (pulseUpdates.length === 0) {
+      return;
+    }
+
+    setRepressPulseByMidi((current) => {
+      const next = new Map(current);
+      for (const { midi, pressId } of pulseUpdates) {
+        next.set(midi, pressId);
+      }
+      return next;
+    });
+
+    const timeout = window.setTimeout(() => {
+      setRepressPulseByMidi((current) => {
+        const next = new Map(current);
+        for (const { midi, pressId } of pulseUpdates) {
+          if (next.get(midi) === pressId) {
+            next.delete(midi);
+          }
+        }
+        return next;
+      });
+    }, 260);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [isPlaybackActive, playMode, playingPlaybackNotes]);
 
   const showStepKeyHighlight =
     (!playMode && isPracticeActive) || (playMode && isPlaybackActive);
@@ -310,13 +395,63 @@ export function PianoKeyboard() {
 
   useEffect(() => {
     setSelectedNote(null);
+    setActiveTwoHandFingers(new Set());
   }, [currentStepIndex]);
 
   useEffect(() => {
     if (isTwoHand) {
-      setActivePhysicalKeys(new Set());
-      return;
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.repeat) {
+          return;
+        }
+
+        const mapping = getFingerMappingFromKeyboard(event);
+        if (mapping !== null) {
+          flushSync(() => {
+            setActiveTwoHandFingers((previous) => {
+              const fingerKey = twoHandFingerKey(mapping.hand, mapping.finger);
+              if (previous.has(fingerKey)) {
+                return previous;
+              }
+
+              const next = new Set(previous);
+              next.add(fingerKey);
+              return next;
+            });
+          });
+        }
+      };
+
+      const handleKeyUp = (event: KeyboardEvent) => {
+        const mapping = getFingerMappingFromKeyboard(event);
+        if (mapping === null) {
+          return;
+        }
+
+        flushSync(() => {
+          setActiveTwoHandFingers((previous) => {
+            const fingerKey = twoHandFingerKey(mapping.hand, mapping.finger);
+            if (!previous.has(fingerKey)) {
+              return previous;
+            }
+
+            const next = new Set(previous);
+            next.delete(fingerKey);
+            return next;
+          });
+        });
+      };
+
+      window.addEventListener('keydown', handleKeyDown, { capture: true });
+      window.addEventListener('keyup', handleKeyUp, { capture: true });
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown, { capture: true });
+        window.removeEventListener('keyup', handleKeyUp, { capture: true });
+      };
     }
+
+    setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight' || event.code === 'Digit2') {
@@ -538,7 +673,7 @@ export function PianoKeyboard() {
         {whiteKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
           const isPhysicallyActive = isTwoHand
-            ? false
+            ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
@@ -548,6 +683,8 @@ export function PianoKeyboard() {
           const mappedLetter = mappedLabelForMidi(key.midi, false);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
+
+          const isRepressPulse = repressPulseByMidi.get(key.midi) !== undefined;
 
           return (
             <div
@@ -565,7 +702,7 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected, isRepressPulse)}${isEditable ? ' cursor-pointer' : ''}`}
             >
               {isTwoHand ? renderTwoHandHint(key.midi, false) : null}
               {!isTwoHand && mappedLetter ? (
@@ -581,7 +718,7 @@ export function PianoKeyboard() {
         {blackKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
           const isPhysicallyActive = isTwoHand
-            ? false
+            ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
@@ -591,6 +728,7 @@ export function PianoKeyboard() {
           const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
+          const isRepressPulse = repressPulseByMidi.get(key.midi) !== undefined;
 
           return (
             <div
@@ -608,10 +746,10 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getBlackKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getBlackKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected, isRepressPulse)}${isEditable ? ' cursor-pointer' : ''}`}
               style={{
                 left: `calc(${(key.offsetIndex / 52) * 100}%)`,
-                transform: 'translateX(-50%)',
+                transform: isRepressPulse ? undefined : 'translateX(-50%)',
                 width: 'calc(100% / 52 * 0.65)',
                 height: '65%',
               }}

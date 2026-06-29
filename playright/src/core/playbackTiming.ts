@@ -267,6 +267,25 @@ export function isPlaybackTieContinuation(
   );
 }
 
+/** True when this attack immediately repeats the same hand+pitch on the prior step (not a tie). */
+export function isRepeatedPlaybackAttack(
+  script: PlaybackScript,
+  stepIndex: number,
+  note: Pick<ScriptNote, 'midi' | 'hand'>,
+): boolean {
+  if (stepIndex === 0 || isPlaybackTieContinuation(script, stepIndex, note)) {
+    return false;
+  }
+
+  const previousStep = script[stepIndex - 1];
+  return previousStep.notes.some(
+    (previous) =>
+      previous.midi === note.midi &&
+      previous.hand === note.hand &&
+      !isPlaybackTieContinuation(script, stepIndex - 1, previous),
+  );
+}
+
 function findNextReattackStepIndex(
   script: PlaybackScript,
   fromStepIndex: number,

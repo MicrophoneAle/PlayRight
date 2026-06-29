@@ -1053,32 +1053,77 @@ function getNotesSystemKey(notes: GraphicalNote[]): string | null {
   return null;
 }
 
-/** Grand-staff system bounds (both staves) for a graphical note. */
-function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
-  const staves = getStavesForMusicSystem(gNote);
-  if (staves.length === 0) {
-    const vfNote = gNote as VexFlowGraphicNote;
-    const noteElement =
-      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
-    return noteElement ? noteElement.getBoundingClientRect() : null;
+function graphicalNotesOnSystem(
+  visualIndex: PracticeVisualIndex,
+  systemKey: string,
+): GraphicalNote[] {
+  const onSystem: GraphicalNote[] = [];
+
+  for (const stepNotes of visualIndex.stepGraphicalNotes) {
+    for (const gNote of stepNotes) {
+      if (getMusicSystemKey(gNote) === systemKey) {
+        onSystem.push(gNote);
+      }
+    }
   }
 
-  if (staves.length === 1) {
-    return staves[0].getBoundingClientRect();
-  }
-
-  return staves.reduce<DOMRect | null>((bounds, staveElement) => {
-    const rect = staveElement.getBoundingClientRect();
-    return bounds ? unionRects(bounds, rect) : rect;
-  }, null);
+  return onSystem;
 }
 
-function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
-  if (notes.length === 0) {
+/** Upper stave in a grand-staff system (treble clef). */
+function getTrebleStaveTopY(gNote: GraphicalNote): number | null {
+  const staves = getStavesForMusicSystem(gNote);
+  if (staves.length === 0) {
     return null;
   }
 
-  return getMusicSystemBounds(notes[0]);
+  const sorted = [...staves].sort(
+    (left, right) =>
+      left.getBoundingClientRect().top - right.getBoundingClientRect().top,
+  );
+
+  return sorted[0].getBoundingClientRect().top;
+}
+
+function playbackScrollAnchorTop(
+  notes: GraphicalNote[],
+  visualIndex: PracticeVisualIndex,
+): number | null {
+  const systemKey = getNotesSystemKey(notes);
+  if (!systemKey) {
+    return null;
+  }
+
+  const trebleStaveTop = getTrebleStaveTopY(notes[0]);
+  if (trebleStaveTop === null) {
+    return null;
+  }
+
+  const systemNotes = graphicalNotesOnSystem(visualIndex, systemKey);
+  let highestTrebleNoteTop: number | null = null;
+
+  for (const gNote of systemNotes) {
+    const source = gNote.sourceNote;
+    if (source.isRest() || isTieContinuation(source) || osmdNoteHand(source) !== 'R') {
+      continue;
+    }
+
+    const bounds = getGraphicalNotesBounds([gNote]);
+    if (!bounds) {
+      continue;
+    }
+
+    highestTrebleNoteTop =
+      highestTrebleNoteTop === null
+        ? bounds.top
+        : Math.min(highestTrebleNoteTop, bounds.top);
+  }
+
+  if (highestTrebleNoteTop === null || highestTrebleNoteTop >= trebleStaveTop) {
+    return trebleStaveTop;
+  }
+
+  return highestTrebleNoteTop;
 }
 
 function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
@@ -1225,99 +1270,6 @@ export function resolveStepIndexFromPointer(
   return null;
 }
 
-/** Hands whose notes contribute to line scroll extent for the current engine mode. */
-function getHandsForLineExtent(
-  engineMode: EngineMode,
-  activeHand: Hand,
-): readonly Hand[] | null {
-  if (engineMode === 'two-hand') {
-    return ['L', 'R'];
-  }
-
-  if (engineMode === 'one-hand') {
-    return [activeHand];
-  }
-
-  return null;
-}
-
-function collectLineHandGraphicalNotes(
-  visualIndex: PracticeVisualIndex,
-  systemKey: string,
-  activeHand: Hand,
-  engineMode: EngineMode,
-): GraphicalNote[] {
-  const handsInPlay = getHandsForLineExtent(engineMode, activeHand);
-  const results: GraphicalNote[] = [];
-
-  for (const gNotes of visualIndex.stepGraphicalNotes) {
-    if (gNotes.length === 0) {
-      continue;
-    }
-
-    if (getNotesSystemKey(gNotes) !== systemKey) {
-      continue;
-    }
-
-    for (const gNote of gNotes) {
-      if (handsInPlay !== null) {
-        const hand = osmdNoteHand(gNote.sourceNote);
-        if (!handsInPlay.includes(hand)) {
-          continue;
-        }
-      }
-
-      results.push(gNote);
-    }
-  }
-
-  return results;
-}
-
-function computeLineAnchorScrollTop(
-  container: HTMLElement,
-  scrollTop: number,
-  systemTop: number,
-  systemBottom: number,
-  handExtentBounds: DOMRect | null,
-  viewportHeight: number,
-  padding: number,
-  maxScrollTop: number,
-): number {
-  const minScrollForSystemBottom = Math.max(
-    0,
-    systemBottom - viewportHeight + padding,
-  );
-  const maxScrollForSystemTop = Math.max(0, systemTop - padding);
-
-  if (!handExtentBounds) {
-    return Math.min(maxScrollTop, maxScrollForSystemTop);
-  }
-
-  const containerRect = container.getBoundingClientRect();
-  const extentTop =
-    handExtentBounds.top - containerRect.top + scrollTop;
-
-  const target = Math.max(
-    minScrollForSystemBottom,
-    Math.min(maxScrollForSystemTop, extentTop - padding),
-  );
-
-  return Math.min(maxScrollTop, Math.max(0, target));
-}
-
-function isVerticallyInView(
-  top: number,
-  bottom: number,
-  scrollTop: number,
-  viewportHeight: number,
-  padding: number,
-): boolean {
-  const visibleTop = top - scrollTop;
-  const visibleBottom = bottom - scrollTop;
-  return visibleTop >= padding && visibleBottom <= viewportHeight - padding;
-}
-
 const activeScrollAnimations = new WeakMap<HTMLElement, number>();
 
 function animateScrollTop(
@@ -1366,14 +1318,12 @@ function animateScrollTop(
   activeScrollAnimations.set(container, frame);
 }
 
-function scrollContainerForPractice(
+function scrollContainerForPlayback(
   container: HTMLElement,
   notes: GraphicalNote[],
   scrollState: { current: PracticeScrollState },
   scrollMode: SheetScrollMode,
   visualIndex: PracticeVisualIndex,
-  activeHand: Hand,
-  engineMode: EngineMode,
 ): void {
   const padding = 12;
   const systemKey = getNotesSystemKey(notes);
@@ -1381,8 +1331,8 @@ function scrollContainerForPractice(
     return;
   }
 
-  const systemRect = getNotesSystemBounds(notes);
-  if (!systemRect) {
+  const anchorTop = playbackScrollAnchorTop(notes, visualIndex);
+  if (anchorTop === null) {
     return;
   }
 
@@ -1394,37 +1344,14 @@ function scrollContainerForPractice(
     container.scrollHeight - viewportHeight,
   );
 
-  const systemTop = systemRect.top - containerRect.top + scrollTop;
-  const systemBottom = systemTop + systemRect.height;
-  const fullSystemFits = systemRect.height <= viewportHeight - 2 * padding;
-
-  const lineHandNotes = collectLineHandGraphicalNotes(
-    visualIndex,
-    systemKey,
-    activeHand,
-    engineMode,
-  );
-  const lineHandExtentBounds = getGraphicalNotesBounds(lineHandNotes);
-
-  const anchorForLine = () =>
-    computeLineAnchorScrollTop(
-      container,
-      scrollTop,
-      systemTop,
-      systemBottom,
-      lineHandExtentBounds,
-      viewportHeight,
-      padding,
-      maxScrollTop,
-    );
-
+  const lineTop = anchorTop - containerRect.top + scrollTop;
   const previousSystemKey = scrollState.current.systemKey;
   const isNewStaffLine =
     previousSystemKey !== null && systemKey !== previousSystemKey;
   const needsAnchor = previousSystemKey === null;
 
   if (isNewStaffLine || needsAnchor) {
-    const target = anchorForLine();
+    const target = Math.min(Math.max(0, lineTop - padding), maxScrollTop);
     scrollState.current = { systemKey, lineScrollTop: target };
     if (Math.abs(target - scrollTop) >= 1) {
       animateScrollTop(container, target, scrollMode);
@@ -1434,59 +1361,10 @@ function scrollContainerForPractice(
 
   scrollState.current.systemKey = systemKey;
 
-  if (fullSystemFits) {
-    const anchor = scrollState.current.lineScrollTop;
-    if (anchor !== null && Math.abs(scrollTop - anchor) >= 1) {
-      animateScrollTop(container, anchor, scrollMode);
-    }
-    return;
+  const anchor = scrollState.current.lineScrollTop;
+  if (anchor !== null && Math.abs(scrollTop - anchor) >= 1) {
+    animateScrollTop(container, anchor, scrollMode);
   }
-
-  if (!lineHandExtentBounds) {
-    return;
-  }
-
-  const extentTop =
-    lineHandExtentBounds.top - containerRect.top + scrollTop;
-  const extentBottom =
-    lineHandExtentBounds.bottom - containerRect.top + scrollTop;
-
-  if (
-    isVerticallyInView(
-      extentTop,
-      extentBottom,
-      scrollTop,
-      viewportHeight,
-      padding,
-    )
-  ) {
-    return;
-  }
-
-  let target = scrollTop;
-  const visibleTop = extentTop - scrollTop;
-  const visibleBottom = extentBottom - scrollTop;
-
-  if (visibleTop < padding) {
-    target = Math.max(0, extentTop - padding);
-  } else if (visibleBottom > viewportHeight - padding) {
-    target = Math.min(maxScrollTop, extentBottom - viewportHeight + padding);
-  }
-
-  const maxScrollForSystemTop = Math.max(0, systemTop - padding);
-  const minScrollForSystemBottom = Math.max(
-    0,
-    systemBottom - viewportHeight + padding,
-  );
-  target = Math.min(target, maxScrollForSystemTop);
-  target = Math.max(target, minScrollForSystemBottom);
-  target = Math.min(target, maxScrollTop);
-
-  if (Math.abs(target - scrollTop) < 1) {
-    return;
-  }
-
-  animateScrollTop(container, target, scrollMode);
 }
 
 /** Highlight all notes currently sounding during play mode (matches keyboard duration). */
@@ -1514,8 +1392,6 @@ export function syncSheetMusicPlaybackVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
-    activeHand,
-    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -1563,14 +1439,12 @@ export function syncSheetMusicPlaybackVisuals(
 
   const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
   const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
-  scrollContainerForPractice(
+  scrollContainerForPlayback(
     container,
     scrollNotes,
     scrollStateRef,
     scrollMode,
     visualIndex,
-    activeHand,
-    engineMode,
   );
 
   return toHighlight;
@@ -1602,8 +1476,6 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
-    activeHand,
-    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -1633,14 +1505,12 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerForPractice(
+  scrollContainerForPlayback(
     container,
     toHighlight,
     scrollStateRef,
     scrollMode,
     visualIndex as PracticeVisualIndex,
-    activeHand,
-    engineMode,
   );
 
   return toHighlight;
