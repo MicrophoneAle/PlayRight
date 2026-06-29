@@ -44,8 +44,8 @@ function step(order: number, onset: number, notes: ScriptNote[], measureNumber =
 
 describe('gap table', () => {
   it('keeps the documented comfort gaps', () => {
-    expect([1, 3, 4, 5, 6, 8, 9, 10].map((i) => fingerGapForInterval(i, 'close'))).toEqual([
-      1, 1, 2, 2, 3, 3, 4, 4,
+    expect([1, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => fingerGapForInterval(i, 'close'))).toEqual([
+      1, 1, 2, 2, 4, 4, 3, 4, 4,
     ]);
   });
 
@@ -166,6 +166,47 @@ describe('a scope holds while notes stay within a major tenth', () => {
     expect(fingers[1]).toBe(fingers[5]);
     expect(fingers[2]).toBe(fingers[4]);
     expect(fingers[3]).toBe(5);
+  });
+
+  it('slides the scope window forward instead of rescoping on a high note within reach', () => {
+    // Low anchor, then a climb; high E is only 12 semitones above middle C.
+    const events: NoteEvent[] = [];
+    const midis = [40, 50, 55, 60, 64, 67, 72, 76, 72, 67, 64];
+    for (let index = 0; index < midis.length; index += 1) {
+      events.push({
+        stepIndex: index,
+        midi: midis[index],
+        onset: index * 120,
+        authoredFinger: null,
+      });
+    }
+    const fingers = fingerTimeline(events, 'R');
+    expect(fingers[fingers.length - 4]).toBe(5);
+    expect(fingers[fingers.length - 5]).not.toBe(1);
+  });
+});
+
+describe('interval spread prefers wide fingerings', () => {
+  it('fingers a left-hand perfect fifth as q and v (5 and 1)', () => {
+    const fingers = assignChordFingers(
+      [
+        { stepIndex: 0, onset: 0, midi: 40, authoredFinger: null },
+        { stepIndex: 0, onset: 0, midi: 47, authoredFinger: null },
+      ],
+      'L',
+    );
+    expect(fingers).toEqual([5, 1]);
+  });
+
+  it('fingers a right-hand perfect fifth as n and [ (1 and 5)', () => {
+    const fingers = assignChordFingers(
+      [
+        { stepIndex: 0, onset: 0, midi: 60, authoredFinger: null },
+        { stepIndex: 0, onset: 0, midi: 67, authoredFinger: null },
+      ],
+      'R',
+    );
+    expect(fingers).toEqual([1, 5]);
   });
 });
 
