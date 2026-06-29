@@ -43,8 +43,16 @@ function step(order: number, onset: number, notes: ScriptNote[], measureNumber =
 }
 
 describe('gap table', () => {
-  it('keeps the documented close gaps', () => {
-    expect([1, 3, 4, 5, 6, 8, 9].map((i) => fingerGapForInterval(i, 'close'))).toEqual([1, 1, 2, 2, 3, 3, 4]);
+  it('keeps the documented comfort gaps', () => {
+    expect([1, 3, 4, 5, 6, 8, 9, 10].map((i) => fingerGapForInterval(i, 'close'))).toEqual([
+      1, 1, 2, 2, 3, 3, 4, 4,
+    ]);
+  });
+
+  it('uses the extended table for wide scopes and returning pitches', () => {
+    expect([1, 4, 5, 8, 9, 11, 12].map((i) => fingerGapForInterval(i, 'wide'))).toEqual([
+      1, 1, 2, 2, 3, 3, 4,
+    ]);
   });
 });
 

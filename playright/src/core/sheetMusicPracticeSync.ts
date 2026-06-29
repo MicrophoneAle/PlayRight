@@ -1081,6 +1081,79 @@ function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
   return getMusicSystemBounds(notes[0]);
 }
 
+function graphicalNotesOnSystem(
+  visualIndex: PracticeVisualIndex,
+  systemKey: string,
+): GraphicalNote[] {
+  const onSystem: GraphicalNote[] = [];
+
+  for (const stepNotes of visualIndex.stepGraphicalNotes) {
+    for (const gNote of stepNotes) {
+      if (getMusicSystemKey(gNote) === systemKey) {
+        onSystem.push(gNote);
+      }
+    }
+  }
+
+  return onSystem;
+}
+
+/** Upper stave in a grand-staff system (treble clef). */
+function getTrebleStaveTopY(gNote: GraphicalNote): number | null {
+  const staves = getStavesForMusicSystem(gNote);
+  if (staves.length === 0) {
+    return null;
+  }
+
+  const sorted = [...staves].sort(
+    (left, right) =>
+      left.getBoundingClientRect().top - right.getBoundingClientRect().top,
+  );
+
+  return sorted[0].getBoundingClientRect().top;
+}
+
+function playbackScrollAnchorTop(
+  notes: GraphicalNote[],
+  visualIndex: PracticeVisualIndex,
+): number | null {
+  const systemKey = getNotesSystemKey(notes);
+  if (!systemKey) {
+    return null;
+  }
+
+  const trebleStaveTop = getTrebleStaveTopY(notes[0]);
+  if (trebleStaveTop === null) {
+    return null;
+  }
+
+  const systemNotes = graphicalNotesOnSystem(visualIndex, systemKey);
+  let highestTrebleNoteTop: number | null = null;
+
+  for (const gNote of systemNotes) {
+    const source = gNote.sourceNote;
+    if (source.isRest() || isTieContinuation(source) || osmdNoteHand(source) !== 'R') {
+      continue;
+    }
+
+    const bounds = getGraphicalNotesBounds([gNote]);
+    if (!bounds) {
+      continue;
+    }
+
+    highestTrebleNoteTop =
+      highestTrebleNoteTop === null
+        ? bounds.top
+        : Math.min(highestTrebleNoteTop, bounds.top);
+  }
+
+  if (highestTrebleNoteTop === null || highestTrebleNoteTop >= trebleStaveTop) {
+    return trebleStaveTop;
+  }
+
+  return highestTrebleNoteTop;
+}
+
 function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
   let bounds: DOMRect | null = null;
 
@@ -1324,6 +1397,55 @@ function scrollContainerForPractice(
   }
 }
 
+function scrollContainerForPlayback(
+  container: HTMLElement,
+  notes: GraphicalNote[],
+  scrollState: { current: PracticeScrollState },
+  scrollMode: SheetScrollMode,
+  visualIndex: PracticeVisualIndex,
+): void {
+  const padding = 12;
+  const systemKey = getNotesSystemKey(notes);
+  if (!systemKey) {
+    return;
+  }
+
+  const anchorTop = playbackScrollAnchorTop(notes, visualIndex);
+  if (anchorTop === null) {
+    return;
+  }
+
+  const containerRect = container.getBoundingClientRect();
+  const viewportHeight = container.clientHeight;
+  const scrollTop = container.scrollTop;
+  const maxScrollTop = Math.max(
+    0,
+    container.scrollHeight - viewportHeight,
+  );
+
+  const lineTop = anchorTop - containerRect.top + scrollTop;
+  const previousSystemKey = scrollState.current.systemKey;
+  const isNewStaffLine =
+    previousSystemKey !== null && systemKey !== previousSystemKey;
+  const needsAnchor = previousSystemKey === null;
+
+  if (isNewStaffLine || needsAnchor) {
+    const target = Math.min(Math.max(0, lineTop - padding), maxScrollTop);
+    scrollState.current = { systemKey, lineScrollTop: target };
+    if (Math.abs(target - scrollTop) >= 1) {
+      animateScrollTop(container, target, scrollMode);
+    }
+    return;
+  }
+
+  scrollState.current.systemKey = systemKey;
+
+  const anchor = scrollState.current.lineScrollTop;
+  if (anchor !== null && Math.abs(scrollTop - anchor) >= 1) {
+    animateScrollTop(container, anchor, scrollMode);
+  }
+}
+
 /** Highlight all notes currently sounding during play mode (matches keyboard duration). */
 export function syncSheetMusicPlaybackVisuals(
   osmd: OpenSheetMusicDisplay,
@@ -1349,8 +1471,6 @@ export function syncSheetMusicPlaybackVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
-    activeHand,
-    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -1398,14 +1518,12 @@ export function syncSheetMusicPlaybackVisuals(
 
   const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
   const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
-  scrollContainerForPractice(
+  scrollContainerForPlayback(
     container,
     scrollNotes,
     scrollStateRef,
     scrollMode,
     visualIndex,
-    activeHand,
-    engineMode,
   );
 
   return toHighlight;
