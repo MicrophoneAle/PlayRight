@@ -6,6 +6,7 @@ import {
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
+  isRepeatedPlaybackAttack,
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
@@ -27,6 +28,7 @@ function getTransport(): ReturnType<typeof Tone.getTransport> {
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
+  private pendingPressFrames = new Set<number>();
   private playingPressTracker = new PlayingMidiPressTracker();
   private isPlaying = false;
   private isPaused = false;
@@ -308,6 +310,43 @@ export class PlaybackEngine {
     this.syncPlayingNotes();
   }
 
+  /**
+   * Defer a repeated pitch's highlight press by one animation frame. The prior
+   * note's release `set` and this press `set` would otherwise run in the same
+   * Tone clock callback (one React commit), so the released frame never paints.
+   * Pushing the press to the next frame guarantees a painted "released" state in
+   * between. Audio is unaffected; only the visual press is delayed (~1 frame).
+   */
+  private deferRepeatedPress(
+    stepIndex: number,
+    midi: number,
+    hand: Hand,
+    pressId: number,
+  ): void {
+    if (typeof requestAnimationFrame !== 'function') {
+      this.pressPlayingNote(stepIndex, midi, hand, pressId);
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      this.pendingPressFrames.delete(frameId);
+      if (!this.isPlaying || this.isPaused) {
+        return;
+      }
+      this.pressPlayingNote(stepIndex, midi, hand, pressId);
+    });
+    this.pendingPressFrames.add(frameId);
+  }
+
+  private cancelPendingPressFrames(): void {
+    if (typeof cancelAnimationFrame === 'function') {
+      for (const frameId of this.pendingPressFrames) {
+        cancelAnimationFrame(frameId);
+      }
+    }
+    this.pendingPressFrames.clear();
+  }
+
   /** Fallback when an absolute release event was skipped during transport catch-up. */
   private releasePriorStepNotes(currentStepIndex: number): void {
     const changed = this.playingPressTracker.releaseMatching(
@@ -356,6 +395,7 @@ export class PlaybackEngine {
   }
 
   private clearPlayingNotes(): void {
+    this.cancelPendingPressFrames();
     this.playingPressTracker.clear();
     const { actions } = useEngineStore.getState();
     actions.setPlayingMidiNotes([]);
@@ -465,7 +505,12 @@ export class PlaybackEngine {
 
         for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
-          this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+
+          if (isRepeatedPlaybackAttack(script, stepIndex, note)) {
+            this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
+          } else {
+            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+          }
         }
       }, transportTime);
 
