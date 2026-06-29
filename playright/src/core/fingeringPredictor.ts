@@ -166,18 +166,39 @@ function avoidRepeat(previous: Finger, candidate: Finger): Finger {
   return (candidate - 1) as Finger;
 }
 
-/** Number of consecutive small steps from fromIndex that continue in direction dir. */
-function sameDirectionStepsAhead(leads: number[], fromIndex: number, dir: number): number {
-  let count = 0;
-  for (let index = fromIndex; index + 1 < leads.length; index += 1) {
-    const step = leads[index + 1] - leads[index];
-    if (Math.sign(step) === dir && Math.abs(step) <= CROSS_MAX_STEP_SEMITONES) {
-      count += 1;
+/**
+ * Walk fingers away from an already-placed extreme note (index startIndex) in the
+ * given index direction, stepping by interval gaps and crossing the thumb under /
+ * finger over when a wall is reached (overflow resets to finger 3).
+ */
+function walkAwayFromExtreme(
+  leads: number[],
+  hand: Hand,
+  fingers: Finger[],
+  startIndex: number,
+  dir: number,
+): void {
+  let prevIndex = startIndex;
+
+  for (let index = startIndex + dir; index >= 0 && index < leads.length; index += dir) {
+    const interval = leads[index] - leads[prevIndex];
+    const previous = fingers[prevIndex];
+
+    let finger: Finger;
+    if (interval === 0) {
+      finger = previous;
     } else {
-      break;
+      const gap = Math.max(1, fingerGapForInterval(interval, 'wide'));
+      let candidate = previous + fingerMoveSign(hand, interval) * gap;
+      if (candidate > 5 || candidate < 1) {
+        candidate = 3;
+      }
+      finger = avoidRepeat(previous, candidate as Finger);
     }
+
+    fingers[index] = finger;
+    prevIndex = index;
   }
-  return count;
 }
 
 export function segmentIntoPlacements(
@@ -330,18 +351,37 @@ function assignStaticPlacement(
   walk: StaticWalk,
   out: Map<NoteEvent, Finger | null>,
 ): void {
-  const leads = placement.map((group) => leadMidi(group, hand));
-  const pitchRange = Math.max(...leads) - Math.min(...leads);
-  const relSpan = walk.relMax - walk.relMin;
-  const compactStatic = pitchRange <= 4 && relSpan <= 2;
+  // Build a relative finger for every note (chord members included), where rel
+  // rises toward the pinky side of the hand. Then pin the placement's global
+  // extreme (highest pitch RH / lowest pitch LH) to the pinky so scoping up
+  // always lands on `[` (5) / `p` (4) and scoping down on `q` (5) / `w` (4).
+  const relByEvent = new Map<NoteEvent, number>();
+  let relMax = -Infinity;
 
   for (const group of placement) {
     const lead = leadMidi(group, hand);
-    const rel = walk.relByMidi.get(lead) ?? 0;
-    const leadFinger = compactStatic
-      ? clampFinger(rel - walk.relMin + 1)
-      : clampFinger(rel + (5 - walk.relMax));
-    spreadChordFromLead(group, hand, mode, leadFinger, out);
+    const leadRel = walk.relByMidi.get(lead) ?? 0;
+    // Order each chord from the thumb side (the lead) outward to the pinky side.
+    const ordered = hand === 'R' ? group.events : [...group.events].reverse();
+
+    let rel = leadRel;
+    relByEvent.set(ordered[0], rel);
+    relMax = Math.max(relMax, rel);
+
+    for (let index = 1; index < ordered.length; index += 1) {
+      const gap = Math.max(
+        1,
+        fingerGapForInterval(ordered[index].midi - ordered[index - 1].midi, mode),
+      );
+      rel += gap;
+      relByEvent.set(ordered[index], rel);
+      relMax = Math.max(relMax, rel);
+    }
+  }
+
+  const offset = 5 - relMax;
+  for (const [event, rel] of relByEvent) {
+    out.set(event, clampFinger(rel + offset));
   }
 }
 
@@ -351,46 +391,25 @@ function assignTraversePlacement(
   out: Map<NoteEvent, Finger | null>,
 ): void {
   const leads = placement.map((group) => leadMidi(group, hand));
-  const pitchDir = Math.sign(leads[leads.length - 1] - leads[0]) || 1;
-  const fingerUpRun = (hand === 'R') === (pitchDir > 0);
-  const earlyFrom: Finger = fingerUpRun ? 3 : 1;
-  const earlyTo: Finger = fingerUpRun ? 1 : 3;
 
-  let finger: Finger = fingerUpRun ? 1 : 5;
-  spreadChordFromLead(placement[0], hand, 'wide', finger, out);
-
+  // Anchor the scope's extreme (highest pitch RH / lowest pitch LH) to the pinky,
+  // then walk both ways from it so the run's boundary always ends on `[`/`q` (5).
+  let extremeIndex = 0;
   for (let index = 1; index < leads.length; index += 1) {
-    const interval = leads[index] - leads[index - 1];
-    const stepDir = Math.sign(interval);
-    const absInterval = Math.abs(interval);
-    const previous = finger;
-
-    if (interval === 0) {
-      // repeated pitch keeps its finger
-    } else if (
-      absInterval <= CROSS_MAX_STEP_SEMITONES &&
-      stepDir === pitchDir &&
-      finger === earlyFrom &&
-      sameDirectionStepsAhead(leads, index, pitchDir) >= 2
-    ) {
-      finger = earlyTo;
-    } else {
-      const gap = Math.max(1, fingerGapForInterval(interval, 'wide'));
-      const candidate = finger + fingerMoveSign(hand, interval) * gap;
-      if (candidate > 5) {
-        finger = 1;
-      } else if (candidate < 1) {
-        finger = 3;
-      } else {
-        finger = candidate as Finger;
-      }
+    const isMoreExtreme =
+      hand === 'R' ? leads[index] > leads[extremeIndex] : leads[index] < leads[extremeIndex];
+    if (isMoreExtreme) {
+      extremeIndex = index;
     }
+  }
 
-    if (interval !== 0) {
-      finger = avoidRepeat(previous, finger);
-    }
+  const fingers: Finger[] = new Array(leads.length);
+  fingers[extremeIndex] = 5;
+  walkAwayFromExtreme(leads, hand, fingers, extremeIndex, -1);
+  walkAwayFromExtreme(leads, hand, fingers, extremeIndex, 1);
 
-    spreadChordFromLead(placement[index], hand, 'wide', finger, out);
+  for (let index = 0; index < placement.length; index += 1) {
+    spreadChordFromLead(placement[index], hand, 'wide', fingers[index], out);
   }
 }
 

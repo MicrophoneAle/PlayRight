@@ -57,8 +57,8 @@ describe('no consecutive repeated fingers', () => {
     expect(fingers[0]).toBe(fingers[1]);
     expect(fingers[2]).not.toBe(fingers[1]);
   });
-  it('small oscillations stay put and never curl the thumb', () => {
-    expect(fingerTimeline(eventsFromMidis([60, 62, 60, 62, 60]), 'R')).toEqual([1, 2, 1, 2, 1]);
+  it('small oscillations stay put and never curl the thumb, top note on the pinky', () => {
+    expect(fingerTimeline(eventsFromMidis([60, 62, 60, 62, 60]), 'R')).toEqual([4, 5, 4, 5, 4]);
   });
 });
 
@@ -70,6 +70,41 @@ describe('static scope pins the extreme to the pinky', () => {
   it('left-hand cluster puts the lowest note on 5', () => {
     const fingers = fingerTimeline(eventsFromMidis([60, 56, 53]), 'L');
     expect(fingers[fingers.length - 1]).toBe(5);
+  });
+});
+
+describe('scope extreme always lands on pinky or ring', () => {
+  const topFinger = (midis: number[]) => {
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    const peak = Math.max(...midis);
+    return fingers[midis.indexOf(peak)];
+  };
+  const bottomFinger = (midis: number[]) => {
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
+    const trough = Math.min(...midis);
+    return fingers[midis.indexOf(trough)];
+  };
+
+  it('right-hand scope up: the highest note is finger 5 or 4', () => {
+    for (const midis of [
+      [60, 62, 64],
+      [60, 64, 67],
+      [55, 57, 59, 60, 62, 64],
+      [60, 62, 60, 62],
+    ]) {
+      expect([4, 5]).toContain(topFinger(midis));
+    }
+  });
+
+  it('left-hand scope down: the lowest note is finger 5 or 4', () => {
+    for (const midis of [
+      [60, 58, 56],
+      [60, 56, 53],
+      [65, 63, 61, 60, 58, 56],
+      [60, 58, 60, 58],
+    ]) {
+      expect([4, 5]).toContain(bottomFinger(midis));
+    }
   });
 });
 
