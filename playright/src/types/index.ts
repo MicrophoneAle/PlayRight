@@ -47,6 +47,8 @@ export interface PlayingPlaybackNote {
   stepIndex: number;
   midi: number;
   hand: Hand;
+  /** Same pitch+hand re-attacked on the immediately following step (not a tie). */
+  isRepeatedAttack?: boolean;
 }
 
 /**

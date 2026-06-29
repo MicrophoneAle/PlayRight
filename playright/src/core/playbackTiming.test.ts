@@ -5,6 +5,8 @@ import {
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
+  isPlaybackTieContinuation,
+  isRepeatedPlaybackAttack,
   latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -138,6 +140,77 @@ describe('playbackTiming', () => {
       new Set(['0:R:76']),
     );
     expect(buildConsecutiveSameNoteKeySet(nonConsecutiveScript, 480)).toEqual(new Set());
+  });
+
+  it('detects immediate repeated attacks but not ties or later repeats', () => {
+    const consecutiveScript: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+    const tiedScript: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'E5',
+            midi: 76,
+            hand: 'R',
+            finger: 1,
+            durationDivisions: 480,
+            tiedToNext: true,
+          },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+    const nonConsecutiveScript: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+      {
+        order: 1,
+        onset: 240,
+        measureNumber: 1,
+        notes: [{ pitch: 'G5', midi: 79, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+      {
+        order: 2,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
+      },
+    ];
+
+    expect(
+      isRepeatedPlaybackAttack(consecutiveScript, 1, consecutiveScript[1].notes[0]),
+    ).toBe(true);
+    expect(
+      isRepeatedPlaybackAttack(tiedScript, 1, tiedScript[1].notes[0]),
+    ).toBe(false);
+    expect(
+      isRepeatedPlaybackAttack(nonConsecutiveScript, 2, nonConsecutiveScript[2].notes[0]),
+    ).toBe(false);
+    expect(isPlaybackTieContinuation(tiedScript, 1, tiedScript[1].notes[0])).toBe(true);
   });
 
   it('keeps tied and final playback durations at the written length', () => {
