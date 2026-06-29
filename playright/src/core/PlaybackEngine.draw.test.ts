@@ -138,6 +138,7 @@ describe('PlaybackEngine playback visuals', () => {
       }),
       480,
     );
+    const attackTickTime = quartersToTransportTickTime(1, 480);
     const scheduled: Array<{ time: string; callback: (time: number) => void }> = [];
     transportScheduleOnce.mockImplementation((callback, time) => {
       scheduled.push({ time: String(time), callback });
@@ -163,9 +164,14 @@ describe('PlaybackEngine playback visuals', () => {
       }
     }
 
-    expect(scheduled.map(({ time }) => time)).toContain(releaseTickTime);
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
+
+    const attackEvent = scheduled.find(({ time }) => time === attackTickTime);
+    expect(attackEvent).toBeDefined();
+    attackEvent?.callback(0);
+
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
   });
 
   it('reschedules and resumes after seek while paused', async () => {

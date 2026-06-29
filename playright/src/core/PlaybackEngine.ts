@@ -1,4 +1,5 @@
 import * as Tone from 'tone';
+import { flushSync } from 'react-dom';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildConsecutiveSameNoteKeySet,
@@ -6,6 +7,7 @@ import {
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
+  isRepeatedPlaybackAttack,
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
@@ -303,20 +305,16 @@ export class PlaybackEngine {
     this.syncPlayingNotes();
   }
 
-  private releasePlayingNote(pressId: number): void {
+  private releasePlayingNote(pressId: number, flushVisual = false): void {
     this.playingPressTracker.release(pressId);
-    this.syncPlayingNotes();
-  }
-
-  /** Fallback when an absolute release event was skipped during transport catch-up. */
-  private releasePriorStepNotes(currentStepIndex: number): void {
-    const changed = this.playingPressTracker.releaseMatching(
-      (note) => note.stepIndex < currentStepIndex,
-    );
-
-    if (changed) {
-      this.syncPlayingNotes();
+    if (flushVisual) {
+      flushSync(() => {
+        this.syncPlayingNotes();
+      });
+      return;
     }
+
+    this.syncPlayingNotes();
   }
 
   private scheduleTieEndRelease(
@@ -452,16 +450,32 @@ export class PlaybackEngine {
 
         if (!note.tiedToNext) {
           const releaseOnset = attackOnsetQuarters + playedQuarters;
+          const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
+            `${stepIndex}:${note.hand}:${note.midi}`,
+          );
           const releaseEventId = transport.scheduleOnce(() => {
-            this.releasePlayingNote(pressId);
+            this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
           }, quartersToTransportTickTime(releaseOnset, ppq));
           this.scheduledEventIds.push(releaseEventId);
         }
       }
 
       const stepEventId = transport.scheduleOnce((time) => {
-        this.releasePriorStepNotes(stepIndex);
+        const releasedPriorStep = this.playingPressTracker.releaseMatching(
+          (active) => active.stepIndex < stepIndex,
+        );
         this.applyStepVisual(stepIndex);
+
+        const hasRepeatedAttack = stepPresses.some(({ note }) =>
+          isRepeatedPlaybackAttack(script, stepIndex, note),
+        );
+        if (releasedPriorStep && hasRepeatedAttack) {
+          flushSync(() => {
+            this.syncPlayingNotes();
+          });
+        } else if (releasedPriorStep) {
+          this.syncPlayingNotes();
+        }
 
         for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
