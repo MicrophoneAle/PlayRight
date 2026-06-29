@@ -1407,10 +1407,6 @@ export function syncSheetMusicPlaybackVisuals(
   moveCursorToOffset(osmd, offset, cursorOffsetRef);
   cursor.hide();
 
-  if (activeNotes.length === 0) {
-    return [];
-  }
-
   const seen = new Set<GraphicalNote>();
   const toHighlight: GraphicalNote[] = [];
 
@@ -1431,21 +1427,28 @@ export function syncSheetMusicPlaybackVisuals(
     }
   }
 
-  if (toHighlight.length === 0) {
-    return [];
+  if (toHighlight.length > 0) {
+    highlightGraphicalNotes(toHighlight);
   }
 
-  highlightGraphicalNotes(toHighlight);
-
+  // Scroll on the CURRENT step's notes, not the sounding notes. The step index
+  // advances to the new system synchronously (applyStepVisual -> setStepIndex)
+  // while playingPlaybackNotes is briefly empty (prior step released, next press
+  // not yet fired or deferred). Driving the scroll off the step's graphical notes
+  // makes the system-boundary scroll fire the instant the step advances, instead
+  // of being skipped because nothing is sounding yet. Falls back to the sounding
+  // notes only when the step has no matched graphics.
   const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
   const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
-  scrollContainerForPlayback(
-    container,
-    scrollNotes,
-    scrollStateRef,
-    scrollMode,
-    visualIndex,
-  );
+  if (scrollNotes.length > 0) {
+    scrollContainerForPlayback(
+      container,
+      scrollNotes,
+      scrollStateRef,
+      scrollMode,
+      visualIndex,
+    );
+  }
 
   return toHighlight;
 }
