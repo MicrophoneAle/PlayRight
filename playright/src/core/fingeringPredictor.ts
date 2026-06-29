@@ -84,16 +84,11 @@ export function spanModeForRange(rangeSemitones: number, spanScale = 1): SpanMod
   return rangeSemitones <= 10 * spanScale ? 'close' : 'wide';
 }
 
-/** RH: ascending pitch raises the finger number; LH mirrors it. */
-function fingerDirection(hand: Hand, fromMidi: number, toMidi: number): number {
-  if (toMidi === fromMidi) {
-    return 0;
-  }
+/** How far ahead to look when deciding crossings and pin direction. */
+export const FINGER_LOOKAHEAD = 8;
 
-  const ascending = toMidi > fromMidi;
-  const fingerRises = hand === 'R' ? ascending : !ascending;
-  return fingerRises ? 1 : -1;
-}
+/** A crossing (thumb-under / finger-over) only happens on a step this small. */
+export const CROSS_MAX_STEP_SEMITONES = 2;
 
 interface OnsetGroup {
   stepIndex: number;
@@ -110,11 +105,7 @@ function groupOnsets(events: NoteEvent[]): OnsetGroup[] {
     if (last && last.stepIndex === event.stepIndex) {
       last.events.push(event);
     } else {
-      groups.push({
-        stepIndex: event.stepIndex,
-        onset: event.onset,
-        events: [event],
-      });
+      groups.push({ stepIndex: event.stepIndex, onset: event.onset, events: [event] });
     }
   }
 
@@ -149,125 +140,54 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   return phrases;
 }
 
-interface RelativeWalk {
-  relByEvent: Map<NoteEvent, number>;
-  relMin: number;
-  relMax: number;
-  minMidi: number;
-  maxMidi: number;
+/** Lowest note leads the right hand, highest leads the left (the note nearest the thumb side). */
+function leadMidi(group: OnsetGroup, hand: Hand): number {
+  return hand === 'R' ? group.events[0].midi : group.events[group.events.length - 1].midi;
 }
 
-/**
- * Assign a relative finger to every note by walking the interval gaps. The walk
- * starts at 0, moves by the finger gap in the pitch direction, and reuses a
- * pitch's earlier relative finger when it recurs so returns stay consistent.
- * Chords spread their members upward in pitch by interval, in the hand's finger
- * direction, so members never collide.
- */
-function walkRelative(
+/** Finger moves the same direction as pitch for the right hand, opposite for the left. */
+function fingerMoveSign(hand: Hand, pitchStep: number): number {
+  const sign = pitchStep > 0 ? 1 : pitchStep < 0 ? -1 : 0;
+  return hand === 'R' ? sign : -sign;
+}
+
+function clampFinger(value: number): Finger {
+  return Math.min(5, Math.max(1, value)) as Finger;
+}
+
+/** Bump a finger off a collision with the previous one, staying in range. */
+function avoidRepeat(previous: Finger, candidate: Finger): Finger {
+  if (candidate !== previous) {
+    return candidate;
+  }
+  if (candidate < 5) {
+    return (candidate + 1) as Finger;
+  }
+  return (candidate - 1) as Finger;
+}
+
+/** Number of consecutive small steps from fromIndex that continue in direction dir. */
+function sameDirectionStepsAhead(leads: number[], fromIndex: number, dir: number): number {
+  let count = 0;
+  for (let index = fromIndex; index + 1 < leads.length; index += 1) {
+    const step = leads[index + 1] - leads[index];
+    if (Math.sign(step) === dir && Math.abs(step) <= CROSS_MAX_STEP_SEMITONES) {
+      count += 1;
+    } else {
+      break;
+    }
+  }
+  return count;
+}
+
+export function segmentIntoPlacements(
   groups: OnsetGroup[],
   hand: Hand,
-  mode: SpanMode,
-): RelativeWalk {
-  const relByEvent = new Map<NoteEvent, number>();
-  const relByMidi = new Map<number, number>();
-  let relMin = 0;
-  let relMax = 0;
-  let minMidi = Infinity;
-  let maxMidi = -Infinity;
-  let lastMidi: number | null = null;
-  let lastRel = 0;
-
-  const record = (event: NoteEvent, rel: number): void => {
-    relByEvent.set(event, rel);
-    relByMidi.set(event.midi, rel);
-    relMin = Math.min(relMin, rel);
-    relMax = Math.max(relMax, rel);
-    minMidi = Math.min(minMidi, event.midi);
-    maxMidi = Math.max(maxMidi, event.midi);
-  };
-
-  const relForMelodic = (midi: number): number => {
-    if (relByMidi.has(midi)) {
-      return relByMidi.get(midi)!;
-    }
-    if (lastMidi === null) {
-      return 0;
-    }
-    const gap = fingerGapForInterval(midi - lastMidi, mode);
-    return lastRel + fingerDirection(hand, lastMidi, midi) * gap;
-  };
-
-  for (const group of groups) {
-    const base = group.events[0];
-    const baseRel = relForMelodic(base.midi);
-    record(base, baseRel);
-
-    if (group.events.length > 1) {
-      const sign = hand === 'R' ? 1 : -1;
-      let prevMidi = base.midi;
-      let prevRel = baseRel;
-
-      for (let index = 1; index < group.events.length; index += 1) {
-        const event = group.events[index];
-        const gap = Math.max(1, fingerGapForInterval(event.midi - prevMidi, mode));
-        const rel = prevRel + sign * gap;
-        record(event, rel);
-        prevMidi = event.midi;
-        prevRel = rel;
-      }
-    }
-
-    // Continue the melodic walk from the group's lowest member.
-    lastMidi = base.midi;
-    lastRel = baseRel;
-  }
-
-  return { relByEvent, relMin, relMax, minMidi, maxMidi };
-}
-
-export interface HandPosition {
-  groups: OnsetGroup[];
-  minMidi: number;
-  maxMidi: number;
-}
-
-function finalizePosition(groups: OnsetGroup[]): HandPosition {
-  let minMidi = Infinity;
-  let maxMidi = -Infinity;
-
-  for (const group of groups) {
-    for (const event of group.events) {
-      minMidi = Math.min(minMidi, event.midi);
-      maxMidi = Math.max(maxMidi, event.midi);
-    }
-  }
-
-  return { groups, minMidi, maxMidi };
-}
-
-/**
- * Grow positions greedily. A candidate fits when the interval-gap walk stays
- * within five fingers and the pitch range stays within a tenth. The fit test
- * uses the close table, which has the largest gaps, so a position that fits
- * under it also fits under the wide table chosen at assignment time. A position
- * ends only when the next note cannot be reached, i.e. a scope shift only when
- * forced.
- */
-function buildPositions(phrase: NoteEvent[], spanScale: number): HandPosition[] {
-  const groups = groupOnsets(phrase);
-  const positions: HandPosition[] = [];
+  spanScale: number,
+): OnsetGroup[][] {
+  const maxJump = MAX_HAND_SPAN_SEMITONES * spanScale;
+  const placements: OnsetGroup[][] = [];
   let current: OnsetGroup[] = [];
-
-  const fits = (candidate: OnsetGroup[]): boolean => {
-    const walk = walkRelative(candidate, 'R', 'close');
-    const fingerSpan = walk.relMax - walk.relMin;
-    const pitchRange = walk.maxMidi - walk.minMidi;
-    return (
-      fingerSpan <= MAX_FINGER_SPAN &&
-      pitchRange <= MAX_HAND_SPAN_SEMITONES * spanScale
-    );
-  };
 
   for (const group of groups) {
     if (current.length === 0) {
@@ -275,45 +195,203 @@ function buildPositions(phrase: NoteEvent[], spanScale: number): HandPosition[] 
       continue;
     }
 
-    if (fits([...current, group])) {
-      current.push(group);
-    } else {
-      positions.push(finalizePosition(current));
+    const previousLead = leadMidi(current[current.length - 1], hand);
+    if (Math.abs(leadMidi(group, hand) - previousLead) > maxJump) {
+      placements.push(current);
       current = [group];
+    } else {
+      current.push(group);
     }
   }
 
   if (current.length > 0) {
-    positions.push(finalizePosition(current));
+    placements.push(current);
   }
 
-  return positions;
+  return placements;
 }
 
-function assignPosition(
-  position: HandPosition,
-  hand: Hand,
-  spanScale: number,
-): Map<NoteEvent, Finger | null> {
-  const range = position.maxMidi - position.minMidi;
-  const mode = spanModeForRange(range, spanScale);
-  const walk = walkRelative(position.groups, hand, mode);
-  const fingerByEvent = new Map<NoteEvent, Finger | null>();
+interface StaticWalk {
+  relByMidi: Map<number, number>;
+  relMin: number;
+  relMax: number;
+}
 
-  for (const [event, rel] of walk.relByEvent) {
-    const absolute = rel - walk.relMin + 1;
-    if (absolute < 1 || absolute > 5) {
-      console.warn(
-        '[fingeringPredictor] finger out of range in finalized position',
-        { midi: event.midi, absolute, hand, range },
-      );
-      fingerByEvent.set(event, null);
+/** Relative finger per distinct pitch from the gap walk; rel rises toward the pinky end. */
+function staticRelWalk(leads: number[], hand: Hand, mode: SpanMode): StaticWalk {
+  const relByMidi = new Map<number, number>();
+  let relMin = 0;
+  let relMax = 0;
+  let lastMidi: number | null = null;
+  let lastRel = 0;
+
+  for (const midi of leads) {
+    let rel: number;
+    if (relByMidi.has(midi)) {
+      rel = relByMidi.get(midi)!;
+    } else if (lastMidi === null) {
+      rel = 0;
     } else {
-      fingerByEvent.set(event, absolute as Finger);
+      const gap = Math.max(1, fingerGapForInterval(midi - lastMidi, mode));
+      rel = lastRel + fingerMoveSign(hand, midi - lastMidi) * gap;
+      relByMidi.set(midi, rel);
     }
+    relByMidi.set(midi, rel);
+    relMin = Math.min(relMin, rel);
+    relMax = Math.max(relMax, rel);
+    lastMidi = midi;
+    lastRel = rel;
   }
 
-  return fingerByEvent;
+  return { relByMidi, relMin, relMax };
+}
+
+/** Spread chord members inward from the lead to distinct fingers. */
+function spreadChordFromLead(
+  group: OnsetGroup,
+  hand: Hand,
+  mode: SpanMode,
+  leadFinger: Finger,
+  out: Map<NoteEvent, Finger | null>,
+): void {
+  const ascending = group.events;
+  if (hand === 'R') {
+    out.set(ascending[0], leadFinger);
+    let prev = leadFinger;
+    for (let index = 1; index < ascending.length; index += 1) {
+      const gap = Math.max(
+        1,
+        fingerGapForInterval(ascending[index].midi - ascending[index - 1].midi, mode),
+      );
+      const finger = clampFinger(prev + gap);
+      out.set(ascending[index], finger > prev ? finger : null);
+      prev = finger;
+    }
+    return;
+  }
+
+  const top = ascending.length - 1;
+  out.set(ascending[top], leadFinger);
+  let prev = leadFinger;
+  for (let index = top - 1; index >= 0; index -= 1) {
+    const gap = Math.max(
+      1,
+      fingerGapForInterval(ascending[index + 1].midi - ascending[index].midi, mode),
+    );
+    const finger = clampFinger(prev + gap);
+    out.set(ascending[index], finger > prev ? finger : null);
+    prev = finger;
+  }
+}
+
+/** Standalone chord: pin the pinky to the hand's extreme pitch (high RH, low LH). */
+function spreadStandaloneChord(
+  group: OnsetGroup,
+  hand: Hand,
+  mode: SpanMode,
+  out: Map<NoteEvent, Finger | null>,
+): void {
+  const ascending = group.events;
+  const pinky = 5 as Finger;
+
+  if (hand === 'R') {
+    const top = ascending.length - 1;
+    out.set(ascending[top], pinky);
+    let prev: Finger = pinky;
+    for (let index = top - 1; index >= 0; index -= 1) {
+      const gap = Math.max(
+        1,
+        fingerGapForInterval(ascending[index + 1].midi - ascending[index].midi, mode),
+      );
+      const finger = clampFinger(prev - gap);
+      out.set(ascending[index], finger < prev ? finger : null);
+      prev = finger;
+    }
+    return;
+  }
+
+  out.set(ascending[0], pinky);
+  let prev: Finger = pinky;
+  for (let index = 1; index < ascending.length; index += 1) {
+    const gap = Math.max(
+      1,
+      fingerGapForInterval(ascending[index].midi - ascending[index - 1].midi, mode),
+    );
+    const finger = clampFinger(prev - gap);
+    out.set(ascending[index], finger < prev ? finger : null);
+    prev = finger;
+  }
+}
+
+function assignStaticPlacement(
+  placement: OnsetGroup[],
+  hand: Hand,
+  mode: SpanMode,
+  walk: StaticWalk,
+  out: Map<NoteEvent, Finger | null>,
+): void {
+  const leads = placement.map((group) => leadMidi(group, hand));
+  const pitchRange = Math.max(...leads) - Math.min(...leads);
+  const relSpan = walk.relMax - walk.relMin;
+  const compactStatic = pitchRange <= 4 && relSpan <= 2;
+
+  for (const group of placement) {
+    const lead = leadMidi(group, hand);
+    const rel = walk.relByMidi.get(lead) ?? 0;
+    const leadFinger = compactStatic
+      ? clampFinger(rel - walk.relMin + 1)
+      : clampFinger(rel + (5 - walk.relMax));
+    spreadChordFromLead(group, hand, mode, leadFinger, out);
+  }
+}
+
+function assignTraversePlacement(
+  placement: OnsetGroup[],
+  hand: Hand,
+  out: Map<NoteEvent, Finger | null>,
+): void {
+  const leads = placement.map((group) => leadMidi(group, hand));
+  const pitchDir = Math.sign(leads[leads.length - 1] - leads[0]) || 1;
+  const fingerUpRun = (hand === 'R') === (pitchDir > 0);
+  const earlyFrom: Finger = fingerUpRun ? 3 : 1;
+  const earlyTo: Finger = fingerUpRun ? 1 : 3;
+
+  let finger: Finger = fingerUpRun ? 1 : 5;
+  spreadChordFromLead(placement[0], hand, 'wide', finger, out);
+
+  for (let index = 1; index < leads.length; index += 1) {
+    const interval = leads[index] - leads[index - 1];
+    const stepDir = Math.sign(interval);
+    const absInterval = Math.abs(interval);
+    const previous = finger;
+
+    if (interval === 0) {
+      // repeated pitch keeps its finger
+    } else if (
+      absInterval <= CROSS_MAX_STEP_SEMITONES &&
+      stepDir === pitchDir &&
+      finger === earlyFrom &&
+      sameDirectionStepsAhead(leads, index, pitchDir) >= 2
+    ) {
+      finger = earlyTo;
+    } else {
+      const gap = Math.max(1, fingerGapForInterval(interval, 'wide'));
+      const candidate = finger + fingerMoveSign(hand, interval) * gap;
+      if (candidate > 5) {
+        finger = 1;
+      } else if (candidate < 1) {
+        finger = 3;
+      } else {
+        finger = candidate as Finger;
+      }
+    }
+
+    if (interval !== 0) {
+      finger = avoidRepeat(previous, finger);
+    }
+
+    spreadChordFromLead(placement[index], hand, 'wide', finger, out);
+  }
 }
 
 /** Finger every note of one hand's timeline, returned aligned to the input order. */
@@ -322,20 +400,28 @@ export function fingerTimeline(
   hand: Hand,
   spanScale = 1,
 ): (Finger | null)[] {
-  const fingerByEvent = new Map<NoteEvent, Finger | null>();
+  const out = new Map<NoteEvent, Finger | null>();
 
   for (const phrase of segmentIntoPhrases(events)) {
-    for (const position of buildPositions(phrase, spanScale)) {
-      for (const [event, finger] of assignPosition(position, hand, spanScale)) {
-        fingerByEvent.set(event, finger);
+    const groups = groupOnsets(phrase);
+    for (const placement of segmentIntoPlacements(groups, hand, spanScale)) {
+      const leads = placement.map((group) => leadMidi(group, hand));
+      const range = Math.max(...leads) - Math.min(...leads);
+      const mode = spanModeForRange(range, spanScale);
+      const walk = staticRelWalk(leads, hand, mode);
+
+      if (walk.relMax - walk.relMin <= MAX_FINGER_SPAN) {
+        assignStaticPlacement(placement, hand, mode, walk, out);
+      } else {
+        assignTraversePlacement(placement, hand, out);
       }
     }
   }
 
-  return events.map((event) => fingerByEvent.get(event) ?? null);
+  return events.map((event) => out.get(event) ?? null);
 }
 
-/** Standalone chord fingering: the chord is its own single-onset position. */
+/** Standalone chord fingering: extreme on the pinky, members inward, distinct. */
 export function assignChordFingers(
   chord: NoteEvent[],
   hand: Hand,
@@ -344,19 +430,35 @@ export function assignChordFingers(
   if (chord.length === 0) {
     return [];
   }
-
   if (chord.length === 1) {
     return [chord[0].authoredFinger];
   }
 
-  const events: NoteEvent[] = chord.map((note) => ({
+  const indexed = chord
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => left.event.midi - right.event.midi);
+  const ascendingMidis = indexed.map((entry) => entry.event.midi);
+  const range = ascendingMidis[ascendingMidis.length - 1] - ascendingMidis[0];
+  const mode = spanModeForRange(range, spanScale);
+
+  const group: OnsetGroup = {
     stepIndex: 0,
     onset: 0,
-    midi: note.midi,
-    authoredFinger: note.authoredFinger,
-  }));
+    events: indexed.map((entry) => ({
+      stepIndex: 0,
+      onset: 0,
+      midi: entry.event.midi,
+      authoredFinger: entry.event.authoredFinger,
+    })),
+  };
+  const out = new Map<NoteEvent, Finger | null>();
+  spreadStandaloneChord(group, hand, mode, out);
 
-  return fingerTimeline(events, hand, spanScale);
+  const result = new Array<Finger | null>(chord.length).fill(null);
+  indexed.forEach((entry, sortedPosition) => {
+    result[entry.index] = out.get(group.events[sortedPosition]) ?? null;
+  });
+  return result;
 }
 
 const HANDS: Hand[] = ['L', 'R'];
