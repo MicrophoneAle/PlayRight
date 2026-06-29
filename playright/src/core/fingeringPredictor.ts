@@ -555,6 +555,89 @@ function ensureScopeExtremeOnPinkyOrRing(
   }
 }
 
+/**
+ * Highest finger the chord would reach (unclamped) if its lead note took
+ * `leadFinger`. Used to detect when a chord cannot fit under finger 5 from a
+ * given lead, mirroring spreadChordFromLead's gap accumulation.
+ */
+function chordTopFingerFromLead(
+  group: OnsetGroup,
+  hand: Hand,
+  leadFinger: Finger,
+  seenMidis: Set<number>,
+): number {
+  const ascending = group.events;
+  if (ascending.length <= 1) {
+    return leadFinger;
+  }
+
+  let prev: number = leadFinger;
+  let top: number = leadFinger;
+
+  if (hand === 'R') {
+    for (let index = 1; index < ascending.length; index += 1) {
+      const gap = Math.max(
+        1,
+        chooseAdaptiveGap(
+          ascending[index].midi - ascending[index - 1].midi,
+          prev,
+          0,
+          MAX_FINGER_SPAN,
+          hand,
+          seenMidis,
+          ascending[index].midi,
+        ),
+      );
+      prev += gap;
+      top = Math.max(top, prev);
+    }
+    return top;
+  }
+
+  for (let index = ascending.length - 2; index >= 0; index -= 1) {
+    const gap = Math.max(
+      1,
+      chooseAdaptiveGap(
+        ascending[index + 1].midi - ascending[index].midi,
+        prev,
+        0,
+        MAX_FINGER_SPAN,
+        hand,
+        seenMidis,
+        ascending[index].midi,
+      ),
+    );
+    prev += gap;
+    top = Math.max(top, prev);
+  }
+  return top;
+}
+
+/**
+ * Lower a chord's lead finger so the whole chord fits under finger 5. Without
+ * this, a drifting melodic lead pushes block chords onto the pinky and overflows
+ * the upper notes to null (the "RH all on `[`" collapse). Single notes pass
+ * through unchanged, preserving the melodic interval fingering.
+ */
+function fitChordLeadFinger(
+  group: OnsetGroup,
+  hand: Hand,
+  desiredLead: Finger,
+  seenMidis: Set<number>,
+): Finger {
+  if (group.events.length <= 1) {
+    return desiredLead;
+  }
+
+  const top = chordTopFingerFromLead(group, hand, desiredLead, seenMidis);
+  const overflow = top - 5;
+  if (overflow <= 0) {
+    return desiredLead;
+  }
+
+  return clampFinger(desiredLead - overflow);
+}
+
 function assignTraversePlacement(
   placement: OnsetGroup[],
   hand: Hand,
@@ -569,6 +652,7 @@ function assignTraversePlacement(
   const earlyTo: Finger = fingerUpRun ? 1 : 3;
 
   let finger: Finger = startFinger ?? (fingerUpRun ? 1 : 5);
+  finger = fitChordLeadFinger(placement[0], hand, finger, seenMidis);
   spreadChordFromLead(placement[0], hand, finger, seenMidis, out);
 
   for (let index = 1; index < leads.length; index += 1) {
@@ -605,6 +689,9 @@ function assignTraversePlacement(
       finger = avoidRepeat(previous, finger);
     }
 
+    // Pull the lead down so the chord fits under finger 5, and continue the walk
+    // from the fitted lead so the lead cannot drift upward across chords.
+    finger = fitChordLeadFinger(placement[index], hand, finger, seenMidis);
     spreadChordFromLead(placement[index], hand, finger, seenMidis, out);
   }
 }

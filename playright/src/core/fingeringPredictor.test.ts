@@ -241,6 +241,44 @@ describe('assignChordFingers', () => {
   });
 });
 
+describe('block-chord progressions do not collapse onto the pinky', () => {
+  it('keeps every RH chord distinct without drifting the lead to finger 5', () => {
+    // Eight triads walking down then up (Runaway-style RH). Previously the lead
+    // finger drifted upward across chords until everything landed on finger 5
+    // (`[`) with the upper notes overflowing to null.
+    const chords = [
+      [71, 76, 79],
+      [71, 76, 79],
+      [69, 74, 77],
+      [67, 72, 76],
+      [66, 71, 74],
+      [67, 72, 76],
+      [69, 74, 77],
+      [71, 76, 79],
+    ];
+    const events: NoteEvent[] = [];
+    chords.forEach((chord, stepIndex) => {
+      for (const midi of chord) {
+        events.push({ stepIndex, onset: stepIndex * 480, midi, authoredFinger: null });
+      }
+    });
+
+    const fingers = fingerTimeline(events, 'R', 1);
+
+    // No chord collapses: each 3-note chord keeps 3 distinct fingers, no nulls.
+    for (let chordIndex = 0; chordIndex < chords.length; chordIndex += 1) {
+      const slice = fingers.slice(chordIndex * 3, chordIndex * 3 + 3);
+      expect(slice.every((finger) => finger !== null)).toBe(true);
+      expect(new Set(slice).size).toBe(3);
+    }
+
+    // The leads (lowest note of each chord) never all sit on the pinky.
+    const leads = chords.map((_, chordIndex) => fingers[chordIndex * 3]);
+    expect(leads.every((finger) => finger === 5)).toBe(false);
+    expect(leads.some((finger) => finger !== null && finger! <= 2)).toBe(true);
+  });
+});
+
 describe('predictFingering preserves anchors', () => {
   it('never overwrites score or manual notes and marks filled notes predicted', () => {
     const script: PlaybackScript = [
