@@ -1318,6 +1318,38 @@ function animateScrollTop(
   activeScrollAnimations.set(container, frame);
 }
 
+/**
+ * Grand-staff system bounds (both staves) for a graphical note, with a
+ * note-element fallback. Used as a robust fallback anchor when the treble-stave
+ * DOM lookup fails, so scrolling never silently stops.
+ */
+function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
+  const staves = getStavesForMusicSystem(gNote);
+  if (staves.length === 0) {
+    const vfNote = gNote as VexFlowGraphicNote;
+    const noteElement =
+      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
+    return noteElement ? noteElement.getBoundingClientRect() : null;
+  }
+
+  if (staves.length === 1) {
+    return staves[0].getBoundingClientRect();
+  }
+
+  return staves.reduce<DOMRect | null>((bounds, staveElement) => {
+    const rect = staveElement.getBoundingClientRect();
+    return bounds ? unionRects(bounds, rect) : rect;
+  }, null);
+}
+
+function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
+  if (notes.length === 0) {
+    return null;
+  }
+
+  return getMusicSystemBounds(notes[0]);
+}
+
 function scrollContainerForPlayback(
   container: HTMLElement,
   notes: GraphicalNote[],
@@ -1331,7 +1363,14 @@ function scrollContainerForPlayback(
     return;
   }
 
-  const anchorTop = playbackScrollAnchorTop(notes, visualIndex);
+  // Prefer the treble-anchored top, but fall back to the system bounds (and
+  // ultimately the note element) so a failed DOM stave lookup never disables
+  // scrolling. Before this fallback existed, a null treble anchor silently
+  // stopped scrolling in every mode even though highlighting still worked.
+  const anchorTop =
+    playbackScrollAnchorTop(notes, visualIndex) ??
+    getNotesSystemBounds(notes)?.top ??
+    null;
   if (anchorTop === null) {
     return;
   }
