@@ -30,11 +30,8 @@ export const PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS = 0.05;
 /** Release gap scales with written note length. */
 export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 
-/** Extra release gap when the same pitch is struck again later. Just enough to re-trigger. */
-export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.01;
-
-/** A consecutive re-strike gap never exceeds this fraction of the written note length. */
-export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO = 0.2;
+/** Extra release gap when the same pitch re-attacks on the very next step. */
+export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.015;
 
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
@@ -154,7 +151,7 @@ export function articulationGapQuarterNotes(
 
   if (options.followedByConsecutiveSameNote) {
     gap = Math.min(
-      writtenQuarterNotes * PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO,
+      writtenQuarterNotes * 0.75,
       gap + PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
     );
   }
@@ -270,25 +267,6 @@ export function isPlaybackTieContinuation(
   );
 }
 
-/** True when this attack immediately repeats the same hand+pitch on the prior step (not a tie). */
-export function isRepeatedPlaybackAttack(
-  script: PlaybackScript,
-  stepIndex: number,
-  note: Pick<ScriptNote, 'midi' | 'hand'>,
-): boolean {
-  if (stepIndex === 0 || isPlaybackTieContinuation(script, stepIndex, note)) {
-    return false;
-  }
-
-  const previousStep = script[stepIndex - 1];
-  return previousStep.notes.some(
-    (previous) =>
-      previous.midi === note.midi &&
-      previous.hand === note.hand &&
-      !isPlaybackTieContinuation(script, stepIndex - 1, previous),
-  );
-}
-
 function findNextReattackStepIndex(
   script: PlaybackScript,
   fromStepIndex: number,
@@ -314,27 +292,25 @@ function findNextReattackStepIndex(
   return null;
 }
 
-/**
- * Notes whose same hand+pitch is struck again later in the piece, with no
- * intervening strike of that pitch (the next re-attack, per
- * findNextReattackStepIndex). Both contiguous repeats and repeats separated by
- * a rest, an articulation gap, a dotted/tied value, or a different duration are
- * flagged, because the gap exists to visibly separate two strikes of the same
- * key, not to mark contiguity. Tie continuations are excluded (a tie is one
- * sustained note, not a re-strike).
- *
- * `_divisionsPerQuarter` and `_fermataOffsets` are retained for call-site
- * compatibility; the rule no longer depends on onset/duration timing.
- */
+/** Notes whose same hand+pitch re-attacks on the immediately following step. */
 export function buildConsecutiveSameNoteKeySet(
   script: PlaybackScript,
-  _divisionsPerQuarter: number,
-  _fermataOffsets?: number[],
+  divisionsPerQuarter: number,
+  fermataOffsets: number[] = buildPlaybackFermataOffsetsByStep(
+    script,
+    divisionsPerQuarter,
+  ),
 ): Set<string> {
   const keys = new Set<string>();
+  const epsilon = 1e-6;
 
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
     const step = script[stepIndex];
+    const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
+      step.onset,
+      divisionsPerQuarter,
+      fermataOffsets[stepIndex] ?? 0,
+    );
 
     for (const note of step.notes) {
       if (note.tiedToNext) {
@@ -351,7 +327,21 @@ export function buildConsecutiveSameNoteKeySet(
         continue;
       }
 
-      keys.add(playbackNoteKey(stepIndex, note.hand, note.midi));
+      const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+      const writtenQuarters = noteDurationQuarterNotes(
+        durationDivisions,
+        divisionsPerQuarter,
+      );
+      const writtenEndQuarters = attackOnsetQuarters + writtenQuarters;
+      const nextAttackQuarters = scheduledPlaybackAttackQuarterNotes(
+        script[nextReattackStepIndex].onset,
+        divisionsPerQuarter,
+        fermataOffsets[nextReattackStepIndex] ?? 0,
+      );
+
+      if (Math.abs(nextAttackQuarters - writtenEndQuarters) < epsilon) {
+        keys.add(playbackNoteKey(stepIndex, note.hand, note.midi));
+      }
     }
   }
 

@@ -1053,77 +1053,32 @@ function getNotesSystemKey(notes: GraphicalNote[]): string | null {
   return null;
 }
 
-function graphicalNotesOnSystem(
-  visualIndex: PracticeVisualIndex,
-  systemKey: string,
-): GraphicalNote[] {
-  const onSystem: GraphicalNote[] = [];
-
-  for (const stepNotes of visualIndex.stepGraphicalNotes) {
-    for (const gNote of stepNotes) {
-      if (getMusicSystemKey(gNote) === systemKey) {
-        onSystem.push(gNote);
-      }
-    }
-  }
-
-  return onSystem;
-}
-
-/** Upper stave in a grand-staff system (treble clef). */
-function getTrebleStaveTopY(gNote: GraphicalNote): number | null {
+/** Grand-staff system bounds (both staves) for a graphical note. */
+function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
   const staves = getStavesForMusicSystem(gNote);
   if (staves.length === 0) {
-    return null;
+    const vfNote = gNote as VexFlowGraphicNote;
+    const noteElement =
+      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
+    return noteElement ? noteElement.getBoundingClientRect() : null;
   }
 
-  const sorted = [...staves].sort(
-    (left, right) =>
-      left.getBoundingClientRect().top - right.getBoundingClientRect().top,
-  );
+  if (staves.length === 1) {
+    return staves[0].getBoundingClientRect();
+  }
 
-  return sorted[0].getBoundingClientRect().top;
+  return staves.reduce<DOMRect | null>((bounds, staveElement) => {
+    const rect = staveElement.getBoundingClientRect();
+    return bounds ? unionRects(bounds, rect) : rect;
+  }, null);
 }
 
-function playbackScrollAnchorTop(
-  notes: GraphicalNote[],
-  visualIndex: PracticeVisualIndex,
-): number | null {
-  const systemKey = getNotesSystemKey(notes);
-  if (!systemKey) {
+function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
+  if (notes.length === 0) {
     return null;
   }
 
-  const trebleStaveTop = getTrebleStaveTopY(notes[0]);
-  if (trebleStaveTop === null) {
-    return null;
-  }
-
-  const systemNotes = graphicalNotesOnSystem(visualIndex, systemKey);
-  let highestTrebleNoteTop: number | null = null;
-
-  for (const gNote of systemNotes) {
-    const source = gNote.sourceNote;
-    if (source.isRest() || isTieContinuation(source) || osmdNoteHand(source) !== 'R') {
-      continue;
-    }
-
-    const bounds = getGraphicalNotesBounds([gNote]);
-    if (!bounds) {
-      continue;
-    }
-
-    highestTrebleNoteTop =
-      highestTrebleNoteTop === null
-        ? bounds.top
-        : Math.min(highestTrebleNoteTop, bounds.top);
-  }
-
-  if (highestTrebleNoteTop === null || highestTrebleNoteTop >= trebleStaveTop) {
-    return trebleStaveTop;
-  }
-
-  return highestTrebleNoteTop;
+  return getMusicSystemBounds(notes[0]);
 }
 
 function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
@@ -1318,12 +1273,14 @@ function animateScrollTop(
   activeScrollAnimations.set(container, frame);
 }
 
-function scrollContainerForPlayback(
+function scrollContainerForPractice(
   container: HTMLElement,
   notes: GraphicalNote[],
   scrollState: { current: PracticeScrollState },
   scrollMode: SheetScrollMode,
-  visualIndex: PracticeVisualIndex,
+  _visualIndex: PracticeVisualIndex,
+  _activeHand: Hand,
+  _engineMode: EngineMode,
 ): void {
   const padding = 12;
   const systemKey = getNotesSystemKey(notes);
@@ -1331,8 +1288,8 @@ function scrollContainerForPlayback(
     return;
   }
 
-  const anchorTop = playbackScrollAnchorTop(notes, visualIndex);
-  if (anchorTop === null) {
+  const systemRect = getNotesSystemBounds(notes);
+  if (!systemRect) {
     return;
   }
 
@@ -1344,14 +1301,14 @@ function scrollContainerForPlayback(
     container.scrollHeight - viewportHeight,
   );
 
-  const lineTop = anchorTop - containerRect.top + scrollTop;
+  const systemTop = systemRect.top - containerRect.top + scrollTop;
   const previousSystemKey = scrollState.current.systemKey;
   const isNewStaffLine =
     previousSystemKey !== null && systemKey !== previousSystemKey;
   const needsAnchor = previousSystemKey === null;
 
   if (isNewStaffLine || needsAnchor) {
-    const target = Math.min(Math.max(0, lineTop - padding), maxScrollTop);
+    const target = Math.min(Math.max(0, systemTop - padding), maxScrollTop);
     scrollState.current = { systemKey, lineScrollTop: target };
     if (Math.abs(target - scrollTop) >= 1) {
       animateScrollTop(container, target, scrollMode);
@@ -1392,6 +1349,8 @@ export function syncSheetMusicPlaybackVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
+    activeHand,
+    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -1439,12 +1398,14 @@ export function syncSheetMusicPlaybackVisuals(
 
   const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
   const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
-  scrollContainerForPlayback(
+  scrollContainerForPractice(
     container,
     scrollNotes,
     scrollStateRef,
     scrollMode,
     visualIndex,
+    activeHand,
+    engineMode,
   );
 
   return toHighlight;
@@ -1476,6 +1437,8 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
+    activeHand,
+    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -1505,12 +1468,14 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerForPlayback(
+  scrollContainerForPractice(
     container,
     toHighlight,
     scrollStateRef,
     scrollMode,
     visualIndex as PracticeVisualIndex,
+    activeHand,
+    engineMode,
   );
 
   return toHighlight;

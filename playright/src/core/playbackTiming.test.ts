@@ -5,8 +5,6 @@ import {
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
-  isPlaybackTieContinuation,
-  isRepeatedPlaybackAttack,
   latestWrittenEndQuarterNotes,
   noteDurationQuarterNotes,
   playbackDurationQuarterNotes,
@@ -18,7 +16,6 @@ import {
   PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
-  PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO,
   PLAYBACK_FERMATA_HOLD_FACTOR,
   quarterNotesToSeconds,
   quarterNotesToTickDuration,
@@ -101,171 +98,19 @@ describe('playbackTiming', () => {
     );
   });
 
-  it('flags any later same-pitch re-strike: contiguous, gapped, or separated by other notes', () => {
-    const contiguousScript: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-      {
-        order: 1,
-        onset: 240,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-    ];
-    // E5 (eighth) -> rest (no step) -> E5: the re-strike is not contiguous with
-    // the written end, but it is still the next strike of that pitch.
-    const restGapScript: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-      {
-        order: 1,
-        onset: 720,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-    ];
-    // E5 -> G5 -> E5: separated by a different pitch, still the next E5 strike.
-    const separatedScript: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-      {
-        order: 1,
-        onset: 240,
-        measureNumber: 1,
-        notes: [{ pitch: 'G5', midi: 79, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-      {
-        order: 2,
-        onset: 480,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-    ];
-    // No pitch repeats: nothing is flagged.
-    const noRepeatScript: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-      {
-        order: 1,
-        onset: 240,
-        measureNumber: 1,
-        notes: [{ pitch: 'G5', midi: 79, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-      {
-        order: 2,
-        onset: 480,
-        measureNumber: 1,
-        notes: [{ pitch: 'A5', midi: 81, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-    ];
-
-    expect(buildConsecutiveSameNoteKeySet(contiguousScript, 480)).toEqual(
-      new Set(['0:R:76']),
-    );
-    expect(buildConsecutiveSameNoteKeySet(restGapScript, 480)).toEqual(
-      new Set(['0:R:76']),
-    );
-    expect(buildConsecutiveSameNoteKeySet(separatedScript, 480)).toEqual(
-      new Set(['0:R:76']),
-    );
-    expect(buildConsecutiveSameNoteKeySet(noRepeatScript, 480)).toEqual(new Set());
-  });
-
-  it('does not flag a tie continuation as a re-strike', () => {
-    const tiedScript: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [
-          {
-            pitch: 'E5',
-            midi: 76,
-            hand: 'R',
-            finger: 1,
-            durationDivisions: 240,
-            tiedToNext: true,
-          },
-        ],
-      },
-      {
-        order: 1,
-        onset: 240,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
-      },
-    ];
-
-    expect(buildConsecutiveSameNoteKeySet(tiedScript, 480)).toEqual(new Set());
-  });
-
-  it('caps the consecutive gap to a small fraction of a very short note', () => {
-    const written = 0.03;
-    const gap = articulationGapQuarterNotes(written, {
-      followedByConsecutiveSameNote: true,
-    });
-
-    expect(gap).toBeLessThanOrEqual(
-      written * PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO + 1e-9,
-    );
-    // The note still sounds for most of its length (not swallowed).
-    expect(playbackDurationQuarterNotes(written, false, {
-      followedByConsecutiveSameNote: true,
-    })).toBeGreaterThan(written * 0.5);
-  });
-
-  it('detects immediate repeated attacks but not ties or later repeats', () => {
+  it('marks only immediate same-pitch re-attacks as consecutive', () => {
     const consecutiveScript: PlaybackScript = [
       {
         order: 0,
         onset: 0,
         measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 480 }],
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
       },
       {
         order: 1,
-        onset: 480,
+        onset: 240,
         measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 480 }],
-      },
-    ];
-    const tiedScript: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [
-          {
-            pitch: 'E5',
-            midi: 76,
-            hand: 'R',
-            finger: 1,
-            durationDivisions: 480,
-            tiedToNext: true,
-          },
-        ],
-      },
-      {
-        order: 1,
-        onset: 480,
-        measureNumber: 1,
-        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 480 }],
+        notes: [{ pitch: 'E5', midi: 76, hand: 'R', finger: 1, durationDivisions: 240 }],
       },
     ];
     const nonConsecutiveScript: PlaybackScript = [
@@ -289,16 +134,10 @@ describe('playbackTiming', () => {
       },
     ];
 
-    expect(
-      isRepeatedPlaybackAttack(consecutiveScript, 1, consecutiveScript[1].notes[0]),
-    ).toBe(true);
-    expect(
-      isRepeatedPlaybackAttack(tiedScript, 1, tiedScript[1].notes[0]),
-    ).toBe(false);
-    expect(
-      isRepeatedPlaybackAttack(nonConsecutiveScript, 2, nonConsecutiveScript[2].notes[0]),
-    ).toBe(false);
-    expect(isPlaybackTieContinuation(tiedScript, 1, tiedScript[1].notes[0])).toBe(true);
+    expect(buildConsecutiveSameNoteKeySet(consecutiveScript, 480)).toEqual(
+      new Set(['0:R:76']),
+    );
+    expect(buildConsecutiveSameNoteKeySet(nonConsecutiveScript, 480)).toEqual(new Set());
   });
 
   it('keeps tied and final playback durations at the written length', () => {

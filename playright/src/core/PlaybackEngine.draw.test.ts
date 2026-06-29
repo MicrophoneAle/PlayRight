@@ -22,6 +22,12 @@ vi.mock('tone', () => ({
     clear: vi.fn(),
     cancel: vi.fn(),
   }),
+  getDraw: () => ({
+    schedule: vi.fn(),
+  }),
+  Draw: {
+    schedule: vi.fn(),
+  },
 }));
 
 import { PlaybackEngine } from './PlaybackEngine.ts';
