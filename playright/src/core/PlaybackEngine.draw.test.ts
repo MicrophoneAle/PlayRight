@@ -9,6 +9,11 @@ const transportScheduleOnce = vi.hoisted(() =>
 );
 const transportStart = vi.hoisted(() => vi.fn());
 const scheduleAttackRelease = vi.hoisted(() => vi.fn());
+const drawSchedule = vi.hoisted(() =>
+  vi.fn((callback: (time: number) => void, _time?: number) => {
+    callback(0);
+  }),
+);
 
 vi.mock('tone', () => ({
   getTransport: () => ({
@@ -23,11 +28,8 @@ vi.mock('tone', () => ({
     cancel: vi.fn(),
   }),
   getDraw: () => ({
-    schedule: vi.fn(),
+    schedule: drawSchedule,
   }),
-  Draw: {
-    schedule: vi.fn(),
-  },
 }));
 
 import { PlaybackEngine } from './PlaybackEngine.ts';
@@ -39,6 +41,7 @@ describe('PlaybackEngine playback visuals', () => {
     transportScheduleOnce.mockClear();
     transportStart.mockClear();
     scheduleAttackRelease.mockClear();
+    drawSchedule.mockClear();
 
     const script: PlaybackScript = [
       {
