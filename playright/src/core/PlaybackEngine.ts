@@ -24,10 +24,6 @@ function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
 }
 
-function getDraw(): ReturnType<typeof Tone.getDraw> {
-  return Tone.getDraw();
-}
-
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
@@ -312,6 +308,17 @@ export class PlaybackEngine {
     this.syncPlayingNotes();
   }
 
+  /** Fallback when an absolute release event was skipped during transport catch-up. */
+  private releasePriorStepNotes(currentStepIndex: number): void {
+    const changed = this.playingPressTracker.releaseMatching(
+      (note) => note.stepIndex < currentStepIndex,
+    );
+
+    if (changed) {
+      this.syncPlayingNotes();
+    }
+  }
+
   private scheduleTieEndRelease(
     stepIndex: number,
     note: ScriptNote,
@@ -336,16 +343,14 @@ export class PlaybackEngine {
       false,
       durationOptions,
     );
-    const releaseEventId = getTransport().scheduleOnce((time) => {
-      getDraw().schedule(() => {
-        this.playingPressTracker.releaseMatching(
-          (active) =>
-            active.midi === note.midi &&
-            active.hand === note.hand &&
-            active.stepIndex < stepIndex,
-        );
-        this.syncPlayingNotes();
-      }, time);
+    const releaseEventId = getTransport().scheduleOnce(() => {
+      this.playingPressTracker.releaseMatching(
+        (active) =>
+          active.midi === note.midi &&
+          active.hand === note.hand &&
+          active.stepIndex < stepIndex,
+      );
+      this.syncPlayingNotes();
     }, quartersToTransportTickTime(releaseOnset, ppq));
     this.scheduledEventIds.push(releaseEventId);
   }
@@ -447,34 +452,21 @@ export class PlaybackEngine {
 
         if (!note.tiedToNext) {
           const releaseOnset = attackOnsetQuarters + playedQuarters;
-          const releaseEventId = transport.scheduleOnce((time) => {
-            // Repaint the released key on its own animation frame so the same
-            // pitch visibly lifts before it presses again.
-            getDraw().schedule(() => {
-              this.releasePlayingNote(pressId);
-            }, time);
+          const releaseEventId = transport.scheduleOnce(() => {
+            this.releasePlayingNote(pressId);
           }, quartersToTransportTickTime(releaseOnset, ppq));
           this.scheduledEventIds.push(releaseEventId);
         }
       }
 
       const stepEventId = transport.scheduleOnce((time) => {
-        for (const { note, playedDuration } of stepPresses) {
+        this.releasePriorStepNotes(stepIndex);
+        this.applyStepVisual(stepIndex);
+
+        for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
+          this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
         }
-
-        // Drive highlights through Tone.Draw so each press/release lands on a
-        // distinct animation frame instead of being batched into one paint.
-        getDraw().schedule(() => {
-          this.playingPressTracker.releaseMatching(
-            (active) => active.stepIndex < stepIndex,
-          );
-          this.applyStepVisual(stepIndex);
-
-          for (const { pressId, note } of stepPresses) {
-            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
-          }
-        }, time);
       }, transportTime);
 
       this.scheduledEventIds.push(stepEventId);

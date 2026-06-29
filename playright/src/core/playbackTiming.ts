@@ -33,12 +33,6 @@ export const PLAYBACK_ARTICULATION_GAP_RATIO = 0.035;
 /** Extra release gap when the same pitch re-attacks on the very next step. */
 export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS = 0.015;
 
-/** Minimum silence before a consecutive same-pitch re-attack (visible keyboard release). */
-export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MIN_QUARTERS = 0.08;
-
-/** Consecutive re-attacks reserve at least this fraction of the written note as silence. */
-export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_RATIO = 0.18;
-
 /** @deprecated Use articulationGapQuarterNotes() for duration-aware gaps. */
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
 
@@ -156,13 +150,9 @@ export function articulationGapQuarterNotes(
   );
 
   if (options.followedByConsecutiveSameNote) {
-    const minConsecutiveGap = Math.max(
-      PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MIN_QUARTERS,
-      writtenQuarterNotes * PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_RATIO,
-    );
     gap = Math.min(
       writtenQuarterNotes * 0.75,
-      Math.max(gap + PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS, minConsecutiveGap),
+      gap + PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
     );
   }
 

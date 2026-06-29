@@ -17,8 +17,7 @@ import {
   shouldUnifyStepPlaybackDuration,
   PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
-  PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MIN_QUARTERS,
-  PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_RATIO,
+  PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
   PLAYBACK_FERMATA_HOLD_FACTOR,
   quarterNotesToSeconds,
   quarterNotesToTickDuration,
@@ -82,33 +81,22 @@ describe('playbackTiming', () => {
     expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.48, 5);
   });
 
-  it('uses a shorter release when the same pitch re-attacks on the next step', () => {
-    const written = 1;
+  it('uses a slightly shorter release when the same pitch re-attacks on the next step', () => {
+    const written = 0.5;
     const normal = playbackDurationQuarterNotes(written);
     const consecutive = playbackDurationQuarterNotes(written, false, {
       followedByConsecutiveSameNote: true,
     });
-    const expectedGap = Math.max(
-      PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MIN_QUARTERS,
-      written * PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_RATIO,
-    );
 
     expect(consecutive).toBeLessThan(normal);
-    expect(articulationGapQuarterNotes(written, { followedByConsecutiveSameNote: true })).toBeCloseTo(
-      expectedGap,
+    expect(normal - consecutive).toBeCloseTo(
+      PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
       5,
     );
-    expect(
-      playbackSilenceBeforeNextAttackQuarters(written, false, {
-        followedByConsecutiveSameNote: true,
-      }),
-    ).toBeCloseTo(expectedGap, 5);
-    expect(
-      playbackSilenceBeforeNextAttackQuarters(written, false, {
-        followedByConsecutiveSameNote: true,
-      }),
-    ).toBeGreaterThan(
-      playbackSilenceBeforeNextAttackQuarters(written),
+    expect(articulationGapQuarterNotes(written, { followedByConsecutiveSameNote: true })).toBeCloseTo(
+      articulationGapQuarterNotes(written) +
+        PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
+      5,
     );
   });
 
