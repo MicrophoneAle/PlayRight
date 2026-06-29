@@ -456,46 +456,6 @@ function spreadChordFromLead(
   }
 }
 
-function pinScopeExtremeToPinky(
-  position: HandPosition,
-  hand: Hand,
-  fingers: Map<NoteEvent, Finger | null>,
-): void {
-  const extremeMidi = hand === 'R' ? position.maxMidi : position.minMidi;
-  let extremeEvent: NoteEvent | null = null;
-
-  for (const group of position.groups) {
-    for (const event of group.events) {
-      if (event.midi === extremeMidi) {
-        extremeEvent = event;
-      }
-    }
-  }
-
-  if (!extremeEvent) {
-    return;
-  }
-
-  const extremeFinger = fingers.get(extremeEvent);
-  if (extremeFinger === null || extremeFinger === undefined) {
-    return;
-  }
-
-  const delta = 5 - extremeFinger;
-  if (delta === 0) {
-    return;
-  }
-
-  for (const group of position.groups) {
-    for (const event of group.events) {
-      const finger = fingers.get(event);
-      if (finger !== null && finger !== undefined) {
-        fingers.set(event, clampFinger(finger + delta));
-      }
-    }
-  }
-}
-
 function assignPosition(
   position: HandPosition,
   hand: Hand,
@@ -521,8 +481,10 @@ function assignPosition(
       : position.groups[0].events[position.groups[0].events.length - 1];
   const startFinger = projected.get(leadEvent);
 
+  // A traverse moves the hand along the keyboard (thumb crossings), so the
+  // scope extreme is NOT pinned to the pinky here — that bulk shift would
+  // clamp most of a long melody onto finger 5.
   assignTraversePlacement(position.groups, hand, fingerByEvent, startFinger);
-  pinScopeExtremeToPinky(position, hand, fingerByEvent);
   return fingerByEvent;
 }
 

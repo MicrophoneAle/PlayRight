@@ -93,26 +93,29 @@ describe('scope extreme always lands on pinky or ring', () => {
     return fingers[midis.indexOf(trough)];
   };
 
-  it('right-hand scope up: the highest note is finger 5 or 4', () => {
+  it('right-hand static scope up: the highest note is finger 5 or 4', () => {
     for (const midis of [
       [60, 62, 64],
       [60, 64, 67],
-      [55, 57, 59, 60, 62, 64],
       [60, 62, 60, 62],
     ]) {
       expect([4, 5]).toContain(topFinger(midis));
     }
   });
 
-  it('left-hand scope down: the lowest note is finger 5 or 4', () => {
+  it('left-hand static scope down: the lowest note is finger 5 or 4', () => {
     for (const midis of [
       [60, 58, 56],
       [60, 56, 53],
-      [65, 63, 61, 60, 58, 56],
       [60, 58, 60, 58],
     ]) {
       expect([4, 5]).toContain(bottomFinger(midis));
     }
+  });
+
+  it('a hand-moving run crosses the thumb instead of stranding the pinky', () => {
+    expect(noConsecutiveRepeats(fingerTimeline(eventsFromMidis([55, 57, 59, 60, 62, 64]), 'R'))).toBe(true);
+    expect(noConsecutiveRepeats(fingerTimeline(eventsFromMidis([65, 63, 61, 60, 58, 56]), 'L'))).toBe(true);
   });
 });
 
