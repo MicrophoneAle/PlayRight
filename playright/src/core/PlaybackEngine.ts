@@ -132,15 +132,23 @@ export class PlaybackEngine {
   }
 
   resume(): void {
-    if (!this.isPlaying || !this.isPaused) {
+    // Nothing to resume unless the engine is paused. This intentionally allows
+    // the restart-armed state (isPaused=true, isPlaying=false) through, which
+    // the old `!this.isPlaying` guard rejected, silently breaking Restart→Play.
+    if (!this.isPaused) {
       return;
     }
 
+    // End-of-piece replay: play() resets to step 0 and reschedules everything.
     if (this.hasFinishedPiece) {
       void this.play();
       return;
     }
 
+    // Reschedule only when no events remain. A mid-piece pause keeps its
+    // scheduled events, so it resumes in place. restart() clears them (and
+    // resets the step to 0), so this rebuilds the schedule from the current
+    // step — a fresh start from wherever the step index now points.
     if (this.scheduledEventIds.length === 0) {
       const { currentStepIndex, script } = useEngineStore.getState();
       if (script) {
@@ -153,6 +161,7 @@ export class PlaybackEngine {
     }
 
     getTransport().start();
+    this.isPlaying = true;
     this.isPaused = false;
     useEngineStore.getState().actions.setPlaybackPaused(false);
   }

@@ -225,6 +225,57 @@ describe('PlaybackEngine playback visuals', () => {
     vi.useRealTimers();
   });
 
+  it('resumes from step 0 after restart() (Restart then Play)', async () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+
+    useEngineStore.setState({ script });
+
+    transportScheduleOnce.mockImplementation((callback, time) => {
+      if (String(time) === '0i') {
+        callback(0);
+      }
+
+      return transportScheduleOnce.mock.calls.length;
+    });
+
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+      releaseAll: vi.fn(),
+    } as never);
+
+    await engine.play();
+    engine.pause();
+
+    await engine.restart();
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+    expect(useEngineStore.getState().isPlaybackPaused).toBe(true);
+
+    transportScheduleOnce.mockClear();
+    transportStart.mockClear();
+
+    engine.resume();
+
+    expect(transportScheduleOnce).toHaveBeenCalled();
+    expect(transportStart).toHaveBeenCalled();
+    expect(useEngineStore.getState().isPlaybackPaused).toBe(false);
+  });
+
   it('reschedules and resumes after seek while paused', async () => {
     const script: PlaybackScript = [
       {
