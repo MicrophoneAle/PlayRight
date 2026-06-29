@@ -1,4 +1,5 @@
 import * as Tone from 'tone';
+import { flushSync } from 'react-dom';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildConsecutiveSameNoteKeySet,
@@ -6,7 +7,7 @@ import {
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
-  isRepeatedPlaybackAttack,
+  isSamePitchReattack,
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
@@ -25,10 +26,13 @@ function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
 }
 
+/** Visual-only delay before a same-pitch re-strike press paints (~2 frames). */
+const PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS = 40;
+
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
-  private pendingPressFrames = new Set<number>();
+  private pendingPressTimeouts = new Set<ReturnType<typeof setTimeout>>();
   private playingPressTracker = new PlayingMidiPressTracker();
   private isPlaying = false;
   private isPaused = false;
@@ -305,18 +309,22 @@ export class PlaybackEngine {
     this.syncPlayingNotes();
   }
 
-  private releasePlayingNote(pressId: number): void {
+  private releasePlayingNote(pressId: number, flushVisual = false): void {
     this.playingPressTracker.release(pressId);
+    if (flushVisual) {
+      flushSync(() => {
+        this.syncPlayingNotes();
+      });
+      return;
+    }
+
     this.syncPlayingNotes();
   }
 
   /**
-   * Defer a repeated pitch's highlight press by one animation frame. The prior
-   * note's release and this press would otherwise run in the same Tone clock
-   * callback (one React commit), so the released frame never paints and the key
-   * looks continuously held. Pushing the press to the next frame guarantees a
-   * painted "released" state between the two strikes, using the normal pressed
-   * styling. Audio is unaffected; only the visual press is delayed (~1 frame).
+   * Defer a same-pitch re-strike's highlight press so the prior note's release
+   * paints first. Audio fires at the written attack time; only the visual press
+   * is delayed slightly so the key visibly lifts between strikes.
    */
   private deferRepeatedPress(
     stepIndex: number,
@@ -324,28 +332,21 @@ export class PlaybackEngine {
     hand: Hand,
     pressId: number,
   ): void {
-    if (typeof requestAnimationFrame !== 'function') {
-      this.pressPlayingNote(stepIndex, midi, hand, pressId);
-      return;
-    }
-
-    const frameId = requestAnimationFrame(() => {
-      this.pendingPressFrames.delete(frameId);
+    const timeoutId = setTimeout(() => {
+      this.pendingPressTimeouts.delete(timeoutId);
       if (!this.isPlaying || this.isPaused) {
         return;
       }
       this.pressPlayingNote(stepIndex, midi, hand, pressId);
-    });
-    this.pendingPressFrames.add(frameId);
+    }, PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS);
+    this.pendingPressTimeouts.add(timeoutId);
   }
 
-  private cancelPendingPressFrames(): void {
-    if (typeof cancelAnimationFrame === 'function') {
-      for (const frameId of this.pendingPressFrames) {
-        cancelAnimationFrame(frameId);
-      }
+  private cancelPendingPressTimeouts(): void {
+    for (const timeoutId of this.pendingPressTimeouts) {
+      clearTimeout(timeoutId);
     }
-    this.pendingPressFrames.clear();
+    this.pendingPressTimeouts.clear();
   }
 
   /** Fallback when an absolute release event was skipped during transport catch-up. */
@@ -396,7 +397,7 @@ export class PlaybackEngine {
   }
 
   private clearPlayingNotes(): void {
-    this.cancelPendingPressFrames();
+    this.cancelPendingPressTimeouts();
     this.playingPressTracker.clear();
     const { actions } = useEngineStore.getState();
     actions.setPlayingMidiNotes([]);
@@ -493,8 +494,11 @@ export class PlaybackEngine {
 
         if (!note.tiedToNext) {
           const releaseOnset = attackOnsetQuarters + playedQuarters;
+          const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
+            `${stepIndex}:${note.hand}:${note.midi}`,
+          );
           const releaseEventId = transport.scheduleOnce(() => {
-            this.releasePlayingNote(pressId);
+            this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
           }, quartersToTransportTickTime(releaseOnset, ppq));
           this.scheduledEventIds.push(releaseEventId);
         }
@@ -507,7 +511,7 @@ export class PlaybackEngine {
         for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);
 
-          if (isRepeatedPlaybackAttack(script, stepIndex, note)) {
+          if (isSamePitchReattack(script, stepIndex, note)) {
             this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
           } else {
             this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);

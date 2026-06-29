@@ -168,7 +168,9 @@ describe('PlaybackEngine playback visuals', () => {
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });
 
-  it('defers a consecutive same-note press one frame so the key visibly re-strikes', async () => {
+  it('defers a same-pitch re-strike press so the key visibly re-strikes', async () => {
+    vi.useFakeTimers();
+
     const script: PlaybackScript = [
       {
         order: 0,
@@ -192,56 +194,35 @@ describe('PlaybackEngine playback visuals', () => {
       return scheduled.length;
     });
 
-    const frameCallbacks: FrameRequestCallback[] = [];
-    const originalRaf = globalThis.requestAnimationFrame;
-    const originalCaf = globalThis.cancelAnimationFrame;
-    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      frameCallbacks.push(callback);
-      return frameCallbacks.length;
-    }) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
-    const flushFrames = () => {
-      for (const callback of frameCallbacks.splice(0)) {
-        callback(0);
-      }
-    };
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+    } as never);
 
-    try {
-      const engine = new PlaybackEngine();
-      engine.attachAudioEngine({
-        warm: async () => {},
-        init: async () => {},
-        scheduleAttackRelease,
-      } as never);
+    await engine.play();
 
-      await engine.play();
+    const stepAttacks = scheduled
+      .filter(({ time }) => time === '0i' || time.endsWith('480i'))
+      .map(({ callback }) => callback);
+    const firstRelease = scheduled.find(
+      ({ time }) => time !== '0i' && !time.endsWith('480i'),
+    )?.callback;
 
-      const stepAttacks = scheduled
-        .filter(({ time }) => time === '0i' || time.endsWith('480i'))
-        .map(({ callback }) => callback);
-      const firstRelease = scheduled.find(
-        ({ time }) => time !== '0i' && !time.endsWith('480i'),
-      )?.callback;
+    stepAttacks[0]?.(0);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
 
-      // First strike presses immediately.
-      stepAttacks[0]?.(0);
-      expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
+    firstRelease?.(0);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
 
-      // The key releases before the repeat re-attacks.
-      firstRelease?.(0);
-      expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
+    stepAttacks[1]?.(0);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
 
-      // The repeated attack defers its press, so the released frame paints first.
-      stepAttacks[1]?.(0);
-      expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(40);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
 
-      // On the next animation frame the same key presses again.
-      flushFrames();
-      expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
-    } finally {
-      globalThis.requestAnimationFrame = originalRaf;
-      globalThis.cancelAnimationFrame = originalCaf;
-    }
+    vi.useRealTimers();
   });
 
   it('reschedules and resumes after seek while paused', async () => {
