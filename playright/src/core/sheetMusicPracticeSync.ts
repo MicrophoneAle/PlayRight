@@ -1085,6 +1085,15 @@ function getTrebleStaveTopY(gNote: GraphicalNote): number | null {
   return sorted[0].getBoundingClientRect().top;
 }
 
+/**
+ * Top of the line's scroll anchor, in viewport coordinates.
+ *
+ * The anchor is the highest note anywhere on the line so any note that rises
+ * above the treble staff (ledger-line notes) stays visible, with the top
+ * (treble) staff line as the floor when nothing rises above it. The bass staff
+ * is never used as the anchor: the topmost staff is the baseline and notes can
+ * only push the anchor higher, never lower.
+ */
 function playbackScrollAnchorTop(
   notes: GraphicalNote[],
   visualIndex: PracticeVisualIndex,
@@ -1094,17 +1103,17 @@ function playbackScrollAnchorTop(
     return null;
   }
 
+  // Baseline: the top (treble) staff line of the system.
   const trebleStaveTop = getTrebleStaveTopY(notes[0]);
-  if (trebleStaveTop === null) {
-    return null;
-  }
 
+  // Highest note anywhere on the line (any hand), covering ledger notes that
+  // sit above the treble staff so they are not clipped at the top.
   const systemNotes = graphicalNotesOnSystem(visualIndex, systemKey);
-  let highestTrebleNoteTop: number | null = null;
+  let highestNoteTop: number | null = null;
 
   for (const gNote of systemNotes) {
     const source = gNote.sourceNote;
-    if (source.isRest() || isTieContinuation(source) || osmdNoteHand(source) !== 'R') {
+    if (source.isRest() || isTieContinuation(source)) {
       continue;
     }
 
@@ -1113,17 +1122,25 @@ function playbackScrollAnchorTop(
       continue;
     }
 
-    highestTrebleNoteTop =
-      highestTrebleNoteTop === null
-        ? bounds.top
-        : Math.min(highestTrebleNoteTop, bounds.top);
+    highestNoteTop =
+      highestNoteTop === null ? bounds.top : Math.min(highestNoteTop, bounds.top);
   }
 
-  if (highestTrebleNoteTop === null || highestTrebleNoteTop >= trebleStaveTop) {
-    return trebleStaveTop;
+  const candidates: number[] = [];
+  if (trebleStaveTop !== null) {
+    candidates.push(trebleStaveTop);
+  }
+  if (highestNoteTop !== null) {
+    candidates.push(highestNoteTop);
   }
 
-  return highestTrebleNoteTop;
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // The smallest top wins: a note above the staff lifts the anchor; otherwise
+  // the treble staff top is used so we never anchor on the bass staff.
+  return Math.min(...candidates);
 }
 
 function getGraphicalNotesBounds(notes: GraphicalNote[]): DOMRect | null {
@@ -1357,7 +1374,9 @@ function scrollContainerForPlayback(
   scrollMode: SheetScrollMode,
   visualIndex: PracticeVisualIndex,
 ): void {
-  const padding = 12;
+  // Buffer above the anchor (highest note / treble staff top) so the top of the
+  // line is not flush against the viewport edge.
+  const padding = 28;
   const systemKey = getNotesSystemKey(notes);
   if (!systemKey) {
     return;
