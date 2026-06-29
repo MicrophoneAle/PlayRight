@@ -144,6 +144,29 @@ describe('scope shift after a leap', () => {
     expect(fingers[1]).toBe(5);
     expect(fingers[2]).toBe(4);
   });
+
+  it('opens an upward-shifted traverse on the pinky, never the thumb', () => {
+    // Leap up to the top of a long descending run that overflows five fingers.
+    const fingers = fingerTimeline(eventsFromMidis([60, 88, 86, 84, 83, 81, 79, 77]), 'R');
+    expect(fingers[1]).toBe(5);
+    expect(fingers[1]).not.toBe(1);
+  });
+
+  it('left-hand upward leap opens its new scope on the pinky too', () => {
+    const fingers = fingerTimeline(eventsFromMidis([60, 36, 38, 40, 41, 43, 45, 47]), 'L');
+    expect(fingers[1]).toBe(5);
+  });
+});
+
+describe('a scope holds while notes stay within a major tenth', () => {
+  it('keeps one scope (repeated pitches reuse fingers) inside 17 semitones', () => {
+    // Spans 12 semitones, so no shift — same pitch keeps the same finger.
+    const fingers = fingerTimeline(eventsFromMidis([60, 64, 67, 72, 67, 64, 60]), 'R');
+    expect(fingers[0]).toBe(fingers[6]);
+    expect(fingers[1]).toBe(fingers[5]);
+    expect(fingers[2]).toBe(fingers[4]);
+    expect(fingers[3]).toBe(5);
+  });
 });
 
 function midisIndexOf(midis: number[], target: number): number {

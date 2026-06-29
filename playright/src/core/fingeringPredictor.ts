@@ -348,18 +348,27 @@ function finalizePosition(groups: OnsetGroup[]): HandPosition {
 
 function buildPositions(
   phrase: NoteEvent[],
-  hand: Hand,
   spanScale: number,
-  seenMidis: Set<number>,
 ): HandPosition[] {
   const groups = groupOnsets(phrase);
   const positions: HandPosition[] = [];
   let current: OnsetGroup[] = [];
 
+  // A scope holds as long as the near-future notes stay inside a major-tenth
+  // (17-semitone) window. Pure pitch-range test — never touches seenMidis, so
+  // trial fitting cannot pollute the comfort/strained decision made later.
   const fits = (candidate: OnsetGroup[]): boolean => {
-    const walk = walkRelative(candidate, hand, 'close', seenMidis);
-    const pitchRange = walk.maxMidi - walk.minMidi;
-    return pitchRange <= MAX_HAND_SPAN_SEMITONES * spanScale;
+    let minMidi = Infinity;
+    let maxMidi = -Infinity;
+
+    for (const group of candidate) {
+      for (const event of group.events) {
+        minMidi = Math.min(minMidi, event.midi);
+        maxMidi = Math.max(maxMidi, event.midi);
+      }
+    }
+
+    return maxMidi - minMidi <= MAX_HAND_SPAN_SEMITONES * spanScale;
   };
 
   for (const group of groups) {
@@ -628,12 +637,21 @@ function assignPosition(
     return fingerByEvent;
   }
 
-  const projected = absoluteFromWalk(walk, hand);
-  const leadEvent =
+  // Anchor the new scope to its extreme: RH top / LH bottom note → finger 5
+  // (`]` / `q`). The first note's finger is read off that pin via the gap
+  // mapping, so an upward shift opens on the pinky rather than the thumb.
+  const firstGroup = position.groups[0];
+  const firstEvent =
     hand === 'R'
-      ? position.groups[0].events[0]
-      : position.groups[0].events[position.groups[0].events.length - 1];
-  const startFinger = projected.get(leadEvent);
+      ? firstGroup.events[0]
+      : firstGroup.events[firstGroup.events.length - 1];
+  const extremeMidi = hand === 'R' ? position.maxMidi : position.minMidi;
+  const intervalToExtreme = Math.abs(extremeMidi - firstEvent.midi);
+  const gapToExtreme =
+    intervalToExtreme === 0
+      ? 0
+      : Math.max(1, fingerGapForInterval(intervalToExtreme, mode, mode === 'wide'));
+  const startFinger = clampFinger(5 - gapToExtreme);
 
   assignTraversePlacement(position.groups, hand, fingerByEvent, seenMidis, startFinger);
 
@@ -654,7 +672,7 @@ export function fingerTimeline(
   const seenMidis = new Set<number>();
 
   for (const phrase of segmentIntoPhrases(events)) {
-    const positions = buildPositions(phrase, hand, spanScale, seenMidis);
+    const positions = buildPositions(phrase, spanScale);
     for (let positionIndex = 0; positionIndex < positions.length; positionIndex += 1) {
       const position = positions[positionIndex];
       for (const [event, finger] of assignPosition(
