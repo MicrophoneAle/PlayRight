@@ -1376,7 +1376,7 @@ function scrollContainerForPlayback(
 ): void {
   // Buffer above the anchor (highest note / treble staff top) so the top of the
   // line is not flush against the viewport edge.
-  const padding = 28;
+  const padding = 20;
   const systemKey = getNotesSystemKey(notes);
   if (!systemKey) {
     return;
