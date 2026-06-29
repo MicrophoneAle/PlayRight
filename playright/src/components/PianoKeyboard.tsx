@@ -13,9 +13,7 @@ import {
   buildTwoHandExpectedMidis,
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandStepNotesByMidi,
-  type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
-import { getFingerMappingFromKeyboard } from '../core/twoHandMapping.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { Finger, Hand, ScriptNote } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
@@ -47,27 +45,6 @@ function isMidiActive(
 ): boolean {
   return Object.entries(keyMap).some(
     ([code, mappedMidi]) => mappedMidi === midi && activePhysicalKeys.has(code),
-  );
-}
-
-function twoHandFingerKey(hand: Hand, finger: Finger): string {
-  return `${hand}:${finger}`;
-}
-
-function isTwoHandMidiHeld(
-  midi: number,
-  stepNotesByMidi: Map<number, TwoHandStepNoteInfo[]> | null,
-  activeTwoHandFingers: ReadonlySet<string>,
-): boolean {
-  if (!stepNotesByMidi) {
-    return false;
-  }
-
-  const notes = stepNotesByMidi.get(midi) ?? [];
-  return notes.some(
-    (note) =>
-      note.finger !== null &&
-      activeTwoHandFingers.has(twoHandFingerKey(note.hand, note.finger)),
   );
 }
 
@@ -212,9 +189,6 @@ export function PianoKeyboard() {
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
     () => new Set(),
   );
-  const [activeTwoHandFingers, setActiveTwoHandFingers] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [selectedNote, setSelectedNote] = useState<SelectedStepNote | null>(
     null,
   );
@@ -336,63 +310,13 @@ export function PianoKeyboard() {
 
   useEffect(() => {
     setSelectedNote(null);
-    setActiveTwoHandFingers(new Set());
   }, [currentStepIndex]);
 
   useEffect(() => {
     if (isTwoHand) {
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.repeat) {
-          return;
-        }
-
-        const mapping = getFingerMappingFromKeyboard(event);
-        if (mapping !== null) {
-          flushSync(() => {
-            setActiveTwoHandFingers((previous) => {
-              const fingerKey = twoHandFingerKey(mapping.hand, mapping.finger);
-              if (previous.has(fingerKey)) {
-                return previous;
-              }
-
-              const next = new Set(previous);
-              next.add(fingerKey);
-              return next;
-            });
-          });
-        }
-      };
-
-      const handleKeyUp = (event: KeyboardEvent) => {
-        const mapping = getFingerMappingFromKeyboard(event);
-        if (mapping === null) {
-          return;
-        }
-
-        flushSync(() => {
-          setActiveTwoHandFingers((previous) => {
-            const fingerKey = twoHandFingerKey(mapping.hand, mapping.finger);
-            if (!previous.has(fingerKey)) {
-              return previous;
-            }
-
-            const next = new Set(previous);
-            next.delete(fingerKey);
-            return next;
-          });
-        });
-      };
-
-      window.addEventListener('keydown', handleKeyDown, { capture: true });
-      window.addEventListener('keyup', handleKeyUp, { capture: true });
-
-      return () => {
-        window.removeEventListener('keydown', handleKeyDown, { capture: true });
-        window.removeEventListener('keyup', handleKeyUp, { capture: true });
-      };
+      setActivePhysicalKeys(new Set());
+      return;
     }
-
-    setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'ArrowRight' || event.code === 'Digit2') {
@@ -614,7 +538,7 @@ export function PianoKeyboard() {
         {whiteKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
           const isPhysicallyActive = isTwoHand
-            ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
+            ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
@@ -657,7 +581,7 @@ export function PianoKeyboard() {
         {blackKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
           const isPhysicallyActive = isTwoHand
-            ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
+            ? false
             : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,

@@ -50,17 +50,15 @@ export function Dashboard() {
             <SheetMusicDisplay musicXml={rawXml} />
             <div className="shrink-0 py-0.5 text-center">
               {script ? (
-                <>
-                  <p className="text-sm font-medium leading-tight text-zinc-300">
-                    {isComplete
-                      ? 'Piece complete'
-                      : `Step ${practiceStepNumber} of ${practiceStepTotal}${
-                          !playMode && engineMode === 'one-hand'
-                            ? ` · ${formatHandLabel(activeHand)}`
-                            : ''
-                        }`}
-                  </p>
-                </>
+                <p className="text-sm font-medium leading-tight text-zinc-300">
+                  {isComplete
+                    ? 'Piece complete'
+                    : `Step ${practiceStepNumber} of ${practiceStepTotal}${
+                        !playMode && engineMode === 'one-hand'
+                          ? ` · ${formatHandLabel(activeHand)}`
+                          : ''
+                      }`}
+                </p>
               ) : null}
             </div>
           </>
