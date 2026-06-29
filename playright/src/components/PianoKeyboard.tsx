@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import {
@@ -103,22 +103,20 @@ function getWhiteKeyClasses(
   isExpected: boolean,
   isActive: boolean,
   isSelected: boolean,
-  repressPulse: boolean,
 ): string {
   const base =
     'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-400' : '';
-  const repressClass = repressPulse ? ' animate-playback-key-repress-white' : '';
 
   if (isActive && isExpected) {
-    return `${base}${repressClass} translate-y-[3px] bg-emerald-300 shadow-[inset_0_3px_6px_rgba(5,150,105,0.45)] ring-2 ring-inset ring-emerald-500`;
+    return `${base} translate-y-[3px] bg-emerald-300 shadow-[inset_0_3px_6px_rgba(5,150,105,0.45)] ring-2 ring-inset ring-emerald-500`;
   }
   if (isActive) {
-    return `${base}${repressClass} translate-y-[3px] bg-zinc-300 shadow-inner`;
+    return `${base} translate-y-[3px] bg-zinc-300 shadow-inner`;
   }
   if (isExpected) {
-    return `${base}${repressClass} bg-emerald-100 ring-2 ring-inset ring-emerald-400${selectedRing}`;
+    return `${base} bg-emerald-100 ring-2 ring-inset ring-emerald-400${selectedRing}`;
   }
   if (inScope) {
     return `${base} bg-violet-100`;
@@ -131,22 +129,20 @@ function getBlackKeyClasses(
   isExpected: boolean,
   isActive: boolean,
   isSelected: boolean,
-  repressPulse: boolean,
 ): string {
   const base =
     'absolute z-10 rounded-b-sm shadow-md transition-[transform,box-shadow,background-color] duration-75';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-300' : '';
-  const repressClass = repressPulse ? ' animate-playback-key-repress-black' : '';
 
   if (isActive && isExpected) {
-    return `${base}${repressClass} translate-y-[2px] bg-emerald-950 shadow-[inset_0_4px_8px_rgba(6,78,59,0.8)] ring-2 ring-inset ring-emerald-400`;
+    return `${base} translate-y-[2px] bg-emerald-950 shadow-[inset_0_4px_8px_rgba(6,78,59,0.8)] ring-2 ring-inset ring-emerald-400`;
   }
   if (isActive) {
-    return `${base}${repressClass} translate-y-[2px] bg-zinc-600 shadow-inner`;
+    return `${base} translate-y-[2px] bg-zinc-600 shadow-inner`;
   }
   if (isExpected) {
-    return `${base}${repressClass} bg-emerald-800 ring-2 ring-inset ring-emerald-400${selectedRing}`;
+    return `${base} bg-emerald-800 ring-2 ring-inset ring-emerald-400${selectedRing}`;
   }
   if (inScope) {
     return `${base} bg-violet-900`;
@@ -200,7 +196,6 @@ export function PianoKeyboard() {
   const scopeTranspose = useEngineStore((state) => state.scopeTranspose);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
   const playingMidiNotes = useEngineStore((state) => state.playingMidiNotes);
-  const playingPlaybackNotes = useEngineStore((state) => state.playingPlaybackNotes);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const playMode = useEngineStore((state) => state.playMode);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
@@ -241,60 +236,6 @@ export function PianoKeyboard() {
     }
     return counts;
   }, [playingMidiNotes]);
-
-  const [repressPulseByMidi, setRepressPulseByMidi] = useState<Map<number, number>>(
-    () => new Map(),
-  );
-  const seenPlaybackPressIdsRef = useRef<Map<string, number>>(new Map());
-
-  useEffect(() => {
-    if (!playMode || !isPlaybackActive) {
-      seenPlaybackPressIdsRef.current.clear();
-      setRepressPulseByMidi(new Map());
-      return;
-    }
-
-    const pulseUpdates: Array<{ midi: number; pressId: number }> = [];
-
-    for (const note of playingPlaybackNotes) {
-      const key = `${note.hand}:${note.midi}`;
-      const seenPressId = seenPlaybackPressIdsRef.current.get(key);
-
-      if (note.isRepeatedAttack && seenPressId !== note.pressId) {
-        pulseUpdates.push({ midi: note.midi, pressId: note.pressId });
-      }
-
-      seenPlaybackPressIdsRef.current.set(key, note.pressId);
-    }
-
-    if (pulseUpdates.length === 0) {
-      return;
-    }
-
-    setRepressPulseByMidi((current) => {
-      const next = new Map(current);
-      for (const { midi, pressId } of pulseUpdates) {
-        next.set(midi, pressId);
-      }
-      return next;
-    });
-
-    const timeout = window.setTimeout(() => {
-      setRepressPulseByMidi((current) => {
-        const next = new Map(current);
-        for (const { midi, pressId } of pulseUpdates) {
-          if (next.get(midi) === pressId) {
-            next.delete(midi);
-          }
-        }
-        return next;
-      });
-    }, 260);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [isPlaybackActive, playMode, playingPlaybackNotes]);
 
   const showStepKeyHighlight =
     (!playMode && isPracticeActive) || (playMode && isPlaybackActive);
@@ -684,8 +625,6 @@ export function PianoKeyboard() {
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
 
-          const isRepressPulse = repressPulseByMidi.get(key.midi) !== undefined;
-
           return (
             <div
               key={key.midi}
@@ -702,7 +641,7 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected, isRepressPulse)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
             >
               {isTwoHand ? renderTwoHandHint(key.midi, false) : null}
               {!isTwoHand && mappedLetter ? (
@@ -728,7 +667,6 @@ export function PianoKeyboard() {
           const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
-          const isRepressPulse = repressPulseByMidi.get(key.midi) !== undefined;
 
           return (
             <div
@@ -746,10 +684,10 @@ export function PianoKeyboard() {
                     }
                   : undefined
               }
-              className={`${getBlackKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected, isRepressPulse)}${isEditable ? ' cursor-pointer' : ''}`}
+              className={`${getBlackKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}`}
               style={{
                 left: `calc(${(key.offsetIndex / 52) * 100}%)`,
-                transform: isRepressPulse ? undefined : 'translateX(-50%)',
+                transform: 'translateX(-50%)',
                 width: 'calc(100% / 52 * 0.65)',
                 height: '65%',
               }}

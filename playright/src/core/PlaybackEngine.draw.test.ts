@@ -168,50 +168,6 @@ describe('PlaybackEngine playback visuals', () => {
     expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });
 
-  it('marks consecutive same-note re-attacks for keyboard pulse feedback', async () => {
-    const script: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
-      },
-      {
-        order: 1,
-        onset: 480,
-        measureNumber: 1,
-        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
-      },
-    ];
-
-    useEngineStore.setState({ script, isPlaybackActive: true });
-
-    const scheduled: Array<{ time: string; callback: (time: number) => void }> = [];
-    transportScheduleOnce.mockImplementation((callback, time) => {
-      scheduled.push({ time: String(time), callback });
-      return scheduled.length;
-    });
-
-    const engine = new PlaybackEngine();
-    engine.attachAudioEngine({
-      warm: async () => {},
-      init: async () => {},
-      scheduleAttackRelease,
-    } as never);
-
-    await engine.play();
-
-    const attackTimes = scheduled
-      .filter(({ time }) => time === '0i' || time.endsWith('480i'))
-      .map(({ callback }) => callback);
-
-    attackTimes[0]?.(0);
-    expect(useEngineStore.getState().playingPlaybackNotes[0]?.isRepeatedAttack).toBe(false);
-
-    attackTimes[1]?.(0);
-    expect(useEngineStore.getState().playingPlaybackNotes[0]?.isRepeatedAttack).toBe(true);
-  });
-
   it('reschedules and resumes after seek while paused', async () => {
     const script: PlaybackScript = [
       {
