@@ -214,13 +214,45 @@ interface RelativeWalk {
 }
 
 /**
- * Interval-gap walk with comfort mapping by default and extended mapping for
- * pitches that recur within the hand timeline.
+ * Pick comfort or strained gap per step. Prefers comfort; switches to strained when
+ * comfort would overflow the hand or the pitch was played before.
+ */
+function chooseAdaptiveGap(
+  intervalSemitones: number,
+  lastRel: number,
+  relMin: number,
+  relMax: number,
+  hand: Hand,
+  seenMidis: Set<number>,
+  targetMidi: number,
+): number {
+  const sign = fingerMoveSign(hand, intervalSemitones);
+  const comfortGap = comfortFingerGap(intervalSemitones);
+  const strainedGap = extendedFingerGap(intervalSemitones);
+
+  if (seenMidis.has(targetMidi)) {
+    return strainedGap;
+  }
+
+  const comfortRel = lastRel + sign * comfortGap;
+  const comfortSpan =
+    Math.max(relMax, comfortRel) - Math.min(relMin, comfortRel);
+
+  if (comfortSpan > MAX_FINGER_SPAN && strainedGap !== comfortGap) {
+    return strainedGap;
+  }
+
+  return comfortGap;
+}
+
+/**
+ * Interval-gap walk preferring comfort mapping and switching to strained per step
+ * when comfort would overflow the hand or the pitch recurs.
  */
 function walkRelative(
   groups: OnsetGroup[],
   hand: Hand,
-  mode: SpanMode,
+  _mode: SpanMode,
   seenMidis: Set<number>,
 ): RelativeWalk {
   const relByEvent = new Map<NoteEvent, number>();
@@ -249,10 +281,9 @@ function walkRelative(
     if (lastMidi === null) {
       return 0;
     }
-    const useExtended = seenMidis.has(midi);
     const gap = Math.max(
       1,
-      fingerGapForInterval(midi - lastMidi, mode, useExtended),
+      chooseAdaptiveGap(midi - lastMidi, lastRel, relMin, relMax, hand, seenMidis, midi),
     );
     return lastRel + fingerMoveSign(hand, midi - lastMidi) * gap;
   };
@@ -269,10 +300,17 @@ function walkRelative(
 
       for (let index = 1; index < group.events.length; index += 1) {
         const event = group.events[index];
-        const useExtended = seenMidis.has(event.midi);
         const gap = Math.max(
           1,
-          fingerGapForInterval(event.midi - prevMidi, mode, useExtended),
+          chooseAdaptiveGap(
+            event.midi - prevMidi,
+            prevRel,
+            relMin,
+            relMax,
+            hand,
+            seenMidis,
+            event.midi,
+          ),
         );
         const rel = prevRel + sign * gap;
         record(event, rel);
@@ -345,23 +383,48 @@ function buildPositions(
   return positions;
 }
 
-/** Pin the scope extreme to the pinky: highest RH / lowest LH → finger 5 (`]` / `q`). */
-function absoluteFromWalk(walk: RelativeWalk, hand: Hand): Map<NoteEvent, Finger> {
-  const result = new Map<NoteEvent, Finger>();
-
-  let pinRel = walk.relMax;
+/** Pin the scope extreme to finger 5 or 4: highest RH / lowest LH → `]`/`p` or `q`. */
+function extremeRelForWalk(walk: RelativeWalk, hand: Hand): number {
   for (const [event, rel] of walk.relByEvent) {
     if (hand === 'R' && event.midi === walk.maxMidi) {
-      pinRel = rel;
-      break;
+      return rel;
     }
     if (hand === 'L' && event.midi === walk.minMidi) {
-      pinRel = rel;
-      break;
+      return rel;
+    }
+  }
+  return walk.relMax;
+}
+
+function bestPinFingerForWalk(walk: RelativeWalk, hand: Hand): Finger {
+  const pinRel = extremeRelForWalk(walk, hand);
+
+  for (const pinFinger of [5, 4] as Finger[]) {
+    const offset = pinFinger - pinRel;
+    let fits = true;
+
+    for (const [, rel] of walk.relByEvent) {
+      const finger = rel + offset;
+      if (finger < 1 || finger > 5) {
+        fits = false;
+        break;
+      }
+    }
+
+    if (fits) {
+      return pinFinger;
     }
   }
 
-  const offset = 5 - pinRel;
+  return 5;
+}
+
+function absoluteFromWalk(walk: RelativeWalk, hand: Hand): Map<NoteEvent, Finger> {
+  const result = new Map<NoteEvent, Finger>();
+  const pinRel = extremeRelForWalk(walk, hand);
+  const pinFinger = bestPinFingerForWalk(walk, hand);
+  const offset = pinFinger - pinRel;
+
   for (const [event, rel] of walk.relByEvent) {
     result.set(event, clampFinger(rel + offset));
   }
@@ -369,10 +432,81 @@ function absoluteFromWalk(walk: RelativeWalk, hand: Hand): Map<NoteEvent, Finger
   return result;
 }
 
+function extremeFingerForPosition(
+  position: HandPosition,
+  hand: Hand,
+  fingers: Map<NoteEvent, Finger | null>,
+): Finger | null {
+  const extremeMidi = hand === 'R' ? position.maxMidi : position.minMidi;
+
+  for (const group of position.groups) {
+    for (const event of group.events) {
+      if (event.midi === extremeMidi) {
+        return fingers.get(event) ?? null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function canShiftFingersBy(
+  position: HandPosition,
+  fingers: Map<NoteEvent, Finger | null>,
+  delta: number,
+): boolean {
+  for (const group of position.groups) {
+    for (const event of group.events) {
+      const finger = fingers.get(event);
+      if (finger === null || finger === undefined) {
+        continue;
+      }
+
+      const shifted = finger + delta;
+      if (shifted < 1 || shifted > 5) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+/** After a scope shift, slide every finger so the extreme lands on `]`/`p` (or `q`). */
+function ensureScopeExtremeOnPinkyOrRing(
+  position: HandPosition,
+  hand: Hand,
+  fingers: Map<NoteEvent, Finger | null>,
+): void {
+  const extremeFinger = extremeFingerForPosition(position, hand, fingers);
+  if (extremeFinger === null || extremeFinger === 4 || extremeFinger === 5) {
+    return;
+  }
+
+  for (const target of [5, 4] as Finger[]) {
+    const delta = target - extremeFinger;
+    if (delta === 0 || !canShiftFingersBy(position, fingers, delta)) {
+      continue;
+    }
+
+    for (const group of position.groups) {
+      for (const event of group.events) {
+        const finger = fingers.get(event);
+        if (finger !== null && finger !== undefined) {
+          fingers.set(event, clampFinger(finger + delta));
+        }
+      }
+    }
+
+    return;
+  }
+}
+
 function assignTraversePlacement(
   placement: OnsetGroup[],
   hand: Hand,
   out: Map<NoteEvent, Finger | null>,
+  seenMidis: Set<number>,
   startFinger?: Finger,
 ): void {
   const leads = placement.map((group) => leadMidi(group, hand));
@@ -382,7 +516,7 @@ function assignTraversePlacement(
   const earlyTo: Finger = fingerUpRun ? 1 : 3;
 
   let finger: Finger = startFinger ?? (fingerUpRun ? 1 : 5);
-  spreadChordFromLead(placement[0], hand, 'wide', finger, out);
+  spreadChordFromLead(placement[0], hand, finger, seenMidis, out);
 
   for (let index = 1; index < leads.length; index += 1) {
     const interval = leads[index] - leads[index - 1];
@@ -400,7 +534,10 @@ function assignTraversePlacement(
     ) {
       finger = earlyTo;
     } else {
-      const gap = Math.max(1, fingerGapForInterval(interval, 'wide', true));
+      const gap = Math.max(
+        1,
+        chooseAdaptiveGap(interval, finger, 0, MAX_FINGER_SPAN, hand, seenMidis, leads[index]),
+      );
       const candidate = finger + fingerMoveSign(hand, interval) * gap;
       if (candidate > 5) {
         finger = 1;
@@ -415,15 +552,15 @@ function assignTraversePlacement(
       finger = avoidRepeat(previous, finger);
     }
 
-    spreadChordFromLead(placement[index], hand, 'wide', finger, out);
+    spreadChordFromLead(placement[index], hand, finger, seenMidis, out);
   }
 }
 
 function spreadChordFromLead(
   group: OnsetGroup,
   hand: Hand,
-  mode: SpanMode,
   leadFinger: Finger,
+  seenMidis: Set<number>,
   out: Map<NoteEvent, Finger | null>,
 ): void {
   const ascending = group.events;
@@ -433,7 +570,15 @@ function spreadChordFromLead(
     for (let index = 1; index < ascending.length; index += 1) {
       const gap = Math.max(
         1,
-        fingerGapForInterval(ascending[index].midi - ascending[index - 1].midi, mode, true),
+        chooseAdaptiveGap(
+          ascending[index].midi - ascending[index - 1].midi,
+          prev,
+          0,
+          MAX_FINGER_SPAN,
+          hand,
+          seenMidis,
+          ascending[index].midi,
+        ),
       );
       const finger = clampFinger(prev + gap);
       out.set(ascending[index], finger > prev ? finger : null);
@@ -448,7 +593,15 @@ function spreadChordFromLead(
   for (let index = top - 1; index >= 0; index -= 1) {
     const gap = Math.max(
       1,
-      fingerGapForInterval(ascending[index + 1].midi - ascending[index].midi, mode, true),
+      chooseAdaptiveGap(
+        ascending[index + 1].midi - ascending[index].midi,
+        prev,
+        0,
+        MAX_FINGER_SPAN,
+        hand,
+        seenMidis,
+        ascending[index].midi,
+      ),
     );
     const finger = clampFinger(prev + gap);
     out.set(ascending[index], finger > prev ? finger : null);
@@ -461,6 +614,7 @@ function assignPosition(
   hand: Hand,
   spanScale: number,
   seenMidis: Set<number>,
+  isNewScope: boolean,
 ): Map<NoteEvent, Finger | null> {
   const range = position.maxMidi - position.minMidi;
   const mode = spanModeForRange(range, spanScale);
@@ -481,10 +635,12 @@ function assignPosition(
       : position.groups[0].events[position.groups[0].events.length - 1];
   const startFinger = projected.get(leadEvent);
 
-  // A traverse moves the hand along the keyboard (thumb crossings), so the
-  // scope extreme is NOT pinned to the pinky here — that bulk shift would
-  // clamp most of a long melody onto finger 5.
-  assignTraversePlacement(position.groups, hand, fingerByEvent, startFinger);
+  assignTraversePlacement(position.groups, hand, fingerByEvent, seenMidis, startFinger);
+
+  if (isNewScope) {
+    ensureScopeExtremeOnPinkyOrRing(position, hand, fingerByEvent);
+  }
+
   return fingerByEvent;
 }
 
@@ -498,8 +654,16 @@ export function fingerTimeline(
   const seenMidis = new Set<number>();
 
   for (const phrase of segmentIntoPhrases(events)) {
-    for (const position of buildPositions(phrase, hand, spanScale, seenMidis)) {
-      for (const [event, finger] of assignPosition(position, hand, spanScale, seenMidis)) {
+    const positions = buildPositions(phrase, hand, spanScale, seenMidis);
+    for (let positionIndex = 0; positionIndex < positions.length; positionIndex += 1) {
+      const position = positions[positionIndex];
+      for (const [event, finger] of assignPosition(
+        position,
+        hand,
+        spanScale,
+        seenMidis,
+        positionIndex > 0,
+      )) {
         fingerByEvent.set(event, finger);
       }
     }

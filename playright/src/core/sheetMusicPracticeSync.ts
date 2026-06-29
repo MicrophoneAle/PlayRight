@@ -1053,34 +1053,6 @@ function getNotesSystemKey(notes: GraphicalNote[]): string | null {
   return null;
 }
 
-/** Grand-staff system bounds (both staves) for a graphical note. */
-function getMusicSystemBounds(gNote: GraphicalNote): DOMRect | null {
-  const staves = getStavesForMusicSystem(gNote);
-  if (staves.length === 0) {
-    const vfNote = gNote as VexFlowGraphicNote;
-    const noteElement =
-      typeof vfNote.getVFNoteSVG === 'function' ? vfNote.getVFNoteSVG() : null;
-    return noteElement ? noteElement.getBoundingClientRect() : null;
-  }
-
-  if (staves.length === 1) {
-    return staves[0].getBoundingClientRect();
-  }
-
-  return staves.reduce<DOMRect | null>((bounds, staveElement) => {
-    const rect = staveElement.getBoundingClientRect();
-    return bounds ? unionRects(bounds, rect) : rect;
-  }, null);
-}
-
-function getNotesSystemBounds(notes: GraphicalNote[]): DOMRect | null {
-  if (notes.length === 0) {
-    return null;
-  }
-
-  return getMusicSystemBounds(notes[0]);
-}
-
 function graphicalNotesOnSystem(
   visualIndex: PracticeVisualIndex,
   systemKey: string,
@@ -1346,57 +1318,6 @@ function animateScrollTop(
   activeScrollAnimations.set(container, frame);
 }
 
-function scrollContainerForPractice(
-  container: HTMLElement,
-  notes: GraphicalNote[],
-  scrollState: { current: PracticeScrollState },
-  scrollMode: SheetScrollMode,
-  _visualIndex: PracticeVisualIndex,
-  _activeHand: Hand,
-  _engineMode: EngineMode,
-): void {
-  const padding = 12;
-  const systemKey = getNotesSystemKey(notes);
-  if (!systemKey) {
-    return;
-  }
-
-  const systemRect = getNotesSystemBounds(notes);
-  if (!systemRect) {
-    return;
-  }
-
-  const containerRect = container.getBoundingClientRect();
-  const viewportHeight = container.clientHeight;
-  const scrollTop = container.scrollTop;
-  const maxScrollTop = Math.max(
-    0,
-    container.scrollHeight - viewportHeight,
-  );
-
-  const systemTop = systemRect.top - containerRect.top + scrollTop;
-  const previousSystemKey = scrollState.current.systemKey;
-  const isNewStaffLine =
-    previousSystemKey !== null && systemKey !== previousSystemKey;
-  const needsAnchor = previousSystemKey === null;
-
-  if (isNewStaffLine || needsAnchor) {
-    const target = Math.min(Math.max(0, systemTop - padding), maxScrollTop);
-    scrollState.current = { systemKey, lineScrollTop: target };
-    if (Math.abs(target - scrollTop) >= 1) {
-      animateScrollTop(container, target, scrollMode);
-    }
-    return;
-  }
-
-  scrollState.current.systemKey = systemKey;
-
-  const anchor = scrollState.current.lineScrollTop;
-  if (anchor !== null && Math.abs(scrollTop - anchor) >= 1) {
-    animateScrollTop(container, anchor, scrollMode);
-  }
-}
-
 function scrollContainerForPlayback(
   container: HTMLElement,
   notes: GraphicalNote[],
@@ -1555,8 +1476,6 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
-    activeHand,
-    engineMode,
   } = options;
 
   resetGraphicalNotes(highlightedNotes);
@@ -1586,14 +1505,12 @@ export function syncSheetMusicPracticeVisuals(
   }
 
   highlightGraphicalNotes(toHighlight);
-  scrollContainerForPractice(
+  scrollContainerForPlayback(
     container,
     toHighlight,
     scrollStateRef,
     scrollMode,
     visualIndex as PracticeVisualIndex,
-    activeHand,
-    engineMode,
   );
 
   return toHighlight;

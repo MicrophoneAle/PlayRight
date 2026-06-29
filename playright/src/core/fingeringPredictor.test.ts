@@ -131,6 +131,25 @@ describe('traverse uses thumb crossings (canonical, tune if needed)', () => {
   });
 });
 
+describe('scope shift after a leap', () => {
+  it('pins the new scope top note to the pinky or ring', () => {
+    const fingers = fingerTimeline(eventsFromMidis([60, 62, 84, 86, 88]), 'R');
+    const peak = 88;
+    expect([4, 5]).toContain(fingers[midisIndexOf([60, 62, 84, 86, 88], peak)]);
+  });
+
+  it('derives the first note in the new scope from the pinned top (G on ], F on p)', () => {
+    // G5=79, F5=77 — 2 semitones, neighbouring fingers with top on pinky
+    const fingers = fingerTimeline(eventsFromMidis([60, 79, 77]), 'R');
+    expect(fingers[1]).toBe(5);
+    expect(fingers[2]).toBe(4);
+  });
+});
+
+function midisIndexOf(midis: number[], target: number): number {
+  return midis.indexOf(target);
+}
+
 describe('jumps and octaves', () => {
   it('a leap beyond a tenth starts a new scope', () => {
     const fingers = fingerTimeline(eventsFromMidis([60, 62, 84, 86]), 'R');
