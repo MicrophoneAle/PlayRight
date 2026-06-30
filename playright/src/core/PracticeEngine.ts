@@ -16,7 +16,6 @@ export class PracticeEngine {
   private hitNoteIndices: Set<number> = new Set();
   private soundingMidis = new Set<number>();
   private activeFingerSounds = new Map<string, number>();
-  private completionFrame: number | null = null;
   private storeSubscriptionInitialized = false;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -93,7 +92,6 @@ export class PracticeEngine {
       return;
     }
 
-    this.cancelCompletionCheck();
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
@@ -237,6 +235,10 @@ export class PracticeEngine {
 
     const { engineMode, activeHand } = useEngineStore.getState();
 
+    // Mark every matching note for this midi first, then check completion ONCE.
+    // Checking inside the loop could advance the step (reassigning
+    // practiceNotesForStep) mid-iteration and corrupt the next step's hits.
+    let marked = false;
     for (let index = 0; index < this.practiceNotesForStep.length; index += 1) {
       if (this.hitNoteIndices.has(index)) {
         continue;
@@ -251,25 +253,44 @@ export class PracticeEngine {
         continue;
       }
 
-      this.registerPracticeHitAtIndex(index);
+      if (this.markHitAtIndex(index)) {
+        marked = true;
+      }
+    }
+
+    if (marked) {
+      this.checkStepCompletion();
     }
   }
 
   private registerPracticeHitAtIndex(index: number): void {
+    if (this.markHitAtIndex(index)) {
+      this.checkStepCompletion();
+    }
+  }
+
+  /**
+   * Record a hit without advancing. Returns true when a new hit was recorded.
+   * Completion is checked synchronously by the caller so the step advances within
+   * the same event, before the next keydown is processed — otherwise a chord (or a
+   * note pressed immediately after) is matched against the not-yet-advanced step
+   * and silently dropped, forcing the player to space notes out.
+   */
+  private markHitAtIndex(index: number): boolean {
     if (!useEngineStore.getState().isPracticeActive) {
-      return;
+      return false;
     }
 
     if (index < 0 || index >= this.practiceNotesForStep.length) {
-      return;
+      return false;
     }
 
     if (this.hitNoteIndices.has(index)) {
-      return;
+      return false;
     }
 
     this.hitNoteIndices.add(index);
-    this.scheduleCompletionCheck();
+    return true;
   }
 
   private releaseAllSoundingNotes(): void {
@@ -311,33 +332,13 @@ export class PracticeEngine {
     engine.noteOff(midi);
   }
 
-  private scheduleCompletionCheck(): void {
-    if (this.completionFrame !== null) {
-      return;
-    }
-
-    this.completionFrame = requestAnimationFrame(() => {
-      this.completionFrame = null;
-      this.checkStepCompletion();
-    });
-  }
-
-  private cancelCompletionCheck(): void {
-    if (this.completionFrame !== null) {
-      cancelAnimationFrame(this.completionFrame);
-      this.completionFrame = null;
-    }
-  }
-
   private syncAfterScriptChange(): void {
-    this.cancelCompletionCheck();
     this.loadCurrentStep({
       alignScope: useEngineStore.getState().script !== null,
     });
   }
 
   private syncAfterPlayModeChange(playMode: boolean): void {
-    this.cancelCompletionCheck();
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
@@ -352,7 +353,6 @@ export class PracticeEngine {
     const { alignScope = false, exactStep = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
-    this.cancelCompletionCheck();
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
@@ -478,7 +478,6 @@ export class PracticeEngine {
       this.hitNoteIndices.clear();
       this.expectedNotes.clear();
       this.practiceNotesForStep = [];
-      this.cancelCompletionCheck();
       return;
     }
 

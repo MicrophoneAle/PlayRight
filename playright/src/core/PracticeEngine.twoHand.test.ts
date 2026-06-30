@@ -237,6 +237,72 @@ describe('PracticeEngine two-hand finger press', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
+  it('registers a chord pressed in one batch without spacing the notes out', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C#3', midi: 49, hand: 'L', finger: 4 },
+          { pitch: 'G#3', midi: 56, hand: 'L', finger: 2 },
+          { pitch: 'C#4', midi: 61, hand: 'L', finger: 1 },
+        ],
+      },
+      {
+        order: 1,
+        onset: 1,
+        measureNumber: 1,
+        notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: 2 }],
+      },
+    ]);
+    engine.start();
+
+    // All three chord fingers arrive back-to-back (no rAF flush between them).
+    engine.handleFingerPress({ hand: 'L', finger: 4 });
+    engine.handleFingerPress({ hand: 'L', finger: 2 });
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
+
+  it('registers a chord pressed immediately after a single note (no frame to spare)', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+      },
+      {
+        order: 1,
+        onset: 1,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C#3', midi: 49, hand: 'L', finger: 4 },
+          { pitch: 'G#3', midi: 56, hand: 'L', finger: 2 },
+          { pitch: 'C#4', midi: 61, hand: 'L', finger: 1 },
+        ],
+      },
+      {
+        order: 2,
+        onset: 2,
+        measureNumber: 1,
+        notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: 2 }],
+      },
+    ]);
+    engine.start();
+
+    // Single note, then the chord, all in one synchronous burst. The step must
+    // advance before the chord keys are matched, or they would be dropped.
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerPress({ hand: 'L', finger: 4 });
+    engine.handleFingerPress({ hand: 'L', finger: 2 });
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+  });
+
   it('does not double-count an already-hit finger', () => {
     makeScript([
       {
