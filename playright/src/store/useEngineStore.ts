@@ -21,6 +21,7 @@ export type SheetScrollMode = 'smooth' | 'instant';
 const SHEET_SCROLL_MODE_STORAGE_KEY = 'playright-sheet-scroll-mode';
 const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
 const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
+const OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY = 'playright-override-score-fingerings';
 const PLAY_MODE_STORAGE_KEY = 'playright-play-mode';
 const TEMPO_FACTOR_STORAGE_KEY = 'playright-tempo-factor';
 
@@ -61,6 +62,14 @@ function readStoredHandSpan(): HandSpanPreset {
   return HAND_SPAN_PRESETS.includes(parsed as HandSpanPreset)
     ? (parsed as HandSpanPreset)
     : 1;
+}
+
+function readStoredOverrideScoreFingerings(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY) === 'true';
 }
 
 function readStoredPlayMode(): boolean {
@@ -104,6 +113,7 @@ function reprocessScriptFromRaw(
   manualFingerings: ManualFingeringMap,
   autoFingering: boolean,
   handSpan: HandSpanPreset,
+  overrideScoreFingerings: boolean,
 ): { script: PlaybackScript; scoreTiming: ScoreTiming } | null {
   if (!rawXml) {
     return null;
@@ -115,6 +125,7 @@ function reprocessScriptFromRaw(
     manualFingerings,
     autoFingering,
     handSpan,
+    overrideScoreFingerings,
   );
 
   return { script, scoreTiming };
@@ -159,6 +170,7 @@ interface EngineState {
   sheetScrollMode: SheetScrollMode;
   autoFingering: boolean;
   handSpan: HandSpanPreset;
+  overrideScoreFingerings: boolean;
   engineMode: EngineMode;
   activeHand: Hand;
   /** Set by PracticeEngine; false when paused, stopped, or not yet started. */
@@ -208,6 +220,7 @@ interface EngineState {
     setSheetScrollMode: (mode: SheetScrollMode) => void;
     setAutoFingering: (enabled: boolean) => void;
     setHandSpan: (span: HandSpanPreset) => void;
+    setOverrideScoreFingerings: (enabled: boolean) => void;
     cycleShiftMode: (direction: 'up' | 'down') => void;
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
@@ -239,6 +252,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   sheetScrollMode: readStoredSheetScrollMode(),
   autoFingering: readStoredAutoFingering(),
   handSpan: readStoredHandSpan(),
+  overrideScoreFingerings: readStoredOverrideScoreFingerings(),
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
@@ -303,6 +317,7 @@ export const useEngineStore = create<EngineState>((set) => ({
           manualFingerings,
           state.autoFingering,
           state.handSpan,
+          state.overrideScoreFingerings,
         );
 
         persistManualFingerings(state.scoreId, manualFingerings, userId);
@@ -330,6 +345,7 @@ export const useEngineStore = create<EngineState>((set) => ({
           manualFingerings,
           state.autoFingering,
           state.handSpan,
+          state.overrideScoreFingerings,
         );
 
         persistManualFingerings(state.scoreId, manualFingerings, userId);
@@ -382,6 +398,7 @@ export const useEngineStore = create<EngineState>((set) => ({
               state.script,
               autoFingering,
               state.handSpan,
+              state.overrideScoreFingerings,
             )
           : null;
 
@@ -399,10 +416,49 @@ export const useEngineStore = create<EngineState>((set) => ({
               state.script,
               state.autoFingering,
               handSpan,
+              state.overrideScoreFingerings,
             )
           : null;
 
         return script ? { handSpan, script } : { handSpan };
+      });
+    },
+    setOverrideScoreFingerings: (enabled) => {
+      window.localStorage.setItem(
+        OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY,
+        enabled ? 'true' : 'false',
+      );
+      set((state) => {
+        const overrideScoreFingerings = enabled;
+        const reprocessed = reprocessScriptFromRaw(
+          state.rawXml,
+          state.manualFingerings,
+          state.autoFingering,
+          state.handSpan,
+          overrideScoreFingerings,
+        );
+
+        if (reprocessed) {
+          return {
+            overrideScoreFingerings,
+            script: reprocessed.script,
+            scoreTiming: reprocessed.scoreTiming,
+            totalSteps: reprocessed.script.length,
+          };
+        }
+
+        const script = state.script
+          ? applyFingeringSettings(
+              state.script,
+              state.autoFingering,
+              state.handSpan,
+              overrideScoreFingerings,
+            )
+          : null;
+
+        return script
+          ? { overrideScoreFingerings, script }
+          : { overrideScoreFingerings };
       });
     },
     cycleShiftMode: (direction) => {

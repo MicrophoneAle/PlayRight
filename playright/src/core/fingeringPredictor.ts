@@ -838,8 +838,12 @@ export function assignChordFingers(
 
 const HANDS: Hand[] = ['L', 'R'];
 
-function isFingeringAnchor(note: ScriptNote): boolean {
-  return note.fingerSource === 'score' || note.fingerSource === 'manual';
+function isFingeringAnchor(note: ScriptNote, overrideScore: boolean): boolean {
+  if (note.fingerSource === 'manual') {
+    return true;
+  }
+
+  return !overrideScore && note.fingerSource === 'score';
 }
 
 function predictFingersForHand(
@@ -852,6 +856,8 @@ function predictFingersForHand(
 
 export interface PredictFingeringOptions {
   spanScale?: number;
+  /** When true, score-authored fingerings are replaced by prediction; manual always wins. */
+  overrideScore?: boolean;
 }
 
 export function predictFingering(
@@ -859,6 +865,7 @@ export function predictFingering(
   options: PredictFingeringOptions = {},
 ): PlaybackScript {
   const spanScale = options.spanScale ?? 1;
+  const overrideScore = options.overrideScore ?? false;
   const fingersByHand: Record<Hand, (Finger | null)[]> = {
     L: predictFingersForHand(script, 'L', spanScale),
     R: predictFingersForHand(script, 'R', spanScale),
@@ -878,7 +885,7 @@ export function predictFingering(
         const predicted = fingersByHand[hand][cursor[hand]];
         cursor[hand] += 1;
 
-        if (isFingeringAnchor(note)) {
+        if (isFingeringAnchor(note, overrideScore)) {
           noteUpdates.set(index, { ...note });
         } else if (predicted === null) {
           noteUpdates.set(index, {
@@ -969,9 +976,10 @@ export function applyFingeringSettings(
   script: PlaybackScript,
   autoFingering: boolean,
   spanScale: number,
+  overrideScore = false,
 ): PlaybackScript {
   return autoFingering
-    ? predictFingering(script, { spanScale })
+    ? predictFingering(script, { spanScale, overrideScore })
     : stripPredictedFingers(script);
 }
 
@@ -980,8 +988,9 @@ export function prepareScriptWithFingering(
   manualFingerings: ManualFingeringMap,
   autoFingering: boolean,
   spanScale: number,
+  overrideScore = false,
 ): PlaybackScript {
   const withManual = applyManualFingerings(script, manualFingerings);
 
-  return applyFingeringSettings(withManual, autoFingering, spanScale);
+  return applyFingeringSettings(withManual, autoFingering, spanScale, overrideScore);
 }

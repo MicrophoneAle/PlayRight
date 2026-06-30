@@ -43,6 +43,7 @@ export function Lid() {
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const autoFingering = useEngineStore((state) => state.autoFingering);
+  const overrideScoreFingerings = useEngineStore((state) => state.overrideScoreFingerings);
   const handSpan = useEngineStore((state) => state.handSpan);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -50,6 +51,9 @@ export function Lid() {
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setSheetScrollMode = useEngineStore((state) => state.actions.setSheetScrollMode);
   const setAutoFingering = useEngineStore((state) => state.actions.setAutoFingering);
+  const setOverrideScoreFingerings = useEngineStore(
+    (state) => state.actions.setOverrideScoreFingerings,
+  );
   const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
   const setPlayMode = useEngineStore((state) => state.actions.setPlayMode);
@@ -65,6 +69,7 @@ export function Lid() {
       manualFingerings,
       state.autoFingering,
       state.handSpan,
+      state.overrideScoreFingerings,
     );
   };
 
@@ -220,6 +225,21 @@ export function Lid() {
             type="checkbox"
             checked={autoFingering}
             onChange={(event) => setAutoFingering(event.target.checked)}
+            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <label
+            htmlFor="override-score-fingerings-toggle"
+            className="text-xs text-zinc-400"
+          >
+            Override score fingerings
+          </label>
+          <input
+            id="override-score-fingerings-toggle"
+            type="checkbox"
+            checked={overrideScoreFingerings}
+            onChange={(event) => setOverrideScoreFingerings(event.target.checked)}
             className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
           />
         </div>

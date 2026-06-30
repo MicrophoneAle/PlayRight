@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
+import { parseMusicXmlToScript } from './parser/index.ts';
 import {
   assignChordFingers,
   comfortFingerGap,
@@ -397,6 +399,115 @@ describe('predictFingering preserves anchors', () => {
     expect(find(0, 'L', 48)).toMatchObject({ finger: 4, fingerSource: 'manual' });
     expect(find(0, 'R', 64)?.fingerSource).toBe('predicted');
     expect(find(1, 'R', 62)?.fingerSource).toBe('predicted');
+  });
+});
+
+describe('override score fingerings', () => {
+  it('reports bundled fanfare score anchors and blocks prediction by default', () => {
+    const fanfareXml = readFileSync(
+      new URL('../assets/playright-fanfare.musicxml', import.meta.url),
+      'utf8',
+    );
+    const fingeringTags = (fanfareXml.match(/<fingering>/g) ?? []).length;
+    const { script: parsed } = parseMusicXmlToScript(fanfareXml);
+    const notes = parsed.flatMap((step) => step.notes);
+    const scoreAnchored = notes.filter((note) => note.fingerSource === 'score').length;
+
+    expect(fingeringTags).toBeGreaterThan(0);
+    expect(scoreAnchored).toBe(notes.length);
+    expect(scoreAnchored).toBe(fingeringTags);
+
+    const predicted = predictFingering(parsed);
+    const predictedCount = predicted
+      .flatMap((step) => step.notes)
+      .filter((note) => note.fingerSource === 'predicted').length;
+    expect(predictedCount).toBe(0);
+  });
+
+  it('leaves score notes untouched when overrideScore is false', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(69, 'R', 1, 'score'), scriptNote(71, 'R', 1, 'score')]),
+    ];
+    const predicted = predictFingering(script, { overrideScore: false });
+    expect(predicted[0].notes).toEqual([
+      { pitch: 'M69', midi: 69, hand: 'R', finger: 1, fingerSource: 'score' },
+      { pitch: 'M71', midi: 71, hand: 'R', finger: 1, fingerSource: 'score' },
+    ]);
+  });
+
+  it('re-fingers score notes when overrideScore is true', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(69, 'R', 1, 'score'), scriptNote(71, 'R', 1, 'score')]),
+    ];
+    const predicted = predictFingering(script, { overrideScore: true });
+    expect(predicted[0].notes[0]).toMatchObject({
+      finger: 2,
+      fingerSource: 'predicted',
+    });
+    expect(predicted[0].notes[1]).toMatchObject({
+      finger: 3,
+      fingerSource: 'predicted',
+    });
+  });
+
+  it('always preserves manual notes regardless of overrideScore', () => {
+    const script: PlaybackScript = [
+      step(0, 0, [
+        scriptNote(69, 'R', 4, 'manual'),
+        scriptNote(71, 'R', 1, 'score'),
+      ]),
+    ];
+    const withoutOverride = predictFingering(script, { overrideScore: false });
+    const withOverride = predictFingering(script, { overrideScore: true });
+
+    expect(withoutOverride[0].notes[0]).toMatchObject({ finger: 4, fingerSource: 'manual' });
+    expect(withOverride[0].notes[0]).toMatchObject({ finger: 4, fingerSource: 'manual' });
+    expect(withoutOverride[0].notes[1]).toMatchObject({ finger: 1, fingerSource: 'score' });
+    expect(withOverride[0].notes[1]?.fingerSource).toBe('predicted');
+  });
+
+  it('drives wandering-melody and scale finger values end to end through predictFingering', () => {
+    const wanderingMidis = [69, 71, 72, 71, 69, 68, 66, 69];
+    const scaleMidis = [60, 62, 64, 65, 67, 69, 71, 72];
+    const wanderingScript: PlaybackScript = wanderingMidis.map((midi, order) =>
+      step(order, order * 120, [scriptNote(midi, 'R', 1, 'score')]),
+    );
+    const scaleScript: PlaybackScript = scaleMidis.map((midi, order) =>
+      step(order, order * 120, [scriptNote(midi, 'R', 1, 'score')]),
+    );
+
+    const wanderingFingers = predictFingering(wanderingScript, { overrideScore: true })
+      .flatMap((step) => step.notes)
+      .map((note) => note.finger);
+    const scaleFingers = predictFingering(scaleScript, { overrideScore: true })
+      .flatMap((step) => step.notes)
+      .map((note) => note.finger);
+
+    // eslint-disable-next-line no-console
+    console.log('override wandering actual:', wanderingFingers);
+    // eslint-disable-next-line no-console
+    console.log('override scale actual:', scaleFingers);
+
+    expect(wanderingFingers).toEqual([3, 4, 5, 4, 3, 2, 1, 3]);
+    expect(scaleFingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
+    expect(wanderingFingers.every((finger) => finger === 1)).toBe(false);
+  });
+
+  it('restores score fingerings from a fresh parse when override is turned off', () => {
+    const fanfareXml = readFileSync(
+      new URL('../assets/playright-fanfare.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script: parsed } = parseMusicXmlToScript(fanfareXml);
+    const overridden = prepareScriptWithFingering(parsed, {}, true, 1, true);
+    const restored = prepareScriptWithFingering(parsed, {}, true, 1, false);
+
+    expect(
+      overridden.flatMap((step) => step.notes).filter((note) => note.fingerSource === 'predicted').length,
+    ).toBeGreaterThan(0);
+    expect(
+      restored.flatMap((step) => step.notes).every((note) => note.fingerSource === 'score'),
+    ).toBe(true);
   });
 });
 
