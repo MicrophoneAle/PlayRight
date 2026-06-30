@@ -113,6 +113,40 @@ export const CROSS_MAX_STEP_SEMITONES = 2;
  */
 export const RESEAT_MIN_REVERSAL_SEMITONES = CROSS_MAX_STEP_SEMITONES + 1;
 
+/**
+ * A melodic leap of an octave or more makes the hand jump to a new register. If the
+ * music then stays in the new register (the old one does not return within the
+ * lookahead window), the hand has genuinely reseated and the scope should split at
+ * the leap rather than holding one wide position across both registers.
+ */
+export const LEAP_RESEAT_SEMITONES = 12;
+
+/** How many groups ahead to scan for the old register returning after a leap. */
+export const RESEAT_LOOKAHEAD_GROUPS = 8;
+
+/**
+ * A leap only reseats when the new register is SUSTAINED: at least this many groups
+ * (counting the leap target) stay in it before the old register returns. A single
+ * trailing high note is a reach within the position, not a reseat.
+ */
+export const MIN_SUSTAINED_REGISTER_GROUPS = 3;
+
+/** An octave or wider between two consecutive lead notes is always fingered 1–5. */
+export const OCTAVE_SEMITONES = 12;
+
+/**
+ * A recurring pedal note anchors the thumb only when it sits within this reach of
+ * the scope's lowest pitch (a perfect fifth). A frequent note higher than this is a
+ * held melody note, not a bass pedal, so the hand centers on it instead.
+ */
+export const PEDAL_ANCHOR_MAX_HEIGHT = 7;
+
+/** A pedal must recur at least this many times to anchor the thumb. */
+export const PEDAL_MIN_COUNT = 2;
+
+/** A bass pedal must be at least this many times as frequent as any other pitch. */
+export const PEDAL_DOMINANCE_RATIO = 2;
+
 interface OnsetGroup {
   stepIndex: number;
   onset: number;
@@ -395,6 +429,63 @@ function scopePedalMidi(groups: OnsetGroup[], hand: Hand): number {
 }
 
 /**
+ * True when the scope rests on a recurring bass pedal: the most-frequent pitch
+ * repeats (>= PEDAL_MIN_COUNT), is strictly the most frequent, and sits within a
+ * fifth (PEDAL_ANCHOR_MAX_HEIGHT) of the scope's lowest pitch — i.e. it is low
+ * enough to be a thumb anchor. A frequent note higher than that is a held melody
+ * note and the hand centers on it instead, so this returns false.
+ */
+function hasLowDominantPedal(groups: OnsetGroup[], hand: Hand): boolean {
+  const counts = new Map<number, number>();
+  for (const group of groups) {
+    for (const event of group.events) {
+      counts.set(event.midi, (counts.get(event.midi) ?? 0) + 1);
+    }
+  }
+  if (counts.size === 0) {
+    return false;
+  }
+
+  const pedal = scopePedalMidi(groups, hand);
+  const pedalCount = counts.get(pedal) ?? 0;
+  if (pedalCount < PEDAL_MIN_COUNT) {
+    return false;
+  }
+
+  // The pedal must DOMINATE: at least twice as frequent as any other pitch. A
+  // wandering melody whose most-common note merely edges out its neighbours is
+  // not a bass pedal and should center instead.
+  let secondCount = 0;
+  for (const [midi, count] of counts) {
+    if (midi !== pedal) {
+      secondCount = Math.max(secondCount, count);
+    }
+  }
+  if (pedalCount < PEDAL_DOMINANCE_RATIO * secondCount) {
+    return false;
+  }
+
+  const extreme = hand === 'R'
+    ? Math.min(...counts.keys())
+    : Math.max(...counts.keys());
+
+  if (pedal !== extreme) {
+    const extremeCount = counts.get(extreme) ?? 0;
+    // A single low pickup below the dominant melody band should not force reach
+    // anchoring; center the band instead when stretch fits.
+    if (extremeCount < PEDAL_MIN_COUNT) {
+      return false;
+    }
+    if (pedalCount < PEDAL_DOMINANCE_RATIO * extremeCount) {
+      return false;
+    }
+    return Math.abs(pedal - extreme) <= PEDAL_ANCHOR_MAX_HEIGHT;
+  }
+
+  return true;
+}
+
+/**
  * BASELINE finger per pitch for a wide turning scope: the thumb sits on the pedal
  * pitch, pitches at or below the pedal (RH; above for LH) take the thumb, and
  * pitches reaching away from the pedal take the finger at their reach distance via
@@ -427,65 +518,123 @@ function reachAnchoredFingers(
   return result;
 }
 
+interface ContourWalkResult {
+  fingerByLeadEvent: Map<NoteEvent, Finger>;
+  /** When the pinky cannot move up further, split the scope before this group index. */
+  resplitBeforeIndex: number | null;
+}
+
 /**
- * Contour-monotonic, PER-OCCURRENCE fingering for the reach path. Walks the scope's
- * lead events in onset order and turns the resting baseline into final fingers that
- * honour melodic direction: consecutive ascending pitches never decrease in finger,
- * consecutive descending pitches never increase, and a repeated pitch keeps its
- * finger. Because the same pitch can take different fingers in ascending vs
- * descending passages, the output is keyed by event, not by midi.
- *
- * RH recurrence (LH mirrors via fingerMoveSign, which flips the direction sign):
- * - First event: thumb-zone -> 1, else clamp(baseline).
- * - Thumb-zone pitch (at/below pedal for RH, at/above for LH): finger 1.
- * - Same pitch as previous: keep the previous finger.
- * - Finger should rise (fingerMoveSign > 0): clamp(max(baseline, prevFinger + 1)).
- * - Finger should fall (fingerMoveSign < 0): clamp(min(baseline, prevFinger - 1)).
- * The forced +1/-1 guarantees monotonic motion even when the baseline would repeat
- * or reverse. A separated (non-thumb) note never lands on the thumb (floored at 2);
- * at the very bottom edge that floor may share a finger with the previous note.
+ * Per-occurrence contour walk for the reach path. Priority order:
+ * 1) Consecutive octave+ leaps are always thumb-to-pinky (1–5 ascending RH).
+ * 2) Consecutive different pitches never share a finger (except the pedal pitch
+ *    itself always stays on the thumb; repeated pitches keep their finger).
+ *    Thumb+pivot on descending; pinky+up requests a scope resplit.
+ * 3) Baseline + monotonic contour for everything else.
  */
 function contourReachFingers(
   groups: OnsetGroup[],
   hand: Hand,
   anchorMidi: number,
   baselineByMidi: Map<number, number>,
-): Map<NoteEvent, Finger> {
-  const result = new Map<NoteEvent, Finger>();
-  const inThumbZone = (midi: number): boolean =>
-    hand === 'R' ? midi <= anchorMidi : midi >= anchorMidi;
+): ContourWalkResult {
+  const fingerByLeadEvent = new Map<NoteEvent, Finger>();
+  let resplitBeforeIndex: number | null = null;
+
+  const isPedalPitch = (midi: number): boolean => midi === anchorMidi;
 
   let prevMidi: number | null = null;
-  let prevFinger = 1;
+  let prevFinger: Finger = 1;
+  let prevPrevFinger: Finger | null = null;
 
-  for (const group of groups) {
+  const chooseThumbPivot = (pitchDir: number): Finger => {
+    const candidates: Finger[] = pitchDir > 0 ? [2, 3] : [3, 2];
+    for (const candidate of candidates) {
+      if (prevPrevFinger === null || candidate !== prevPrevFinger) {
+        return candidate;
+      }
+    }
+    return 2;
+  };
+
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+    const group = groups[groupIndex];
     const lead = hand === 'R' ? group.events[0] : group.events[group.events.length - 1];
     const midi = lead.midi;
     const baseline = clampFinger(baselineByMidi.get(midi) ?? 1);
 
     let finger: Finger;
-    if (inThumbZone(midi)) {
-      finger = 1;
-    } else if (prevMidi === null) {
-      finger = baseline;
+
+    if (prevMidi === null) {
+      finger = isPedalPitch(midi) ? 1 : baseline;
     } else if (midi === prevMidi) {
-      finger = clampFinger(prevFinger);
+      finger = prevFinger;
+    } else if (
+      Math.abs(midi - prevMidi) >= OCTAVE_SEMITONES
+    ) {
+      // Rule 1: consecutive octave or wider is always thumb-to-pinky.
+      const ascending = fingerMoveSign(hand, midi - prevMidi) > 0;
+      finger = ascending ? 5 : 1;
+    } else if (isPedalPitch(midi)) {
+      finger = 1;
     } else {
-      const direction = fingerMoveSign(hand, midi - prevMidi);
-      const raw =
-        direction > 0
-          ? Math.max(baseline, prevFinger + 1)
-          : Math.min(baseline, prevFinger - 1);
-      // A reaching note never lands on the thumb; share at the bottom edge only.
-      finger = clampFinger(Math.max(2, raw));
+      const pitchDir = fingerMoveSign(hand, midi - prevMidi);
+
+      if (prevFinger === 1 && pitchDir !== 0) {
+        const inBassZone = hand === 'R' ? midi <= anchorMidi : midi >= anchorMidi;
+        const descending = hand === 'R' ? pitchDir < 0 : pitchDir > 0;
+        if (descending && inBassZone) {
+          // Adjacent low notes under the pedal share the thumb.
+          finger = 1;
+        } else if (descending) {
+          finger = chooseThumbPivot(pitchDir);
+        } else {
+          const raw = Math.max(baseline, prevFinger + 1);
+          finger = clampFinger(Math.max(2, raw));
+        }
+      } else if (prevFinger === 5) {
+        const needsResplit = hand === 'R' ? pitchDir > 0 : pitchDir < 0;
+        if (needsResplit) {
+          resplitBeforeIndex = groupIndex;
+          break;
+        }
+        const raw = Math.min(baseline, prevFinger - 1);
+        finger = clampFinger(Math.max(2, raw));
+      } else {
+        const raw =
+          pitchDir > 0
+            ? Math.max(baseline, prevFinger + 1)
+            : Math.min(baseline, prevFinger - 1);
+        finger = clampFinger(Math.max(2, raw));
+      }
+
+      if (finger === prevFinger) {
+        const allowBassThumbShare =
+          prevFinger === 1 &&
+          (hand === 'R' ? midi <= anchorMidi : midi >= anchorMidi) &&
+          (hand === 'R' ? pitchDir < 0 : pitchDir > 0);
+        if (allowBassThumbShare) {
+          finger = 1;
+        } else if (prevFinger === 1) {
+          finger = chooseThumbPivot(pitchDir);
+        } else if (prevFinger === 5 && (hand === 'R' ? pitchDir > 0 : pitchDir < 0)) {
+          resplitBeforeIndex = groupIndex;
+          break;
+        } else {
+          const nudged =
+            pitchDir > 0 ? clampFinger(prevFinger + 1) : clampFinger(prevFinger - 1);
+          finger = clampFinger(Math.max(2, nudged));
+        }
+      }
     }
 
-    result.set(lead, finger);
+    fingerByLeadEvent.set(lead, finger);
+    prevPrevFinger = prevMidi === null ? null : prevFinger;
     prevMidi = midi;
     prevFinger = finger;
   }
 
-  return result;
+  return { fingerByLeadEvent, resplitBeforeIndex };
 }
 
 /** Which gap table a reach-anchored scope selected (null when not on that path). */
@@ -574,6 +723,8 @@ interface ScopeWalk {
    * remain per-midi.
    */
   fingerByLeadEvent?: Map<NoteEvent, Finger>;
+  /** Pinky-rescope split point within this scope (reach path only). */
+  resplitBeforeIndex?: number | null;
 }
 
 /**
@@ -595,22 +746,32 @@ function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
     return { needsTraverse: true, fingerByMidi: stretch.fingerByMidi };
   }
 
-  if (comfortFits) {
-    return { needsTraverse: false, fingerByMidi: centeredFingers(pitches, comfortGaps) };
+  // A scope resting on a low recurring bass pedal anchors the thumb on that pedal
+  // even when it would otherwise fit a centered distinct-per-finger layout, so the
+  // pedal stays on finger 1 instead of a rare low neighbour stealing the thumb.
+  if (!hasLowDominantPedal(groups, hand)) {
+    if (comfortFits) {
+      return { needsTraverse: false, fingerByMidi: centeredFingers(pitches, comfortGaps) };
+    }
+
+    if (stretch.fits) {
+      return { needsTraverse: false, fingerByMidi: stretch.fingerByMidi };
+    }
   }
 
-  if (stretch.fits) {
-    return { needsTraverse: false, fingerByMidi: stretch.fingerByMidi };
-  }
-
-  // More distinct pitches than a distinct-per-finger layout allows, but the scope
+  // Pedal-anchored reach path: more distinct pitches than a distinct-per-finger
   // is capped at 17 semitones by buildPositions (within physical reach) and is not
   // a run: hold a fixed wide hand anchored on the pedal pitch (finger reuse) so the
   // recurring low note keeps the thumb, instead of resetting via traverse.
   const pedal = scopePedalMidi(groups, hand);
   const baselineByMidi = reachAnchoredFingers(pitches, hand, pedal);
-  const fingerByLeadEvent = contourReachFingers(groups, hand, pedal, baselineByMidi);
-  return { needsTraverse: false, fingerByMidi: baselineByMidi, fingerByLeadEvent };
+  const walk = contourReachFingers(groups, hand, pedal, baselineByMidi);
+  return {
+    needsTraverse: false,
+    fingerByMidi: baselineByMidi,
+    fingerByLeadEvent: walk.fingerByLeadEvent,
+    resplitBeforeIndex: walk.resplitBeforeIndex,
+  };
 }
 
 export interface HandPosition {
@@ -725,6 +886,46 @@ function isReseatPoint(
 }
 
 /**
+ * True when a leap of an octave or more lands in a new register that the music
+ * then stays in: scanning RESEAT_LOOKAHEAD_GROUPS ahead, no lead returns to the
+ * old register (the prevLead side of the leap's midpoint). A leap whose old
+ * register returns soon (e.g. a recurring low pedal under a melody that jumps up
+ * and back) is a reach within one hand position, not a reseat.
+ */
+function isRegisterShiftReseat(
+  current: OnsetGroup[],
+  groups: OnsetGroup[],
+  index: number,
+  hand: Hand,
+): boolean {
+  if (current.length === 0) {
+    return false;
+  }
+
+  const prevLead = leadMidi(current[current.length - 1], hand);
+  const nextLead = leadMidi(groups[index], hand);
+  const leap = nextLead - prevLead;
+  if (Math.abs(leap) < LEAP_RESEAT_SEMITONES) {
+    return false;
+  }
+
+  const midpoint = (prevLead + nextLead) / 2;
+  const lookEnd = Math.min(groups.length, index + RESEAT_LOOKAHEAD_GROUPS);
+  let sustained = 0;
+  for (let scan = index; scan < lookEnd; scan += 1) {
+    const lead = leadMidi(groups[scan], hand);
+    const returnedToOldRegister = leap > 0 ? lead <= midpoint : lead >= midpoint;
+    if (returnedToOldRegister) {
+      return false;
+    }
+    sustained += 1;
+  }
+
+  // The new register must hold for several notes, not just a single trailing leap.
+  return sustained >= MIN_SUSTAINED_REGISTER_GROUPS;
+}
+
+/**
  * True when the incoming group continues a stepwise run (small same-direction
  * steps) rather than a genuine scope break (leap or direction change).
  */
@@ -781,7 +982,8 @@ function buildPositions(
       leadSpanOfGroups(current, hand) > WIDE_SPAN_SEMITONES ? wideHoldGroups + 1 : 0;
   };
 
-  for (const group of groups) {
+  for (let index = 0; index < groups.length; index += 1) {
+    const group = groups[index];
     if (current.length === 0) {
       current = [group];
       wideHoldGroups = 0;
@@ -789,7 +991,10 @@ function buildPositions(
     }
 
     if (fits([...current, group])) {
-      if (isReseatPoint(current, group, hand, wideHoldGroups)) {
+      if (
+        isReseatPoint(current, group, hand, wideHoldGroups) ||
+        isRegisterShiftReseat(current, groups, index, hand)
+      ) {
         positions.push(finalizePosition(current));
         current = [group];
         wideHoldGroups = 0;
@@ -1079,6 +1284,56 @@ function assignPosition(
   return fingerByEvent;
 }
 
+/**
+ * When the reach-path contour walk signals a pinky-rescope, split the position at
+ * that group index so the next scope can re-center.
+ */
+function expandPositionsForReachSplits(
+  positions: HandPosition[],
+  hand: Hand,
+): HandPosition[] {
+  const expanded: HandPosition[] = [];
+
+  for (const position of positions) {
+    const pitches = distinctPitchesFromAnchor(position.groups, hand);
+    const comfortGaps = gapsForPitches(pitches, comfortFingerGap);
+    const comfortFits = gapSpan(comfortGaps) <= MAX_FINGER_SPAN;
+    const stretch = distributeScope(pitches, extendedFingerGap);
+
+    if (isSustainedRun(position.groups, hand, stretch.fits)) {
+      expanded.push(position);
+      continue;
+    }
+
+    if (!hasLowDominantPedal(position.groups, hand) && (comfortFits || stretch.fits)) {
+      expanded.push(position);
+      continue;
+    }
+
+    const pedal = scopePedalMidi(position.groups, hand);
+    const baselineByMidi = reachAnchoredFingers(pitches, hand, pedal);
+    const { resplitBeforeIndex } = contourReachFingers(
+      position.groups,
+      hand,
+      pedal,
+      baselineByMidi,
+    );
+
+    if (
+      resplitBeforeIndex !== null &&
+      resplitBeforeIndex > 0 &&
+      resplitBeforeIndex < position.groups.length
+    ) {
+      expanded.push(finalizePosition(position.groups.slice(0, resplitBeforeIndex)));
+      expanded.push(finalizePosition(position.groups.slice(resplitBeforeIndex)));
+    } else {
+      expanded.push(position);
+    }
+  }
+
+  return expanded;
+}
+
 /** Finger every note of one hand's timeline, returned aligned to the input order. */
 export function fingerTimeline(
   events: NoteEvent[],
@@ -1089,7 +1344,10 @@ export function fingerTimeline(
   const seenMidis = new Set<number>();
 
   for (const phrase of segmentIntoPhrases(events)) {
-    const positions = buildPositions(phrase, hand, spanScale);
+    const positions = expandPositionsForReachSplits(
+      buildPositions(phrase, hand, spanScale),
+      hand,
+    );
     for (let positionIndex = 0; positionIndex < positions.length; positionIndex += 1) {
       const position = positions[positionIndex];
       for (const [event, finger] of assignPosition(

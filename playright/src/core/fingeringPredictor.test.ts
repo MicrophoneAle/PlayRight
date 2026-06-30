@@ -291,6 +291,68 @@ describe('scope reseat lookahead', () => {
   });
 });
 
+describe('reach path fingering rules', () => {
+  it('consecutive ascending octave is always 1 then 5 (RH)', () => {
+    const fingers = fingerTimeline(eventsFromMidis([60, 72]), 'R');
+    // eslint-disable-next-line no-console
+    console.log('rule1 octave-up actual:', fingers);
+    expect(fingers).toEqual([1, 5]);
+  });
+
+  it('consecutive descending octave is always 5 then 1 (RH)', () => {
+    const fingers = fingerTimeline(eventsFromMidis([72, 60]), 'R');
+    // eslint-disable-next-line no-console
+    console.log('rule1 octave-down actual:', fingers);
+    expect(fingers).toEqual([5, 1]);
+  });
+
+  it('legitimately repeated pitch keeps one finger', () => {
+    const fingers = fingerTimeline(eventsFromMidis([64, 64, 64, 64]), 'R');
+    // eslint-disable-next-line no-console
+    console.log('rule2 repeat actual:', fingers);
+    expect(fingers).toEqual([1, 1, 1, 1]);
+  });
+
+  it('consecutive different pitches do not share lifting fingers in a reach scope', () => {
+    const midis = [64, 76, 75, 71, 73, 71, 64, 64, 64, 66, 68, 71];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('rule2 distinct actual:', fingers);
+    for (let index = 1; index < midis.length; index += 1) {
+      if (midis[index] === midis[index - 1]) {
+        continue;
+      }
+      if (midis[index] < midis[index - 1] && midis[index] <= 64 && fingers[index - 1] === 1) {
+        continue;
+      }
+      if (fingers[index] === 1 && midis[index] > midis[index - 1] && fingers[index - 1]! > 1) {
+        continue;
+      }
+      expect(fingers[index]).not.toBe(fingers[index - 1]);
+    }
+    expect(fingers[0]).toBe(1);
+    expect(fingers[1]).toBe(5);
+  });
+
+  it('register-shift reseat centers a sustained high cluster instead of pinky-pinning', () => {
+    const midis = [59, 61, 73, 73, 73, 73, 71, 73, 76, 73];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    const report = reportHandFingering(
+      midis.map((midi, order) => step(order, order * 120, [scriptNote(midi, 'R')], 1)),
+      'R',
+    );
+    // eslint-disable-next-line no-console
+    console.log('centered-high-cluster actual:', fingers);
+    // eslint-disable-next-line no-console
+    console.log('centered-high-cluster scopes:', report.scopeCount);
+    expect(report.scopeCount).toBeGreaterThan(1);
+    const held = fingers.slice(2, 6);
+    expect(held.every((finger) => finger === held[0])).toBe(true);
+    expect(held[0]).toBeGreaterThanOrEqual(2);
+    expect(held[0]).toBeLessThanOrEqual(4);
+  });
+});
+
 describe('static vs run by melodic shape', () => {
   const lowestThreeShare = (fingers: (Finger | null)[]): number => {
     const low = fingers.filter((finger) => finger === 1 || finger === 2 || finger === 3).length;

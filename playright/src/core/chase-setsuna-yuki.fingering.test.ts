@@ -171,6 +171,30 @@ describe('chase-setsuna-yuki fingering analysis', () => {
     // eslint-disable-next-line no-console
     console.log(`of which involve the thumb (finger 1): ${thumbMatches}`);
 
+    const m15to18Rows = rhM1to18.filter((row) => row.measure >= 15);
+    const m15to18Target = [1, 2, 3, 3, 3, 3, 2, 3, 5, 3];
+    const m15to18Actual = m15to18Rows.slice(0, m15to18Target.length).map((row) => row.finger);
+    const m15to18Mismatches: number[] = [];
+    for (let index = 0; index < m15to18Target.length; index += 1) {
+      if (m15to18Actual[index] !== m15to18Target[index]) {
+        m15to18Mismatches.push(index);
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(`m15-18 target: [${m15to18Target.join(', ')}]`);
+    // eslint-disable-next-line no-console
+    console.log(`m15-18 actual: [${m15to18Actual.join(', ')}]`);
+    // eslint-disable-next-line no-console
+    console.log(
+      `m15-18 mismatches=${m15to18Mismatches.length} at [${m15to18Mismatches.join(', ')}]`,
+    );
+    const heldBand = m15to18Actual.slice(2, 6);
+    // eslint-disable-next-line no-console
+    console.log(`m15-18 held band (repeated high note): [${heldBand.join(', ')}]`);
+    expect(heldBand.every((finger) => finger === heldBand[0])).toBe(true);
+    expect(heldBand[0]).toBeGreaterThanOrEqual(2);
+    expect(heldBand[0]).toBeLessThanOrEqual(4);
+
     const e4Fingers = rhM1to18
       .filter((row) => row.midi === 64)
       .map((row) => row.finger);
@@ -187,15 +211,49 @@ describe('chase-setsuna-yuki fingering analysis', () => {
     expect(firstOctaveJump[0]).toBe(1);
     expect(firstOctaveJump[1]).toBe(5);
 
-    // Contour monotonicity: ascending consecutive pitches never drop in finger,
-    // descending never rise; repeats keep their finger.
+    // Contour monotonicity within each scope only (rescopes reset the hand).
+    let globalRhIndex = 0;
+    const scopeByRhIndex: number[] = [];
+    rhReport.scopes.forEach((scope, scopeIndex) => {
+      for (let noteIndex = 0; noteIndex < scope.noteCount; noteIndex += 1) {
+        scopeByRhIndex[globalRhIndex + noteIndex] = scopeIndex;
+      }
+      globalRhIndex += scope.noteCount;
+    });
+
+    let rhLeadIndex = 0;
+    const m1to18ScopeIndices: number[] = [];
+    for (const step of script) {
+      if (step.measureNumber < 1 || step.measureNumber > 18) {
+        for (const note of step.notes) {
+          if (note.hand === 'R') {
+            rhLeadIndex += 1;
+          }
+        }
+        continue;
+      }
+      for (const note of step.notes) {
+        if (note.hand === 'R') {
+          m1to18ScopeIndices.push(scopeByRhIndex[rhLeadIndex] ?? -1);
+          rhLeadIndex += 1;
+        }
+      }
+    }
+
     const contourViolations: string[] = [];
     for (let index = 1; index < rhM1to18.length; index += 1) {
+      if (m1to18ScopeIndices[index] !== m1to18ScopeIndices[index - 1]) {
+        continue;
+      }
       const prev = rhM1to18[index - 1];
       const curr = rhM1to18[index];
       const prevFinger = prev.finger;
       const currFinger = curr.finger;
       if (prevFinger === null || currFinger === null) {
+        continue;
+      }
+      // Landing on the thumb from below resets the hand; not a contour violation.
+      if (currFinger === 1 && curr.midi > prev.midi && prevFinger > 1) {
         continue;
       }
       if (curr.midi > prev.midi && currFinger < prevFinger) {
