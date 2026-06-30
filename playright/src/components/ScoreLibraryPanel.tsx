@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Download, Trash2, X } from 'lucide-react';
+import { downloadMusicXml } from '../core/readScoreFile.ts';
 import {
   deleteScoreFromLibrary,
+  fetchScoreById,
   fetchScoreLibrary,
   type LibraryEntry,
 } from '../core/scoreLibrary.ts';
@@ -41,6 +43,8 @@ export function ScoreLibraryPanel({
   const [fetchFailed, setFetchFailed] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LibraryEntry | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -77,6 +81,7 @@ export function ScoreLibraryPanel({
     if (!isOpen) {
       setDeleteTarget(null);
       setDeleteError(null);
+      setDownloadError(null);
       return;
     }
 
@@ -98,6 +103,25 @@ export function ScoreLibraryPanel({
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [deleteTarget, deletingId]);
+
+  const handleDownloadClick = async (entry: LibraryEntry) => {
+    if (!userId || downloadingId !== null) {
+      return;
+    }
+
+    setDownloadingId(entry.id);
+    setDownloadError(null);
+
+    const score = await fetchScoreById(entry.id, userId);
+    setDownloadingId(null);
+
+    if (!score?.raw_xml) {
+      setDownloadError(`Could not download "${entry.title}".`);
+      return;
+    }
+
+    downloadMusicXml(score.title, score.raw_xml);
+  };
 
   const handleDeleteClick = (entry: LibraryEntry) => {
     if (!canDelete) {
@@ -249,6 +273,12 @@ export function ScoreLibraryPanel({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {downloadError ? (
+            <div className="mb-2 flex items-start gap-2 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              <AlertTriangle size={15} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
+              <p>{downloadError}</p>
+            </div>
+          ) : null}
           {loading ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">Loading scores…</p>
           ) : notConfigured ? (
@@ -283,6 +313,21 @@ export function ScoreLibraryPanel({
                         {formatCreatedAt(entry.created_at)}
                       </span>
                     </button>
+                    {userId ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDownloadClick(entry);
+                        }}
+                        disabled={downloadingId === entry.id}
+                        aria-label={`Download ${entry.title}`}
+                        title="Download MusicXML"
+                        className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Download size={15} strokeWidth={2} aria-hidden />
+                      </button>
+                    ) : null}
                     {canDelete ? (
                       <button
                         type="button"
