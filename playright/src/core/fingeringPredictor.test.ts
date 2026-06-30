@@ -5,6 +5,7 @@ import { fingeringKey } from '../types/index.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
 import {
   assignChordFingers,
+  COMFORT_SPAN_SEMITONES,
   comfortFingerGap,
   extendedFingerGap,
   fingerTimeline,
@@ -53,8 +54,9 @@ describe('comfort table', () => {
   });
 
   it('uses the absolute-reach stretch table', () => {
-    expect([1, 4, 5, 8, 9, 12, 13, 17].map(extendedFingerGap)).toEqual([
-      1, 1, 2, 2, 3, 3, 4, 4,
+    // An octave (12) reaches the pinky (gap 4); 11 stays gap 3.
+    expect([1, 4, 5, 8, 9, 11, 12, 13, 17].map(extendedFingerGap)).toEqual([
+      1, 1, 2, 2, 3, 3, 4, 4, 4,
     ]);
   });
 });
@@ -196,6 +198,43 @@ describe('spread scopes use the stretch table, not traverse', () => {
     console.log('no-split actual:', fingers);
     expect(fingers.filter((finger) => finger === 1).length).toBe(1);
     expect(new Set(fingers).size).toBe(4);
+  });
+});
+
+describe('COMFORT_SPAN_SEMITONES', () => {
+  it('is a tenth (10 semitones)', () => {
+    expect(COMFORT_SPAN_SEMITONES).toBe(10);
+  });
+});
+
+describe('reach-anchored table selection', () => {
+  it('uses comfort gaps when the scope reach stays within a tenth', () => {
+    // Seven distinct pitches within 9 semitones of the bottom anchor — too many
+    // for a distinct-per-finger layout, but narrow enough for comfort reach.
+    const midis = [60, 62, 64, 65, 67, 66, 64, 62, 60, 63, 65, 67];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('narrow-reach-scope actual:', fingers);
+
+    // Comfort separates sooner than stretch: G4 (+7) lands on finger 4 or 5,
+    // not stretch's finger 3.
+    const g4Index = midis.indexOf(67);
+    expect(fingers[g4Index]).toBeGreaterThanOrEqual(4);
+
+    // Bottom anchor stays on the thumb.
+    expect(fingers[0]).toBe(1);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+  });
+
+  it('uses stretch gaps when the scope reach exceeds a tenth', () => {
+    // Chase-like shape: pedal E4 with an octave reach to E5.
+    const midis = [64, 76, 75, 71, 73, 71, 64];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('wide-reach-scope actual:', fingers);
+
+    expect(fingers[0]).toBe(1);
+    expect(fingers[1]).toBeGreaterThanOrEqual(4);
   });
 });
 

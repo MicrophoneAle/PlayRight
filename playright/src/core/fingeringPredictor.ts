@@ -51,6 +51,12 @@ export const PHRASE_MIN_ONSET_GAP_DIVISIONS = 480;
 /** Major tenth (17 semitones). A scope wider than this starts a new placement. */
 export const MAX_HAND_SPAN_SEMITONES = 17;
 
+/**
+ * Widest reach, in semitones from the bottom anchor, that the comfort table covers
+ * comfortably (a tenth).
+ */
+export const COMFORT_SPAN_SEMITONES = 10;
+
 /** Five fingers span four gaps. */
 export const MAX_FINGER_SPAN = 4;
 
@@ -78,9 +84,10 @@ export function extendedFingerGap(distanceSemitones: number): number {
   if (distance <= 8) {
     return 2;
   }
-  if (distance <= 12) {
+  if (distance <= 11) {
     return 3;
   }
+  // An octave (12) and beyond reaches the pinky (gap 4 from the thumb).
   return 4;
 }
 
@@ -346,27 +353,151 @@ function centeredFingers(pitches: number[], gaps: number[]): Map<number, number>
 }
 
 /**
- * Fixed wide-hand layout for a turning scope with more distinct pitches than a
- * distinct-per-finger layout can hold. The hand stays put: the thumb sits on the
- * scope's anchor (RH lowest pitch, LH highest — pitches[0] from
- * distinctPitchesFromAnchor) and every other pitch takes whichever finger sits at
- * its reach distance via the absolute-reach table. Distinct pitches are allowed
- * to share a finger, exactly like a real hand spanning a wide position, so the
- * high notes land on the upper fingers instead of resetting to the thumb.
+ * The pedal pitch a wide turning scope rests the thumb on: the most frequently
+ * played pitch, tie-broken toward the bottom of the hand (RH lowest, LH highest)
+ * so a rare lower/upper neighbour does not steal the thumb from the home note.
  */
-function reachAnchoredFingers(pitches: number[]): Map<number, number> {
+function scopePedalMidi(groups: OnsetGroup[], hand: Hand): number {
+  const counts = new Map<number, number>();
+  for (const group of groups) {
+    for (const event of group.events) {
+      counts.set(event.midi, (counts.get(event.midi) ?? 0) + 1);
+    }
+  }
+
+  let pedal = Infinity;
+  let bestCount = -1;
+  for (const [midi, count] of counts) {
+    const ties = count === bestCount;
+    const closerToBottom = hand === 'R' ? midi < pedal : midi > pedal;
+    if (count > bestCount || (ties && closerToBottom)) {
+      pedal = midi;
+      bestCount = count;
+    }
+  }
+  return pedal;
+}
+
+/**
+ * BASELINE finger per pitch for a wide turning scope: the thumb sits on the pedal
+ * pitch, pitches at or below the pedal (RH; above for LH) take the thumb, and
+ * pitches reaching away from the pedal take the finger at their reach distance via
+ * the comfort or stretch table (chosen per scope from the scope's maximum reach
+ * from its bottom anchor). This is only the resting hand shape; the contour walk
+ * (contourReachFingers) turns it into the final per-occurrence fingers.
+ */
+function reachAnchoredFingers(
+  pitches: number[],
+  hand: Hand,
+  anchorMidi: number,
+): Map<number, number> {
   const result = new Map<number, number>();
   if (pitches.length === 0) {
     return result;
   }
 
-  const anchor = pitches[0];
+  const bottomAnchor = pitches[0];
+  const maxReach = pitches.reduce(
+    (max, midi) => Math.max(max, Math.abs(midi - bottomAnchor)),
+    0,
+  );
+  const gapFn = maxReach <= COMFORT_SPAN_SEMITONES ? comfortFingerGap : extendedFingerGap;
+
   for (const midi of pitches) {
-    const distance = Math.abs(midi - anchor);
-    const finger = distance === 0 ? 1 : clampFinger(1 + extendedFingerGap(distance));
+    const reach = hand === 'R' ? midi - anchorMidi : anchorMidi - midi;
+    const finger = reach <= 0 ? 1 : clampFinger(1 + gapFn(Math.abs(reach)));
     result.set(midi, finger);
   }
   return result;
+}
+
+/**
+ * Contour-monotonic, PER-OCCURRENCE fingering for the reach path. Walks the scope's
+ * lead events in onset order and turns the resting baseline into final fingers that
+ * honour melodic direction: consecutive ascending pitches never decrease in finger,
+ * consecutive descending pitches never increase, and a repeated pitch keeps its
+ * finger. Because the same pitch can take different fingers in ascending vs
+ * descending passages, the output is keyed by event, not by midi.
+ *
+ * RH recurrence (LH mirrors via fingerMoveSign, which flips the direction sign):
+ * - First event: thumb-zone -> 1, else clamp(baseline).
+ * - Thumb-zone pitch (at/below pedal for RH, at/above for LH): finger 1.
+ * - Same pitch as previous: keep the previous finger.
+ * - Finger should rise (fingerMoveSign > 0): clamp(max(baseline, prevFinger + 1)).
+ * - Finger should fall (fingerMoveSign < 0): clamp(min(baseline, prevFinger - 1)).
+ * The forced +1/-1 guarantees monotonic motion even when the baseline would repeat
+ * or reverse. A separated (non-thumb) note never lands on the thumb (floored at 2);
+ * at the very bottom edge that floor may share a finger with the previous note.
+ */
+function contourReachFingers(
+  groups: OnsetGroup[],
+  hand: Hand,
+  anchorMidi: number,
+  baselineByMidi: Map<number, number>,
+): Map<NoteEvent, Finger> {
+  const result = new Map<NoteEvent, Finger>();
+  const inThumbZone = (midi: number): boolean =>
+    hand === 'R' ? midi <= anchorMidi : midi >= anchorMidi;
+
+  let prevMidi: number | null = null;
+  let prevFinger = 1;
+
+  for (const group of groups) {
+    const lead = hand === 'R' ? group.events[0] : group.events[group.events.length - 1];
+    const midi = lead.midi;
+    const baseline = clampFinger(baselineByMidi.get(midi) ?? 1);
+
+    let finger: Finger;
+    if (inThumbZone(midi)) {
+      finger = 1;
+    } else if (prevMidi === null) {
+      finger = baseline;
+    } else if (midi === prevMidi) {
+      finger = clampFinger(prevFinger);
+    } else {
+      const direction = fingerMoveSign(hand, midi - prevMidi);
+      const raw =
+        direction > 0
+          ? Math.max(baseline, prevFinger + 1)
+          : Math.min(baseline, prevFinger - 1);
+      // A reaching note never lands on the thumb; share at the bottom edge only.
+      finger = clampFinger(Math.max(2, raw));
+    }
+
+    result.set(lead, finger);
+    prevMidi = midi;
+    prevFinger = finger;
+  }
+
+  return result;
+}
+
+/** Which gap table a reach-anchored scope selected (null when not on that path). */
+export function reachTableForScope(
+  groups: OnsetGroup[],
+  hand: Hand,
+): 'comfort' | 'stretch' | null {
+  const pitches = distinctPitchesFromAnchor(groups, hand);
+  if (pitches.length === 0) {
+    return null;
+  }
+
+  const comfortGaps = gapsForPitches(pitches, comfortFingerGap);
+  const comfortFits = gapSpan(comfortGaps) <= MAX_FINGER_SPAN;
+  const stretch = distributeScope(pitches, extendedFingerGap);
+
+  if (isSustainedRun(groups, hand, stretch.fits)) {
+    return null;
+  }
+  if (comfortFits || stretch.fits) {
+    return null;
+  }
+
+  const maxReach = pitches.reduce(
+    (max, midi) => Math.max(max, Math.abs(midi - pitches[0])),
+    0,
+  );
+  return maxReach <= COMFORT_SPAN_SEMITONES ? 'comfort' : 'stretch';
 }
 
 interface ScopeFingering {
@@ -421,6 +552,12 @@ interface ScopeWalk {
   needsTraverse: boolean;
   /** Centered finger per distinct pitch (the static layout, or the traverse seed). */
   fingerByMidi: Map<number, number>;
+  /**
+   * Per-occurrence fingers for the reach path's lead events (contour-monotonic).
+   * Absent on the comfort-centered, stretch-centered, and traverse branches, which
+   * remain per-midi.
+   */
+  fingerByLeadEvent?: Map<NoteEvent, Finger>;
 }
 
 /**
@@ -452,8 +589,12 @@ function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
 
   // More distinct pitches than a distinct-per-finger layout allows, but the scope
   // is capped at 17 semitones by buildPositions (within physical reach) and is not
-  // a run: hold a fixed wide hand with finger reuse instead of resetting via traverse.
-  return { needsTraverse: false, fingerByMidi: reachAnchoredFingers(pitches) };
+  // a run: hold a fixed wide hand anchored on the pedal pitch (finger reuse) so the
+  // recurring low note keeps the thumb, instead of resetting via traverse.
+  const pedal = scopePedalMidi(groups, hand);
+  const baselineByMidi = reachAnchoredFingers(pitches, hand, pedal);
+  const fingerByLeadEvent = contourReachFingers(groups, hand, pedal, baselineByMidi);
+  return { needsTraverse: false, fingerByMidi: baselineByMidi, fingerByLeadEvent };
 }
 
 export interface HandPosition {
@@ -786,7 +927,10 @@ function assignPosition(
   seenMidis: Set<number>,
   _isNewScope: boolean,
 ): Map<NoteEvent, Finger | null> {
-  const { needsTraverse, fingerByMidi } = chooseScopeWalk(position.groups, hand);
+  const { needsTraverse, fingerByMidi, fingerByLeadEvent } = chooseScopeWalk(
+    position.groups,
+    hand,
+  );
   const fingerByEvent = new Map<NoteEvent, Finger | null>();
 
   for (const group of position.groups) {
@@ -796,6 +940,18 @@ function assignPosition(
   }
 
   if (!needsTraverse) {
+    if (fingerByLeadEvent) {
+      // Reach path: per-occurrence lead fingers, chord tones spread from the lead.
+      for (const group of position.groups) {
+        const lead =
+          hand === 'R' ? group.events[0] : group.events[group.events.length - 1];
+        const leadFinger =
+          fingerByLeadEvent.get(lead) ?? clampFinger(fingerByMidi.get(lead.midi) ?? 1);
+        spreadChordFromLead(group, hand, leadFinger, seenMidis, fingerByEvent);
+      }
+      return fingerByEvent;
+    }
+
     for (const group of position.groups) {
       for (const event of group.events) {
         fingerByEvent.set(event, clampFinger(fingerByMidi.get(event.midi) ?? 1));
@@ -1032,6 +1188,10 @@ export interface FingeringScopeReport {
   pitchRangeSemitones: number;
   needsTraverse: boolean;
   isRun: boolean;
+  /** Gap table when on the reach-anchored path; null otherwise. */
+  reachTable: 'comfort' | 'stretch' | null;
+  /** Maximum semitone reach from the scope bottom anchor (pitches[0]). */
+  maxReachFromBottom: number;
   fingers: Finger[];
   midis: number[];
 }
@@ -1070,6 +1230,10 @@ export function reportHandFingering(
       const pitches = distinctPitchesFromAnchor(position.groups, hand);
       const stretch = distributeScope(pitches, extendedFingerGap);
       const walk = chooseScopeWalk(position.groups, hand);
+      const maxReachFromBottom = pitches.reduce(
+        (max, midi) => Math.max(max, Math.abs(midi - pitches[0])),
+        0,
+      );
       const scopeEvents = position.groups.flatMap((group) => group.events);
       const midis = scopeEvents.map((event) => event.midi);
       const scopeFingers = scopeEvents
@@ -1084,6 +1248,8 @@ export function reportHandFingering(
         pitchRangeSemitones: position.maxMidi - position.minMidi,
         needsTraverse: walk.needsTraverse,
         isRun: isSustainedRun(position.groups, hand, stretch.fits),
+        reachTable: reachTableForScope(position.groups, hand),
+        maxReachFromBottom,
         fingers: scopeFingers,
         midis,
       });

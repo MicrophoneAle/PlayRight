@@ -42,7 +42,7 @@ function summarizeReport(report: HandFingeringReport): void {
     });
     // eslint-disable-next-line no-console
     console.log(
-      `  phrase ${scope.phraseIndex} scope ${scope.scopeIndex}: notes=${scope.noteCount} distinct=${scope.distinctPitchCount} range=${scope.pitchRangeSemitones}st traverse=${scope.needsTraverse} run=${scope.isRun}`,
+      `  phrase ${scope.phraseIndex} scope ${scope.scopeIndex}: notes=${scope.noteCount} distinct=${scope.distinctPitchCount} range=${scope.pitchRangeSemitones}st traverse=${scope.needsTraverse} run=${scope.isRun} reachTable=${scope.reachTable ?? 'n/a'} maxReach=${scope.maxReachFromBottom}`,
     );
     // eslint-disable-next-line no-console
     console.log(`    ${fingerPairs.join(' ')}`);
@@ -153,6 +153,50 @@ describe('chase-setsuna-yuki fingering analysis', () => {
     ).length;
     // eslint-disable-next-line no-console
     console.log(`of which involve the thumb (finger 1): ${thumbMatches}`);
+
+    const e4Fingers = rhM1to18
+      .filter((row) => row.midi === 64)
+      .map((row) => row.finger);
+    const e4AllThumb = e4Fingers.every((finger) => finger === 1);
+    // eslint-disable-next-line no-console
+    console.log(
+      `E4 occurrences=${e4Fingers.length} fingers=[${e4Fingers.join(', ')}] allThumb=${e4AllThumb}`,
+    );
+    expect(e4AllThumb).toBe(true);
+
+    const firstOctaveJump = actual.length >= 2 ? [actual[0], actual[1]] : [];
+    // eslint-disable-next-line no-console
+    console.log(`first octave jump (m1 E4 -> m2 E5): [${firstOctaveJump.join(', ')}]`);
+    expect(firstOctaveJump[0]).toBe(1);
+    expect(firstOctaveJump[1]).toBe(5);
+
+    // Contour monotonicity: ascending consecutive pitches never drop in finger,
+    // descending never rise; repeats keep their finger.
+    const contourViolations: string[] = [];
+    for (let index = 1; index < rhM1to18.length; index += 1) {
+      const prev = rhM1to18[index - 1];
+      const curr = rhM1to18[index];
+      const prevFinger = prev.finger;
+      const currFinger = curr.finger;
+      if (prevFinger === null || currFinger === null) {
+        continue;
+      }
+      if (curr.midi > prev.midi && currFinger < prevFinger) {
+        contourViolations.push(
+          `pos ${index}: ${prev.pitch}->${curr.pitch} ascending but ${prevFinger}->${currFinger}`,
+        );
+      } else if (curr.midi < prev.midi && currFinger > prevFinger) {
+        contourViolations.push(
+          `pos ${index}: ${prev.pitch}->${curr.pitch} descending but ${prevFinger}->${currFinger}`,
+        );
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+      `contour violations: ${contourViolations.length}` +
+        (contourViolations.length ? `\n  ${contourViolations.join('\n  ')}` : ''),
+    );
+    expect(contourViolations).toEqual([]);
 
     expect(fingeringTags).toBe(0);
     expect(predicted).toBe(totalNotes);
