@@ -53,9 +53,19 @@ export const MAX_HAND_SPAN_SEMITONES = 17;
 
 /**
  * Widest reach, in semitones from the bottom anchor, that the comfort table covers
- * comfortably (a tenth).
+ * comfortably (a tenth). Also used as the span threshold above which a held hand
+ * position is considered "wide" for reseat decisions.
  */
 export const COMFORT_SPAN_SEMITONES = 10;
+
+/** Alias: a scope whose lead span exceeds this is a wide hand position. */
+export const WIDE_SPAN_SEMITONES = COMFORT_SPAN_SEMITONES;
+
+/**
+ * Minimum number of onset groups the current scope must contain while its lead
+ * span stays above WIDE_SPAN_SEMITONES before a contour reseat may fire.
+ */
+export const SUSTAINED_WIDE_GROUPS = 4;
 
 /** Five fingers span four gaps. */
 export const MAX_FINGER_SPAN = 4;
@@ -96,6 +106,12 @@ export const MAX_RUN_DIRECTION_CHANGES = 1;
 
 /** A crossing (thumb-under / finger-over) only happens on a step this small. */
 export const CROSS_MAX_STEP_SEMITONES = 2;
+
+/**
+ * A contour reseat only fires when the reversal step exceeds stepwise motion
+ * (same threshold as run-crossing: turns at a leap, not a semitone wiggle).
+ */
+export const RESEAT_MIN_REVERSAL_SEMITONES = CROSS_MAX_STEP_SEMITONES + 1;
 
 interface OnsetGroup {
   stepIndex: number;
@@ -631,6 +647,83 @@ function pitchRangeOfGroups(groups: OnsetGroup[]): number {
   return maxMidi - minMidi;
 }
 
+/** Span of the scope's lead-midi line (max lead minus min lead). */
+function leadSpanOfGroups(groups: OnsetGroup[], hand: Hand): number {
+  if (groups.length === 0) {
+    return 0;
+  }
+  const leads = groups.map((group) => leadMidi(group, hand));
+  return Math.max(...leads) - Math.min(...leads);
+}
+
+/**
+ * True when the incoming group turns the lead contour (local extremum): the signed
+ * interval into incoming opposes the signed interval before it. Reuses the same
+ * signed-interval view as isMelodicRunContinuation.
+ */
+function isDirectionReversal(
+  current: OnsetGroup[],
+  incoming: OnsetGroup,
+  hand: Hand,
+): boolean {
+  if (current.length < 2) {
+    return false;
+  }
+
+  const prevLead = leadMidi(current[current.length - 2], hand);
+  const lastLead = leadMidi(current[current.length - 1], hand);
+  const nextLead = leadMidi(incoming, hand);
+  const prevInterval = lastLead - prevLead;
+  const nextInterval = nextLead - lastLead;
+
+  if (prevInterval === 0 || nextInterval === 0) {
+    return false;
+  }
+
+  return Math.sign(prevInterval) !== Math.sign(nextInterval);
+}
+
+/**
+ * True when the scope's lead span has exceeded WIDE_SPAN_SEMITONES for at least
+ * `wideHoldGroups` consecutive tail groups (maintained by buildPositions).
+ */
+function hasSustainedWideSpan(wideHoldGroups: number): boolean {
+  return wideHoldGroups >= SUSTAINED_WIDE_GROUPS;
+}
+
+/**
+ * Reseat when the hand has been held at a wide stretch for a sustained run of
+ * notes and the melody turns at a leap (local extremum): close at the extremum,
+ * open at the reversal. Never fires mid-stepwise-run, on stepwise wiggles, or on
+ * short/narrow scopes.
+ */
+function isReseatPoint(
+  current: OnsetGroup[],
+  incoming: OnsetGroup,
+  hand: Hand,
+  wideHoldGroups: number,
+): boolean {
+  if (current.length < SUSTAINED_WIDE_GROUPS) {
+    return false;
+  }
+
+  if (isMelodicRunContinuation(current, incoming, hand)) {
+    return false;
+  }
+
+  if (!hasSustainedWideSpan(wideHoldGroups)) {
+    return false;
+  }
+
+  if (!isDirectionReversal(current, incoming, hand)) {
+    return false;
+  }
+
+  const lastLead = leadMidi(current[current.length - 1], hand);
+  const nextLead = leadMidi(incoming, hand);
+  return Math.abs(nextLead - lastLead) > RESEAT_MIN_REVERSAL_SEMITONES;
+}
+
 /**
  * True when the incoming group continues a stepwise run (small same-direction
  * steps) rather than a genuine scope break (leap or direction change).
@@ -681,14 +774,29 @@ function buildPositions(
   const fits = (candidate: OnsetGroup[]): boolean =>
     pitchRangeOfGroups(candidate) <= maxSpan;
 
+  let wideHoldGroups = 0;
+
+  const refreshWideHold = (): void => {
+    wideHoldGroups =
+      leadSpanOfGroups(current, hand) > WIDE_SPAN_SEMITONES ? wideHoldGroups + 1 : 0;
+  };
+
   for (const group of groups) {
     if (current.length === 0) {
       current = [group];
+      wideHoldGroups = 0;
       continue;
     }
 
     if (fits([...current, group])) {
-      current.push(group);
+      if (isReseatPoint(current, group, hand, wideHoldGroups)) {
+        positions.push(finalizePosition(current));
+        current = [group];
+        wideHoldGroups = 0;
+      } else {
+        current.push(group);
+        refreshWideHold();
+      }
       continue;
     }
 
@@ -696,9 +804,11 @@ function buildPositions(
     // finger them continuously; only split on a genuine break (leap or turn).
     if (isMelodicRunContinuation(current, group, hand)) {
       current.push(group);
+      refreshWideHold();
     } else {
       positions.push(finalizePosition(current));
       current = [group];
+      wideHoldGroups = 0;
     }
   }
 

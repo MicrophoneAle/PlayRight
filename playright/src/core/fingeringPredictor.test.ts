@@ -12,6 +12,9 @@ import {
   type NoteEvent,
   predictFingering,
   prepareScriptWithFingering,
+  reportHandFingering,
+  SUSTAINED_WIDE_GROUPS,
+  WIDE_SPAN_SEMITONES,
 } from './fingeringPredictor.ts';
 
 function eventsFromMidis(midis: number[], onsetStep = 120): NoteEvent[] {
@@ -235,6 +238,56 @@ describe('reach-anchored table selection', () => {
 
     expect(fingers[0]).toBe(1);
     expect(fingers[1]).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('scope reseat lookahead', () => {
+  function scriptFromRHMidis(midis: number[]): PlaybackScript {
+    return midis.map((midi, order) =>
+      step(order, order * 120, [scriptNote(midi, 'R')], 1),
+    );
+  }
+
+  it('uses named wide-span constants aligned with comfort reach', () => {
+    expect(WIDE_SPAN_SEMITONES).toBe(COMFORT_SPAN_SEMITONES);
+    expect(SUSTAINED_WIDE_GROUPS).toBe(4);
+  });
+
+  it('splits a rest-free two-center wandering line into two scopes at the center shift', () => {
+    const low = [60, 63, 67, 70, 73, 70, 67, 64];
+    const high = [72, 74, 76, 75, 73, 75, 76, 77];
+    const midis = [...low, ...high];
+    const report = reportHandFingering(scriptFromRHMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log(
+      'two-center scopes:',
+      report.scopes.map((scope) => ({
+        notes: scope.noteCount,
+        range: scope.pitchRangeSemitones,
+      })),
+    );
+    expect(report.scopeCount).toBe(2);
+    expect(report.scopes[0]?.noteCount).toBe(8);
+    expect(report.scopes[1]?.noteCount).toBe(8);
+  });
+
+  it('keeps a long stepwise scale as one continuous scope (no spurious reseat)', () => {
+    const midis = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    const report = reportHandFingering(scriptFromRHMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('long-scale scopes:', report.scopeCount, 'fingers:', fingers);
+    expect(report.scopeCount).toBe(1);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+    expect(fingers[0]).toBe(1);
+  });
+
+  it('does not reseat a short narrow phrase', () => {
+    const midis = [60, 62, 64];
+    const report = reportHandFingering(scriptFromRHMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('narrow phrase scopes:', report.scopeCount);
+    expect(report.scopeCount).toBe(1);
   });
 });
 

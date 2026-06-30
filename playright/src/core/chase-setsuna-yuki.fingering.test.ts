@@ -102,6 +102,18 @@ describe('chase-setsuna-yuki fingering analysis', () => {
 
     const rhReport = reportHandFingering(script, 'R');
     const lhReport = reportHandFingering(script, 'L');
+    // eslint-disable-next-line no-console
+    console.log(`\nChase RH scope count: ${rhReport.scopeCount} (was 2 before reseat lookahead)`);
+    let cumulative = 0;
+    rhReport.scopes.forEach((scope) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `  scope ${scope.scopeIndex}: leadIdx ${cumulative}-${cumulative + scope.noteCount - 1} notes=${scope.noteCount} range=${scope.pitchRangeSemitones}st`,
+      );
+      cumulative += scope.noteCount;
+    });
+    expect(rhReport.scopeCount).toBeGreaterThan(2);
+
     summarizeReport(rhReport);
     summarizeReport(lhReport);
 
@@ -116,6 +128,11 @@ describe('chase-setsuna-yuki fingering analysis', () => {
     );
     const rhFingersM1to10 = rhM1to10.map((row) => row.finger).filter((f): f is Finger => f !== null);
     const rhThumbM1to10 = rhFingersM1to10.filter((f) => f === 1).length;
+    const m1to10Target = [
+      1, 5, 4, 3, 4, 3, 1, 1, 1, 2, 3, 4, 1, 2, 3, 5, 4, 3, 4, 3, 1, 1, 1, 2, 3,
+      4, 1, 2, 1, 1, 1, 1, 1, 1,
+    ];
+    expect(rhFingersM1to10).toEqual(m1to10Target);
   // eslint-disable-next-line no-console
     console.log(
       `RH m1-10 fingers: [${rhFingersM1to10.join(', ')}] thumb=${rhThumbM1to10}/${rhFingersM1to10.length}`,
