@@ -219,6 +219,10 @@ interface RelativeWalk {
 /**
  * Pick the widest comfortable gap that still fits in the hand. Prefers stretch
  * over crunch (e.g. 1–5 for a perfect fifth). Falls back to strained when needed.
+ *
+ * The gap depends only on the interval and the current hand span — never on
+ * whether the pitch was played before. Path-independence is what keeps a given
+ * interval (e.g. a perfect fifth) fingered the same way throughout the piece.
  */
 function chooseAdaptiveGap(
   intervalSemitones: number,
@@ -226,17 +230,13 @@ function chooseAdaptiveGap(
   relMin: number,
   relMax: number,
   hand: Hand,
-  seenMidis: Set<number>,
-  targetMidi: number,
+  _seenMidis: Set<number>,
+  _targetMidi: number,
 ): number {
   const distance = Math.abs(intervalSemitones);
   const gaps = Array.from(
     new Set([comfortFingerGap(distance), extendedFingerGap(distance)]),
   ).sort((left, right) => right - left);
-
-  if (seenMidis.has(targetMidi)) {
-    return extendedFingerGap(distance);
-  }
 
   for (const gap of gaps) {
     const nextRel = lastRel + fingerMoveSign(hand, intervalSemitones) * gap;
@@ -377,28 +377,13 @@ function buildPositions(
   const fits = (candidate: OnsetGroup[]): boolean =>
     pitchRangeOfGroups(candidate) <= maxSpan;
 
+  // Greedy split: keep extending the scope while the whole scope fits in a major
+  // tenth; otherwise close the current scope intact and open a new one. The old
+  // sliding logic peeled single groups off the front, which fragmented long
+  // runs into one-note scopes — and a one-note scope pins to the pinky, so an
+  // ascending melody collapsed onto finger 5 (`[`/`]`) for the whole run.
   for (const group of groups) {
     if (current.length === 0) {
-      current = [group];
-      continue;
-    }
-
-    if (fits([...current, group])) {
-      current.push(group);
-      continue;
-    }
-
-    // Slide the window forward only when the tail plus the incoming note still
-    // fits in a major tenth. Otherwise split normally (avoids orphan scopes).
-    let slid = false;
-    while (current.length > 2 && !fits([...current, group])) {
-      positions.push(finalizePosition([current[0]]));
-      current = current.slice(1);
-      slid = true;
-    }
-
-    if (!slid && current.length === 2 && !fits([...current, group])) {
-      positions.push(finalizePosition(current));
       current = [group];
       continue;
     }
@@ -651,17 +636,27 @@ function assignTraversePlacement(
   const earlyFrom: Finger = fingerUpRun ? 3 : 1;
   const earlyTo: Finger = fingerUpRun ? 1 : 3;
 
+  // Reuse the finger a pitch already received in this scope so a recurring note
+  // (e.g. the descending half of a palindrome) keeps the same finger. This is
+  // the consistency the old seenMidis gap-switch tried to provide, but done by
+  // remembering the assigned finger instead of altering interval gaps.
+  const leadFingerByMidi = new Map<number, Finger>();
+
   let finger: Finger = startFinger ?? (fingerUpRun ? 1 : 5);
   finger = fitChordLeadFinger(placement[0], hand, finger, seenMidis);
   spreadChordFromLead(placement[0], hand, finger, seenMidis, out);
+  leadFingerByMidi.set(leads[0], finger);
 
   for (let index = 1; index < leads.length; index += 1) {
     const interval = leads[index] - leads[index - 1];
     const stepDir = Math.sign(interval);
     const absInterval = Math.abs(interval);
     const previous = finger;
+    const reused = leadFingerByMidi.get(leads[index]);
 
-    if (interval === 0) {
+    if (reused !== undefined) {
+      finger = reused;
+    } else if (interval === 0) {
       // keep finger
     } else if (
       absInterval <= CROSS_MAX_STEP_SEMITONES &&
@@ -685,7 +680,7 @@ function assignTraversePlacement(
       }
     }
 
-    if (interval !== 0) {
+    if (interval !== 0 && reused === undefined) {
       finger = avoidRepeat(previous, finger);
     }
 
@@ -693,6 +688,7 @@ function assignTraversePlacement(
     // from the fitted lead so the lead cannot drift upward across chords.
     finger = fitChordLeadFinger(placement[index], hand, finger, seenMidis);
     spreadChordFromLead(placement[index], hand, finger, seenMidis, out);
+    leadFingerByMidi.set(leads[index], finger);
   }
 }
 

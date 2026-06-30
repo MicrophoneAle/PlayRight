@@ -395,8 +395,14 @@ export class PracticeEngine {
     }
 
     const practiceNotes = getPracticeNotes(script[index], engineMode, activeHand);
-    this.practiceNotesForStep = practiceNotes;
-    const stepMidis = practiceNotes.map((note) => note.midi);
+    // Two-hand practice matches keys by finger; notes without a finger assignment
+    // cannot be pressed and must not block step completion (e.g. chord overflow).
+    const playableNotes =
+      engineMode === 'two-hand'
+        ? practiceNotes.filter((note) => note.finger !== null)
+        : practiceNotes;
+    this.practiceNotesForStep = playableNotes;
+    const stepMidis = playableNotes.map((note) => note.midi);
     for (const midi of stepMidis) {
       this.expectedNotes.add(midi);
     }

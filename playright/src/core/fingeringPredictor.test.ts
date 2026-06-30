@@ -168,8 +168,9 @@ describe('a scope holds while notes stay within a major tenth', () => {
     expect(fingers[3]).toBe(5);
   });
 
-  it('slides the scope window forward instead of rescoping on a high note within reach', () => {
-    // Low anchor, then a climb; high E is only 12 semitones above middle C.
+  it('keeps a long climb varied with the peak on a strong finger', () => {
+    // A climb wider than a major tenth splits into clean greedy scopes (no
+    // front-peeled one-note scopes that used to collapse the run onto finger 5).
     const events: NoteEvent[] = [];
     const midis = [40, 50, 55, 60, 64, 67, 72, 76, 72, 67, 64];
     for (let index = 0; index < midis.length; index += 1) {
@@ -181,8 +182,11 @@ describe('a scope holds while notes stay within a major tenth', () => {
       });
     }
     const fingers = fingerTimeline(events, 'R');
-    expect(fingers[fingers.length - 4]).toBe(5);
-    expect(fingers[fingers.length - 5]).not.toBe(1);
+    // The peak lands on a strong finger.
+    expect([4, 5]).toContain(fingers[midis.indexOf(76)]);
+    // The run never collapses onto a single finger and never repeats a finger.
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+    expect(new Set(fingers).size).toBeGreaterThan(2);
   });
 });
 
@@ -276,6 +280,39 @@ describe('block-chord progressions do not collapse onto the pinky', () => {
     const leads = chords.map((_, chordIndex) => fingers[chordIndex * 3]);
     expect(leads.every((finger) => finger === 5)).toBe(false);
     expect(leads.some((finger) => finger !== null && finger! <= 2)).toBe(true);
+  });
+});
+
+describe('fingering stays consistent across a whole piece', () => {
+  it('a wide ascending melody never collapses onto the pinky', () => {
+    // A run wider than a major tenth used to fragment into one-note scopes,
+    // pinning every note to finger 5 (RH `[`) until the final scope.
+    const midis = [
+      60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84,
+    ];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R', 1);
+    expect(fingers.every((finger) => finger === 5)).toBe(false);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+    // The ascending run is meaningfully varied, not pinned to one finger.
+    expect(new Set(fingers.slice(0, 8)).size).toBeGreaterThan(2);
+  });
+
+  it('repeats the same perfect-fifth dyad with the same fingers throughout', () => {
+    // The same harmonic fifth must not switch fingering as the piece goes on.
+    const events: NoteEvent[] = [];
+    for (let step = 0; step < 6; step += 1) {
+      events.push({ stepIndex: step, onset: step * 480, midi: 48, authoredFinger: null });
+      events.push({ stepIndex: step, onset: step * 480, midi: 55, authoredFinger: null });
+    }
+    const fingers = fingerTimeline(events, 'L', 1);
+    const lowFingers = fingers.filter((_, index) => index % 2 === 0);
+    const highFingers = fingers.filter((_, index) => index % 2 === 1);
+    // Every repetition of 48 (and of 55) gets the identical finger.
+    expect(new Set(lowFingers).size).toBe(1);
+    expect(new Set(highFingers).size).toBe(1);
+    // And the fifth is the wide 5–1 (q + v), not a crunched 5–3 / 4–2.
+    expect(lowFingers[0]).toBe(5);
+    expect(highFingers[0]).toBe(1);
   });
 });
 

@@ -210,6 +210,33 @@ describe('PracticeEngine two-hand finger press', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
+  it('advances a chord when every assigned finger is pressed, ignoring null-finger overflow', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'G4', midi: 67, hand: 'R', finger: 1 },
+          { pitch: 'B4', midi: 71, hand: 'R', finger: 3 },
+          { pitch: 'D5', midi: 74, hand: 'R', finger: null },
+        ],
+      },
+      {
+        order: 1,
+        onset: 1,
+        measureNumber: 1,
+        notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: 2 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerPress({ hand: 'R', finger: 3 });
+    flushAdvance();
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
+
   it('does not double-count an already-hit finger', () => {
     makeScript([
       {
