@@ -57,20 +57,23 @@ describe('comfort table', () => {
   });
 });
 
-describe('bottom-anchored static scopes', () => {
+describe('centered static scopes', () => {
   it('fingers an ascending C-major five-finger run 1–5 with no repeats', () => {
     const fingers = fingerTimeline(eventsFromMidis([60, 62, 64, 65, 67]), 'R');
     expect(fingers).toEqual([1, 2, 3, 4, 5]);
     expect(noConsecutiveRepeats(fingers)).toBe(true);
   });
 
-  it('bottom-anchors the first note of a new scope after a large leap', () => {
+  it('opens a narrow new scope near the thumb, not glued to it', () => {
+    // 84 86 88 is the new scope's range; its lowest note (84, the first note)
+    // sits at or near the thumb (centering keeps a true bottom note low), and
+    // the others use the middle fingers rather than only 1-2-3.
     const midis = [60, 62, 84, 86, 88];
     const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
     // eslint-disable-next-line no-console
     console.log('two-octave-jump actual:', fingers);
     const newScopeStart = midis.indexOf(84);
-    expect(fingers[newScopeStart]).toBe(1);
+    expect(fingers[newScopeStart]).toBeLessThanOrEqual(2);
   });
 
   it('places a middle-start run with the first note on a middle finger', () => {
@@ -83,11 +86,11 @@ describe('bottom-anchored static scopes', () => {
     expect(noConsecutiveRepeats(fingers)).toBe(true);
   });
 
-  it('bottom-anchors the highest left-hand note to the thumb', () => {
+  it('keeps a true bottom-note start on or near the left-hand thumb', () => {
     const midis = [60, 58, 56, 53];
     const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
     const highestMidi = Math.max(...midis);
-    expect(fingers[midis.indexOf(highestMidi)]).toBe(1);
+    expect(fingers[midis.indexOf(highestMidi)]).toBeLessThanOrEqual(2);
   });
 });
 
@@ -182,6 +185,48 @@ describe('spread scopes use the stretch table, not traverse', () => {
     console.log('no-split actual:', fingers);
     expect(fingers.filter((finger) => finger === 1).length).toBe(1);
     expect(new Set(fingers).size).toBe(4);
+  });
+});
+
+describe('centered hand on wandering melodies', () => {
+  const lowestThreeShare = (fingers: (Finger | null)[]): number => {
+    const low = fingers.filter((finger) => finger === 1 || finger === 2 || finger === 3).length;
+    return low / fingers.length;
+  };
+
+  it('centers a wandering right-hand melody instead of clustering on 1-2-3', () => {
+    // Stepwise wandering around A4, all within a 4-semitone band. Centering should
+    // place this on the middle fingers (2-3-4), reaching the thumb only at the
+    // true low note, NOT pile everything onto 1-2-3.
+    const midis = [69, 71, 72, 71, 69, 68, 69, 71];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('wandering-RH actual:', fingers);
+    const onThumb = fingers.filter((finger) => finger === 1).length;
+    expect(onThumb).toBeLessThan(fingers.length / 2);
+    expect(lowestThreeShare(fingers)).toBeLessThan(1);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+  });
+
+  it('keeps a spread scope (60 64 67 71 72) on the upper fingers', () => {
+    const midis = [60, 64, 67, 71, 72];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('spread-71-72 actual:', fingers);
+    expect(fingers[0]).toBe(1);
+    expect(fingers[fingers.length - 1]).toBeGreaterThanOrEqual(4);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+  });
+
+  it('centers a wandering left-hand bass melody instead of clustering on 1-2-3', () => {
+    const midis = [52, 50, 48, 50, 52, 53, 52, 50];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
+    // eslint-disable-next-line no-console
+    console.log('wandering-LH actual:', fingers);
+    const onThumb = fingers.filter((finger) => finger === 1).length;
+    expect(onThumb).toBeLessThan(fingers.length / 2);
+    expect(lowestThreeShare(fingers)).toBeLessThan(1);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
   });
 });
 

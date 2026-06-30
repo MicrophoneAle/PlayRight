@@ -195,31 +195,70 @@ function chooseAdaptiveGap(
   return Math.max(1, extendedFingerGap(distance));
 }
 
-/** Distinct scope pitches ordered outward from the bottom anchor. */
+/** Distinct scope pitches ordered low→high for RH, high→low for LH. */
 function distinctPitchesFromAnchor(groups: OnsetGroup[], hand: Hand): number[] {
   const distinct = [
     ...new Set(groups.flatMap((group) => group.events.map((event) => event.midi))),
   ];
-  // RH ascends from its lowest pitch, LH descends from its highest, so the
-  // bottom anchor is always the first entry and takes the thumb.
+  // The first entry is the scope's reach toward the thumb (RH lowest pitch,
+  // LH highest); fingers grow from there. Centering decides the actual offset.
   distinct.sort((left, right) => (hand === 'R' ? left - right : right - left));
   return distinct;
 }
 
+/**
+ * Map gap-spaced pitch slots to absolute fingers by CENTERING the layout in
+ * 1..5 instead of pinning the bottom slot to the thumb. With span = total gaps:
+ *
+ *   offset = 1 + floor((MAX_FINGER_SPAN - span) / 2)   // center the block
+ *   then shift minimally so offset..offset+span stays inside 1..5
+ *   finger(pitch) = clamp(offset + slot(pitch))
+ *
+ * A narrow mid-hand scope lands on 2-3-4 (thumb/pinky free at the reaches), a
+ * full five-finger spread stays 1-2-3-4-5, and a scope rooted at its lowest note
+ * keeps that note on or near the thumb. Spacing is a pure function of pitch, so
+ * recurring pitches keep one finger and distinct pitches keep distinct fingers.
+ */
+function centeredFingers(pitches: number[], gaps: number[]): Map<number, number> {
+  const fingerByMidi = new Map<number, number>();
+  if (pitches.length === 0) {
+    return fingerByMidi;
+  }
+
+  const slots: number[] = [0];
+  for (let index = 0; index < gaps.length; index += 1) {
+    slots.push(slots[index] + gaps[index]);
+  }
+  const span = slots[slots.length - 1];
+
+  let offset = 1 + Math.floor((MAX_FINGER_SPAN - span) / 2);
+  if (offset + span > 5) {
+    offset -= offset + span - 5;
+  }
+  if (offset < 1) {
+    offset = 1;
+  }
+
+  for (let index = 0; index < pitches.length; index += 1) {
+    fingerByMidi.set(pitches[index], clampFinger(offset + slots[index]));
+  }
+  return fingerByMidi;
+}
+
 interface ScopeFingering {
-  /** Finger per distinct pitch, bottom-anchored to the thumb. */
+  /** Centered finger per distinct pitch. */
   fingerByMidi: Map<number, number>;
-  /** Relative span of the layout (top finger minus the thumb). */
+  /** Relative span of the layout (total gaps). */
   span: number;
   /** Whether the layout fits inside five fingers. */
   fits: boolean;
 }
 
 /**
- * Bottom-anchor the scope's distinct pitches and space consecutive pitches by
- * the supplied gap table. When the spaced layout overflows five fingers but the
- * scope has at most five distinct pitches, the widest gaps are compressed toward
- * 1 until it fits — five notes always sit under five fingers without a thumb
+ * Space the scope's distinct pitches by the supplied gap table, then center the
+ * layout in 1..5. When the spaced layout overflows five fingers but the scope
+ * has at most five distinct pitches, the widest gaps are compressed toward 1
+ * until it fits — five notes always sit under five fingers without a thumb
  * crossing. Only more than five distinct pitches can truly overflow (a run).
  *
  * Spacing is a function of pitch, not of melodic path, so a recurring pitch and
@@ -229,9 +268,8 @@ function distributeScope(
   pitches: number[],
   gapFn: (distance: number) => number,
 ): ScopeFingering {
-  const fingerByMidi = new Map<number, number>();
   if (pitches.length === 0) {
-    return { fingerByMidi, span: 0, fits: true };
+    return { fingerByMidi: new Map(), span: 0, fits: true };
   }
 
   const gaps: number[] = [];
@@ -258,19 +296,12 @@ function distributeScope(
     span -= 1;
   }
 
-  let cumulative = 0;
-  fingerByMidi.set(pitches[0], 1);
-  for (let index = 1; index < pitches.length; index += 1) {
-    cumulative += gaps[index - 1];
-    fingerByMidi.set(pitches[index], clampFinger(1 + cumulative));
-  }
-
-  return { fingerByMidi, span, fits: span <= MAX_FINGER_SPAN };
+  return { fingerByMidi: centeredFingers(pitches, gaps), span, fits: span <= MAX_FINGER_SPAN };
 }
 
 interface ScopeWalk {
   needsTraverse: boolean;
-  /** Bottom-anchored finger per distinct pitch (the static layout, or the traverse seed). */
+  /** Centered finger per distinct pitch (the static layout, or the traverse seed). */
   fingerByMidi: Map<number, number>;
 }
 
@@ -290,16 +321,7 @@ function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
     comfortGaps.push(Math.max(1, comfortFingerGap(Math.abs(pitches[index] - pitches[index - 1]))));
   }
   if (comfortGaps.reduce((sum, gap) => sum + gap, 0) <= MAX_FINGER_SPAN) {
-    let cumulative = 0;
-    const fingerByMidi = new Map<number, number>();
-    if (pitches.length > 0) {
-      fingerByMidi.set(pitches[0], 1);
-    }
-    for (let index = 1; index < pitches.length; index += 1) {
-      cumulative += comfortGaps[index - 1];
-      fingerByMidi.set(pitches[index], clampFinger(1 + cumulative));
-    }
-    return { needsTraverse: false, fingerByMidi };
+    return { needsTraverse: false, fingerByMidi: centeredFingers(pitches, comfortGaps) };
   }
 
   const stretch = distributeScope(pitches, extendedFingerGap);
