@@ -50,9 +50,9 @@ describe('comfort table', () => {
     ]);
   });
 
-  it('uses the stretch table for wide scopes', () => {
-    expect([1, 4, 5, 8, 9, 11, 12].map(extendedFingerGap)).toEqual([
-      1, 1, 2, 2, 3, 3, 4,
+  it('uses the absolute-reach stretch table', () => {
+    expect([1, 4, 5, 8, 9, 12, 13, 17].map(extendedFingerGap)).toEqual([
+      1, 1, 2, 2, 3, 3, 4, 4,
     ]);
   });
 });
@@ -95,14 +95,22 @@ describe('centered static scopes', () => {
 });
 
 describe('traverse runs', () => {
-  it('fingers an ascending C-major octave with index-preferred brief crossings', () => {
+  it('fingers an ascending C-major octave with thumb-under crossings', () => {
     const midis = [60, 62, 64, 65, 67, 69, 71, 72];
     const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
     // eslint-disable-next-line no-console
     console.log('octave actual:', fingers);
+    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
     expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(fingers[0]).toBe(1);
-    expect(fingers[fingers.length - 1]).not.toBe(fingers[0]);
+  });
+
+  it('fingers a descending C-major octave with finger-over crossings', () => {
+    const midis = [72, 71, 69, 67, 65, 64, 62, 60];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('descending-octave actual:', fingers);
+    expect(fingers).toEqual([5, 4, 3, 2, 1, 3, 2, 1]);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
   });
 
   it('uses the stretch table for a spread arpeggio', () => {
@@ -115,10 +123,12 @@ describe('traverse runs', () => {
     expect(new Set(fingers).size).toBeGreaterThan(2);
   });
 
-  it('ascending left-hand C major mirrors with the top note on the thumb', () => {
+  it('ascending left-hand C major mirrors descending right-hand crossings', () => {
     const midis = [48, 50, 52, 53, 55, 57, 59, 60];
     const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
-    expect(fingers[fingers.length - 1]).toBe(1);
+    // eslint-disable-next-line no-console
+    console.log('LH-ascending-scale actual:', fingers);
+    expect(fingers).toEqual([5, 4, 3, 2, 1, 3, 2, 1]);
     expect(noConsecutiveRepeats(fingers)).toBe(true);
   });
 });
@@ -165,14 +175,13 @@ describe('spread scopes use the stretch table, not traverse', () => {
     expect(new Set(fingers).size).toBeGreaterThanOrEqual(4);
   });
 
-  it('still traverses an ascending C-major octave (genuinely > five fingers)', () => {
+  it('still traverses an ascending C-major octave as a sustained run', () => {
     const midis = [60, 62, 64, 65, 67, 69, 71, 72];
     const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
     // eslint-disable-next-line no-console
     console.log('octave-traverse actual:', fingers);
+    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
     expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(fingers[0]).toBe(1);
-    expect(fingers[fingers.length - 1]).toBe(3);
   });
 
   it('does not split a scope while all notes stay within 17 semitones', () => {
@@ -185,6 +194,44 @@ describe('spread scopes use the stretch table, not traverse', () => {
     console.log('no-split actual:', fingers);
     expect(fingers.filter((finger) => finger === 1).length).toBe(1);
     expect(new Set(fingers).size).toBe(4);
+  });
+});
+
+describe('static vs run by melodic shape', () => {
+  const lowestThreeShare = (fingers: (Finger | null)[]): number => {
+    const low = fingers.filter((finger) => finger === 1 || finger === 2 || finger === 3).length;
+    return low / fingers.length;
+  };
+
+  it('fingers a turning-around RH melody as one static centered scope', () => {
+    const midis = [69, 71, 72, 71, 69, 68, 66, 69];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('wandering-8-distinct actual:', fingers);
+    const onThumb = fingers.filter((finger) => finger === 1).length;
+    expect(onThumb).toBeLessThan(fingers.length / 2);
+    expect(lowestThreeShare(fingers)).toBeLessThan(1);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+    expect(fingers.filter((finger) => finger === 1).length).toBe(1);
+  });
+
+  it('fingers a 17-semitone turning figure as one static hand position', () => {
+    const midis = [60, 72, 65, 77];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('17-semitone-turn actual:', fingers);
+    expect(fingers.filter((finger) => finger === 1).length).toBe(1);
+    expect(new Set(fingers).size).toBe(4);
+  });
+
+  it('traverses a six-note ascending arpeggio that exceeds five static fingers', () => {
+    const midis = [60, 64, 67, 72, 76, 79];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('arpeggio-6-run actual:', fingers);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+    expect(fingers[0]).toBe(1);
+    expect(fingers.some((finger) => finger === 3 || finger === 4)).toBe(true);
   });
 });
 

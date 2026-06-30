@@ -69,7 +69,7 @@ export function comfortFingerGap(distanceSemitones: number): number {
   return 4;
 }
 
-/** Extended mapping for returning pitches or scopes between a tenth and a major tenth. */
+/** Absolute-reach mapping: max finger stretch for one scope (up to 17 semitones). */
 export function extendedFingerGap(distanceSemitones: number): number {
   const distance = Math.abs(distanceSemitones);
   if (distance <= 4) {
@@ -78,11 +78,14 @@ export function extendedFingerGap(distanceSemitones: number): number {
   if (distance <= 8) {
     return 2;
   }
-  if (distance <= 11) {
+  if (distance <= 12) {
     return 3;
   }
   return 4;
 }
+
+/** Direction reversals allowed before a scope is treated as a turning figure, not a run. */
+export const MAX_RUN_DIRECTION_CHANGES = 1;
 
 /** A crossing (thumb-under / finger-over) only happens on a step this small. */
 export const CROSS_MAX_STEP_SEMITONES = 2;
@@ -159,6 +162,103 @@ function avoidRepeat(previous: Finger, candidate: Finger): Finger {
     return (candidate + 1) as Finger;
   }
   return (candidate - 1) as Finger;
+}
+
+function isBlackKey(midi: number): boolean {
+  return [1, 3, 6, 8, 10].includes(midi % 12);
+}
+
+function gapsForPitches(
+  pitches: number[],
+  gapFn: (distance: number) => number,
+): number[] {
+  const gaps: number[] = [];
+  for (let index = 1; index < pitches.length; index += 1) {
+    const distance = Math.abs(pitches[index] - pitches[index - 1]);
+    gaps.push(Math.max(1, gapFn(distance)));
+  }
+  return gaps;
+}
+
+function gapSpan(gaps: number[]): number {
+  return gaps.reduce((sum, gap) => sum + gap, 0);
+}
+
+/**
+ * Count sign changes between consecutive non-zero lead intervals. Reuses the
+ * same signed-interval view as isMelodicRunContinuation.
+ */
+function countDirectionChanges(groups: OnsetGroup[], hand: Hand): number {
+  if (groups.length < 2) {
+    return 0;
+  }
+
+  const leads = groups.map((group) => leadMidi(group, hand));
+  let directionChanges = 0;
+  let previousDirection = 0;
+
+  for (let index = 1; index < leads.length; index += 1) {
+    const interval = leads[index] - leads[index - 1];
+    if (interval === 0) {
+      continue;
+    }
+
+    const direction = Math.sign(interval);
+    if (previousDirection !== 0 && direction !== previousDirection) {
+      directionChanges += 1;
+    }
+    previousDirection = direction;
+  }
+
+  return directionChanges;
+}
+
+/**
+ * True when the scope is a travelling run (scale or wide arpeggio), not a
+ * turning-around figure. Requires at most MAX_RUN_DIRECTION_CHANGES direction
+ * reversals, then either a majority of steps are stepwise (<= CROSS_MAX_STEP_SEMITONES,
+ * the same threshold as isMelodicRunContinuation) or the widened stretch layout
+ * cannot fit five fingers (hand must travel). Leap-heavy figures that still fit
+ * one static centered hand position stay static.
+ */
+function isSustainedRun(
+  groups: OnsetGroup[],
+  hand: Hand,
+  stretchFits: boolean,
+): boolean {
+  if (groups.length < 2) {
+    return false;
+  }
+
+  if (countDirectionChanges(groups, hand) > MAX_RUN_DIRECTION_CHANGES) {
+    return false;
+  }
+
+  const leads = groups.map((group) => leadMidi(group, hand));
+  let stepwiseSteps = 0;
+  let melodicSteps = 0;
+
+  for (let index = 1; index < leads.length; index += 1) {
+    const interval = leads[index] - leads[index - 1];
+    if (interval === 0) {
+      continue;
+    }
+    melodicSteps += 1;
+    if (Math.abs(interval) <= CROSS_MAX_STEP_SEMITONES) {
+      stepwiseSteps += 1;
+    }
+  }
+
+  if (melodicSteps === 0) {
+    return false;
+  }
+
+  const predominantlyStepwise = stepwiseSteps * 2 > melodicSteps;
+  if (predominantlyStepwise) {
+    return true;
+  }
+
+  return !stretchFits;
 }
 
 function sameDirectionStepsAhead(leads: number[], fromIndex: number, dir: number): number {
@@ -256,13 +356,12 @@ interface ScopeFingering {
 
 /**
  * Space the scope's distinct pitches by the supplied gap table, then center the
- * layout in 1..5. When the spaced layout overflows five fingers but the scope
- * has at most five distinct pitches, the widest gaps are compressed toward 1
- * until it fits — five notes always sit under five fingers without a thumb
- * crossing. Only more than five distinct pitches can truly overflow (a run).
- *
- * Spacing is a function of pitch, not of melodic path, so a recurring pitch and
- * an up-and-back contour keep one finger each and never inflate the span.
+ * layout in 1..5. Every gap is at least 1, so two different pitches always
+ * receive different finger slots; centeredFingers preserves that separation.
+ * When the spaced layout overflows five fingers but the scope has at most five
+ * distinct pitches, the widest gaps are compressed toward 1 until it fits.
+ * If compression cannot reach MAX_FINGER_SPAN (more than five distinct pitches,
+ * or gaps already at 1), fits is false and a static scope falls to traverse.
  */
 function distributeScope(
   pitches: number[],
@@ -272,16 +371,11 @@ function distributeScope(
     return { fingerByMidi: new Map(), span: 0, fits: true };
   }
 
-  const gaps: number[] = [];
-  for (let index = 1; index < pitches.length; index += 1) {
-    const distance = Math.abs(pitches[index] - pitches[index - 1]);
-    gaps.push(Math.max(1, gapFn(distance)));
-  }
+  const gaps = gapsForPitches(pitches, gapFn);
 
-  let span = gaps.reduce((sum, gap) => sum + gap, 0);
-  // Narrow the widest gaps first; each stays >= 1 so pitches keep distinct
-  // fingers. Compression can reach MAX_FINGER_SPAN only when there are at most
-  // MAX_FINGER_SPAN + 1 (= 5) distinct pitches.
+  let span = gapSpan(gaps);
+  // Narrow the widest gaps first; each stays >= 1 so distinct pitches keep
+  // distinct fingers.
   while (span > MAX_FINGER_SPAN) {
     let widest = -1;
     for (let index = 0; index < gaps.length; index += 1) {
@@ -306,26 +400,31 @@ interface ScopeWalk {
 }
 
 /**
- * Comfort first (compact scopes), then stretch (spread scopes), then compressed
- * stretch (wide spreads of at most five notes) before ever choosing traverse.
- * Traverse is reserved for runs of more than five distinct pitches that no
- * single hand position can hold.
+ * Shape-first scope walk:
+ * - RUN (monotonic scale / travelling arpeggio) -> traverse with crossings.
+ * - STATIC turning figure -> comfort, then widened stretch, both centered.
+ * - STATIC that fits neither table -> traverse as a safety net.
+ * Distinct-pitch count alone never forces traverse.
  */
 function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
   const pitches = distinctPitchesFromAnchor(groups, hand);
+  const comfortGaps = gapsForPitches(pitches, comfortFingerGap);
+  const comfortFits = gapSpan(comfortGaps) <= MAX_FINGER_SPAN;
+  const stretch = distributeScope(pitches, extendedFingerGap);
 
-  // Comfort is the default, but only when it fits without compression so spread
-  // scopes fall through to the stretch table rather than crunching together.
-  const comfortGaps: number[] = [];
-  for (let index = 1; index < pitches.length; index += 1) {
-    comfortGaps.push(Math.max(1, comfortFingerGap(Math.abs(pitches[index] - pitches[index - 1]))));
+  if (isSustainedRun(groups, hand, stretch.fits)) {
+    return { needsTraverse: true, fingerByMidi: stretch.fingerByMidi };
   }
-  if (comfortGaps.reduce((sum, gap) => sum + gap, 0) <= MAX_FINGER_SPAN) {
+
+  if (comfortFits) {
     return { needsTraverse: false, fingerByMidi: centeredFingers(pitches, comfortGaps) };
   }
 
-  const stretch = distributeScope(pitches, extendedFingerGap);
-  return { needsTraverse: !stretch.fits, fingerByMidi: stretch.fingerByMidi };
+  if (stretch.fits) {
+    return { needsTraverse: false, fingerByMidi: stretch.fingerByMidi };
+  }
+
+  return { needsTraverse: true, fingerByMidi: stretch.fingerByMidi };
 }
 
 export interface HandPosition {
@@ -533,12 +632,7 @@ function assignTraversePlacement(
   const leads = placement.map((group) => leadMidi(group, hand));
   const pitchDir = Math.sign(leads[leads.length - 1] - leads[0]) || 1;
   const fingerUpRun = (hand === 'R') === (pitchDir > 0);
-  const earlyTo: Finger = fingerUpRun ? 1 : 3;
 
-  // Reuse the finger a pitch already received in this scope so a recurring note
-  // (e.g. the descending half of a palindrome) keeps the same finger. This is
-  // the consistency the old seenMidis gap-switch tried to provide, but done by
-  // remembering the assigned finger instead of altering interval gaps.
   const leadFingerByMidi = new Map<number, Finger>();
 
   let finger: Finger = startFinger ?? (fingerUpRun ? 1 : 5);
@@ -552,48 +646,51 @@ function assignTraversePlacement(
     const absInterval = Math.abs(interval);
     const previous = finger;
     const reused = leadFingerByMidi.get(leads[index]);
-    const remaining = sameDirectionStepsAhead(leads, index, pitchDir);
-    const crossFrom: Finger =
-      remaining <= CROSS_MAX_STEP_SEMITONES
-        ? fingerUpRun
-          ? 2
-          : 1
-        : fingerUpRun
-          ? 3
-          : 1;
+    const stepwise = absInterval <= CROSS_MAX_STEP_SEMITONES;
+    const movingInRunDir = stepDir === pitchDir;
 
     if (reused !== undefined) {
       finger = reused;
     } else if (interval === 0) {
       // keep finger
-    } else if (
-      absInterval <= CROSS_MAX_STEP_SEMITONES &&
-      stepDir === pitchDir &&
-      finger === crossFrom &&
-      remaining >= 1
-    ) {
-      finger = earlyTo;
-    } else {
-      const gap = Math.max(
-        1,
-        chooseAdaptiveGap(interval, finger, 0, MAX_FINGER_SPAN, hand, seenMidis, leads[index]),
-      );
-      const candidate = finger + fingerMoveSign(hand, interval) * gap;
-      if (candidate > 5) {
-        finger = 1;
-      } else if (candidate < 1) {
-        finger = 3;
+    } else if (movingInRunDir) {
+      const remaining = sameDirectionStepsAhead(leads, index, pitchDir);
+      const crossFrom: Finger = fingerUpRun ? (stepwise ? 3 : 4) : 1;
+      const crossTo: Finger = fingerUpRun ? 1 : stepwise ? 3 : 4;
+      const shouldCross =
+        finger === crossFrom &&
+        (stepwise ? remaining >= 3 : remaining >= 1 || absInterval > CROSS_MAX_STEP_SEMITONES);
+
+      if (shouldCross) {
+        // Prefer not landing the thumb on a black key; allow it when unavoidable.
+        if (fingerUpRun && crossTo === 1 && isBlackKey(leads[index]) && stepwise && finger === 3) {
+          const gap = Math.max(1, comfortFingerGap(absInterval));
+          const candidate = finger + fingerMoveSign(hand, interval) * gap;
+          finger = candidate <= 5 ? clampFinger(candidate) : crossTo;
+        } else {
+          finger = crossTo;
+        }
       } else {
-        finger = candidate as Finger;
+        const gap = Math.max(1, comfortFingerGap(absInterval));
+        const candidate = finger + fingerMoveSign(hand, interval) * gap;
+
+        if (fingerUpRun && candidate > 5) {
+          finger = 1;
+        } else if (!fingerUpRun && candidate < 1) {
+          finger = stepwise ? 3 : 4;
+        } else {
+          finger = clampFinger(candidate);
+        }
       }
+    } else {
+      const gap = Math.max(1, comfortFingerGap(absInterval));
+      finger = clampFinger(finger + fingerMoveSign(hand, interval) * gap);
     }
 
     if (interval !== 0 && reused === undefined) {
       finger = avoidRepeat(previous, finger);
     }
 
-    // Pull the lead down so the chord fits under finger 5, and continue the walk
-    // from the fitted lead so the lead cannot drift upward across chords.
     finger = fitChordLeadFinger(placement[index], hand, finger, seenMidis);
     spreadChordFromLead(placement[index], hand, finger, seenMidis, out);
     leadFingerByMidi.set(leads[index], finger);
