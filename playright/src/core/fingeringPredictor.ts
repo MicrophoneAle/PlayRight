@@ -345,6 +345,30 @@ function centeredFingers(pitches: number[], gaps: number[]): Map<number, number>
   return fingerByMidi;
 }
 
+/**
+ * Fixed wide-hand layout for a turning scope with more distinct pitches than a
+ * distinct-per-finger layout can hold. The hand stays put: the thumb sits on the
+ * scope's anchor (RH lowest pitch, LH highest — pitches[0] from
+ * distinctPitchesFromAnchor) and every other pitch takes whichever finger sits at
+ * its reach distance via the absolute-reach table. Distinct pitches are allowed
+ * to share a finger, exactly like a real hand spanning a wide position, so the
+ * high notes land on the upper fingers instead of resetting to the thumb.
+ */
+function reachAnchoredFingers(pitches: number[]): Map<number, number> {
+  const result = new Map<number, number>();
+  if (pitches.length === 0) {
+    return result;
+  }
+
+  const anchor = pitches[0];
+  for (const midi of pitches) {
+    const distance = Math.abs(midi - anchor);
+    const finger = distance === 0 ? 1 : clampFinger(1 + extendedFingerGap(distance));
+    result.set(midi, finger);
+  }
+  return result;
+}
+
 interface ScopeFingering {
   /** Centered finger per distinct pitch. */
   fingerByMidi: Map<number, number>;
@@ -402,9 +426,11 @@ interface ScopeWalk {
 /**
  * Shape-first scope walk:
  * - RUN (monotonic scale / travelling arpeggio) -> traverse with crossings.
- * - STATIC turning figure -> comfort, then widened stretch, both centered.
- * - STATIC that fits neither table -> traverse as a safety net.
- * Distinct-pitch count alone never forces traverse.
+ * - STATIC turning figure that fits a distinct-per-finger layout -> comfort,
+ *   then widened stretch, both centered.
+ * - STATIC turning figure with more distinct pitches than five fingers can hold
+ *   one-per-finger -> reach-anchored fixed wide hand (finger reuse), NOT traverse.
+ * Only a genuine monotonic run traverses; the distinct-pitch count never does.
  */
 function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
   const pitches = distinctPitchesFromAnchor(groups, hand);
@@ -424,7 +450,10 @@ function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
     return { needsTraverse: false, fingerByMidi: stretch.fingerByMidi };
   }
 
-  return { needsTraverse: true, fingerByMidi: stretch.fingerByMidi };
+  // More distinct pitches than a distinct-per-finger layout allows, but the scope
+  // is capped at 17 semitones by buildPositions (within physical reach) and is not
+  // a run: hold a fixed wide hand with finger reuse instead of resetting via traverse.
+  return { needsTraverse: false, fingerByMidi: reachAnchoredFingers(pitches) };
 }
 
 export interface HandPosition {
@@ -993,4 +1022,95 @@ export function prepareScriptWithFingering(
   const withManual = applyManualFingerings(script, manualFingerings);
 
   return applyFingeringSettings(withManual, autoFingering, spanScale, overrideScore);
+}
+
+export interface FingeringScopeReport {
+  phraseIndex: number;
+  scopeIndex: number;
+  noteCount: number;
+  distinctPitchCount: number;
+  pitchRangeSemitones: number;
+  needsTraverse: boolean;
+  isRun: boolean;
+  fingers: Finger[];
+  midis: number[];
+}
+
+export interface HandFingeringReport {
+  hand: Hand;
+  totalNotes: number;
+  phraseCount: number;
+  scopeCount: number;
+  traverseScopeCount: number;
+  fingerUsage: Record<Finger, number>;
+  thumbShare: number;
+  lowThreeShare: number;
+  scopes: FingeringScopeReport[];
+}
+
+/** Diagnostic report for phrasing, scoping, and fingering on one hand's timeline. */
+export function reportHandFingering(
+  script: PlaybackScript,
+  hand: Hand,
+  spanScale = 1,
+): HandFingeringReport {
+  const events = extractHandTimelines(script)[hand];
+  const fingers = fingerTimeline(events, hand, spanScale);
+  const fingerByEvent = new Map<NoteEvent, Finger | null>();
+  events.forEach((event, index) => {
+    fingerByEvent.set(event, fingers[index]);
+  });
+
+  const phrases = segmentIntoPhrases(events);
+  const scopes: FingeringScopeReport[] = [];
+
+  phrases.forEach((phrase, phraseIndex) => {
+    const positions = buildPositions(phrase, hand, spanScale);
+    positions.forEach((position, scopeIndex) => {
+      const pitches = distinctPitchesFromAnchor(position.groups, hand);
+      const stretch = distributeScope(pitches, extendedFingerGap);
+      const walk = chooseScopeWalk(position.groups, hand);
+      const scopeEvents = position.groups.flatMap((group) => group.events);
+      const midis = scopeEvents.map((event) => event.midi);
+      const scopeFingers = scopeEvents
+        .map((event) => fingerByEvent.get(event))
+        .filter((finger): finger is Finger => finger !== null);
+
+      scopes.push({
+        phraseIndex,
+        scopeIndex,
+        noteCount: scopeEvents.length,
+        distinctPitchCount: pitches.length,
+        pitchRangeSemitones: position.maxMidi - position.minMidi,
+        needsTraverse: walk.needsTraverse,
+        isRun: isSustainedRun(position.groups, hand, stretch.fits),
+        fingers: scopeFingers,
+        midis,
+      });
+    });
+  });
+
+  const fingerUsage: Record<Finger, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const finger of fingers) {
+    if (finger !== null) {
+      fingerUsage[finger] += 1;
+    }
+  }
+
+  const assigned = fingers.filter((finger) => finger !== null).length;
+  const lowThree = fingers.filter(
+    (finger) => finger === 1 || finger === 2 || finger === 3,
+  ).length;
+
+  return {
+    hand,
+    totalNotes: events.length,
+    phraseCount: phrases.length,
+    scopeCount: scopes.length,
+    traverseScopeCount: scopes.filter((scope) => scope.needsTraverse).length,
+    fingerUsage,
+    thumbShare: assigned > 0 ? fingerUsage[1] / assigned : 0,
+    lowThreeShare: assigned > 0 ? lowThree / assigned : 0,
+    scopes,
+  };
 }

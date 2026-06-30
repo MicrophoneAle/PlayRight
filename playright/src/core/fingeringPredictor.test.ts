@@ -226,6 +226,32 @@ describe('static vs run by melodic shape', () => {
     expect(new Set(fingers).size).toBe(4);
   });
 
+  it('holds a wide turning scope with a fixed reach-anchored hand, not traverse', () => {
+    // Chase RH scope 0 shape: 8 distinct pitches in ~12 semitones, turning around.
+    const midis = [64, 76, 75, 71, 73, 71, 64, 64, 64, 66, 68, 71, 64, 66, 68];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('chase-scope0 actual:', fingers);
+
+    const lowestMidi = Math.min(...midis);
+    const highestMidi = Math.max(...midis);
+    const fingerFor = (target: number): Finger => {
+      const index = midis.indexOf(target);
+      return fingers[index] as Finger;
+    };
+
+    // The low recurring note sits on the thumb; the top note uses an upper finger.
+    expect(fingerFor(lowestMidi)).toBe(1);
+    expect(fingerFor(highestMidi)).toBeGreaterThanOrEqual(4);
+
+    // No note more than an octave above the anchor is ever the thumb.
+    midis.forEach((midi, index) => {
+      if (midi - lowestMidi > 12) {
+        expect(fingers[index]).not.toBe(1);
+      }
+    });
+  });
+
   it('traverses a six-note ascending arpeggio that exceeds five static fingers', () => {
     const midis = [60, 64, 67, 72, 76, 79];
     const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
