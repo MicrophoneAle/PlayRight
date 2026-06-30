@@ -120,6 +120,71 @@ describe('traverse runs', () => {
   });
 });
 
+describe('spread scopes use the stretch table, not traverse', () => {
+  const lowFingerShare = (fingers: (Finger | null)[]): number => {
+    const low = fingers.filter((finger) => finger === 1 || finger === 2).length;
+    return low / fingers.length;
+  };
+
+  it('fingers a spread right-hand scope within 17 semitones with upper fingers', () => {
+    // 60 64 67 72 76 spans 16 semitones across 5 notes. The stretch table fits
+    // it under five fingers, so it must NOT enter traverse (which would reset to
+    // the thumb mid-scope) and must use the upper fingers for the higher notes.
+    const midis = [60, 64, 67, 72, 76];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('spread-5 actual:', fingers);
+    // A clean bottom-anchored stretch layout, strictly increasing — a traverse
+    // would have reset a higher note back down to 1.
+    expect(fingers).toEqual([1, 2, 3, 4, 5]);
+    for (let index = 1; index < fingers.length; index += 1) {
+      expect(fingers[index]! > fingers[index - 1]!).toBe(true);
+    }
+    expect(fingers[fingers.length - 1]).toBe(5);
+  });
+
+  it('does not pile a four-note arpeggio onto fingers 1 and 2', () => {
+    const midis = [60, 65, 69, 74]; // spans 14 semitones (> an octave)
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('arpeggio-4 actual:', fingers);
+    expect(lowFingerShare(fingers)).toBeLessThanOrEqual(0.5);
+    expect(fingers[0]).toBe(1);
+    expect(fingers[fingers.length - 1]).toBeGreaterThanOrEqual(4);
+  });
+
+  it('does not pile a six-note spread figure onto fingers 1 and 2', () => {
+    const midis = [60, 64, 67, 72, 76, 72]; // five distinct, spans 16 semitones
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('spread-6 actual:', fingers);
+    expect(lowFingerShare(fingers)).toBeLessThanOrEqual(0.5);
+    expect(new Set(fingers).size).toBeGreaterThanOrEqual(4);
+  });
+
+  it('still traverses an ascending C-major octave (genuinely > five fingers)', () => {
+    const midis = [60, 62, 64, 65, 67, 69, 71, 72];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('octave-traverse actual:', fingers);
+    expect(noConsecutiveRepeats(fingers)).toBe(true);
+    expect(fingers[0]).toBe(1);
+    expect(fingers[fingers.length - 1]).toBe(3);
+  });
+
+  it('does not split a scope while all notes stay within 17 semitones', () => {
+    // A leap up then back down, all inside 17 semitones: one scope, so the bottom
+    // anchor (thumb) appears exactly once. A split would re-anchor and yield a
+    // second finger-1.
+    const midis = [60, 72, 65, 77];
+    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
+    // eslint-disable-next-line no-console
+    console.log('no-split actual:', fingers);
+    expect(fingers.filter((finger) => finger === 1).length).toBe(1);
+    expect(new Set(fingers).size).toBe(4);
+  });
+});
+
 describe('no consecutive repeated fingers', () => {
   it('never repeats across a scale', () => {
     expect(noConsecutiveRepeats(fingerTimeline(eventsFromMidis([60, 62, 64, 65, 67, 69, 71, 72]), 'R'))).toBe(true);

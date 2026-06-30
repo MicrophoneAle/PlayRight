@@ -174,14 +174,6 @@ function sameDirectionStepsAhead(leads: number[], fromIndex: number, dir: number
   return count;
 }
 
-interface RelativeWalk {
-  relByEvent: Map<NoteEvent, number>;
-  relMin: number;
-  relMax: number;
-  minMidi: number;
-  maxMidi: number;
-}
-
 /** Comfort-first per-step gap: try comfort, fall back to stretch when comfort overflows. */
 function chooseAdaptiveGap(
   intervalSemitones: number,
@@ -203,95 +195,115 @@ function chooseAdaptiveGap(
   return Math.max(1, extendedFingerGap(distance));
 }
 
-/** Walk a scope with a single gap table (comfort or stretch). */
-function walkScope(
-  groups: OnsetGroup[],
-  hand: Hand,
+/** Distinct scope pitches ordered outward from the bottom anchor. */
+function distinctPitchesFromAnchor(groups: OnsetGroup[], hand: Hand): number[] {
+  const distinct = [
+    ...new Set(groups.flatMap((group) => group.events.map((event) => event.midi))),
+  ];
+  // RH ascends from its lowest pitch, LH descends from its highest, so the
+  // bottom anchor is always the first entry and takes the thumb.
+  distinct.sort((left, right) => (hand === 'R' ? left - right : right - left));
+  return distinct;
+}
+
+interface ScopeFingering {
+  /** Finger per distinct pitch, bottom-anchored to the thumb. */
+  fingerByMidi: Map<number, number>;
+  /** Relative span of the layout (top finger minus the thumb). */
+  span: number;
+  /** Whether the layout fits inside five fingers. */
+  fits: boolean;
+}
+
+/**
+ * Bottom-anchor the scope's distinct pitches and space consecutive pitches by
+ * the supplied gap table. When the spaced layout overflows five fingers but the
+ * scope has at most five distinct pitches, the widest gaps are compressed toward
+ * 1 until it fits — five notes always sit under five fingers without a thumb
+ * crossing. Only more than five distinct pitches can truly overflow (a run).
+ *
+ * Spacing is a function of pitch, not of melodic path, so a recurring pitch and
+ * an up-and-back contour keep one finger each and never inflate the span.
+ */
+function distributeScope(
+  pitches: number[],
   gapFn: (distance: number) => number,
-): RelativeWalk {
-  const relByEvent = new Map<NoteEvent, number>();
-  const relByMidi = new Map<number, number>();
-  let relMin = 0;
-  let relMax = 0;
-  let minMidi = Infinity;
-  let maxMidi = -Infinity;
-  let lastMidi: number | null = null;
-  let lastRel = 0;
+): ScopeFingering {
+  const fingerByMidi = new Map<number, number>();
+  if (pitches.length === 0) {
+    return { fingerByMidi, span: 0, fits: true };
+  }
 
-  const record = (event: NoteEvent, rel: number): void => {
-    relByEvent.set(event, rel);
-    relByMidi.set(event.midi, rel);
-    relMin = Math.min(relMin, rel);
-    relMax = Math.max(relMax, rel);
-    minMidi = Math.min(minMidi, event.midi);
-    maxMidi = Math.max(maxMidi, event.midi);
-  };
+  const gaps: number[] = [];
+  for (let index = 1; index < pitches.length; index += 1) {
+    const distance = Math.abs(pitches[index] - pitches[index - 1]);
+    gaps.push(Math.max(1, gapFn(distance)));
+  }
 
-  const relFor = (midi: number): number => {
-    if (relByMidi.has(midi)) {
-      return relByMidi.get(midi)!;
-    }
-    if (lastMidi === null) {
-      return 0;
-    }
-    const gap = Math.max(1, gapFn(Math.abs(midi - lastMidi)));
-    return lastRel + fingerMoveSign(hand, midi - lastMidi) * gap;
-  };
-
-  for (const group of groups) {
-    const base = group.events[0];
-    const baseRel = relFor(base.midi);
-    record(base, baseRel);
-
-    if (group.events.length > 1) {
-      const sign = hand === 'R' ? 1 : -1;
-      let prevMidi = base.midi;
-      let prevRel = baseRel;
-
-      for (let index = 1; index < group.events.length; index += 1) {
-        const event = group.events[index];
-        const gap = Math.max(1, gapFn(Math.abs(event.midi - prevMidi)));
-        const rel = prevRel + sign * gap;
-        record(event, rel);
-        prevMidi = event.midi;
-        prevRel = rel;
+  let span = gaps.reduce((sum, gap) => sum + gap, 0);
+  // Narrow the widest gaps first; each stays >= 1 so pitches keep distinct
+  // fingers. Compression can reach MAX_FINGER_SPAN only when there are at most
+  // MAX_FINGER_SPAN + 1 (= 5) distinct pitches.
+  while (span > MAX_FINGER_SPAN) {
+    let widest = -1;
+    for (let index = 0; index < gaps.length; index += 1) {
+      if (gaps[index] > 1 && (widest === -1 || gaps[index] > gaps[widest])) {
+        widest = index;
       }
     }
-
-    lastMidi = base.midi;
-    lastRel = baseRel;
+    if (widest === -1) {
+      break;
+    }
+    gaps[widest] -= 1;
+    span -= 1;
   }
 
-  return { relByEvent, relMin, relMax, minMidi, maxMidi };
+  let cumulative = 0;
+  fingerByMidi.set(pitches[0], 1);
+  for (let index = 1; index < pitches.length; index += 1) {
+    cumulative += gaps[index - 1];
+    fingerByMidi.set(pitches[index], clampFinger(1 + cumulative));
+  }
+
+  return { fingerByMidi, span, fits: span <= MAX_FINGER_SPAN };
 }
 
-function chooseScopeWalk(
-  groups: OnsetGroup[],
-  hand: Hand,
-): { walk: RelativeWalk; needsTraverse: boolean } {
-  const comfort = walkScope(groups, hand, comfortFingerGap);
-  if (comfort.relMax - comfort.relMin <= MAX_FINGER_SPAN) {
-    return { walk: comfort, needsTraverse: false };
-  }
-
-  const stretch = walkScope(groups, hand, extendedFingerGap);
-  if (stretch.relMax - stretch.relMin <= MAX_FINGER_SPAN) {
-    return { walk: stretch, needsTraverse: false };
-  }
-
-  return { walk: stretch, needsTraverse: true };
+interface ScopeWalk {
+  needsTraverse: boolean;
+  /** Bottom-anchored finger per distinct pitch (the static layout, or the traverse seed). */
+  fingerByMidi: Map<number, number>;
 }
 
-/** Anchor the scope bottom (RH lowest / LH highest pitch) to the thumb. */
-function bottomAnchoredFingers(walk: RelativeWalk): Map<NoteEvent, Finger> {
-  const offset = 1 - walk.relMin;
-  const result = new Map<NoteEvent, Finger>();
+/**
+ * Comfort first (compact scopes), then stretch (spread scopes), then compressed
+ * stretch (wide spreads of at most five notes) before ever choosing traverse.
+ * Traverse is reserved for runs of more than five distinct pitches that no
+ * single hand position can hold.
+ */
+function chooseScopeWalk(groups: OnsetGroup[], hand: Hand): ScopeWalk {
+  const pitches = distinctPitchesFromAnchor(groups, hand);
 
-  for (const [event, rel] of walk.relByEvent) {
-    result.set(event, clampFinger(rel + offset));
+  // Comfort is the default, but only when it fits without compression so spread
+  // scopes fall through to the stretch table rather than crunching together.
+  const comfortGaps: number[] = [];
+  for (let index = 1; index < pitches.length; index += 1) {
+    comfortGaps.push(Math.max(1, comfortFingerGap(Math.abs(pitches[index] - pitches[index - 1]))));
+  }
+  if (comfortGaps.reduce((sum, gap) => sum + gap, 0) <= MAX_FINGER_SPAN) {
+    let cumulative = 0;
+    const fingerByMidi = new Map<number, number>();
+    if (pitches.length > 0) {
+      fingerByMidi.set(pitches[0], 1);
+    }
+    for (let index = 1; index < pitches.length; index += 1) {
+      cumulative += comfortGaps[index - 1];
+      fingerByMidi.set(pitches[index], clampFinger(1 + cumulative));
+    }
+    return { needsTraverse: false, fingerByMidi };
   }
 
-  return result;
+  const stretch = distributeScope(pitches, extendedFingerGap);
+  return { needsTraverse: !stretch.fits, fingerByMidi: stretch.fingerByMidi };
 }
 
 export interface HandPosition {
@@ -626,26 +638,29 @@ function assignPosition(
   seenMidis: Set<number>,
   _isNewScope: boolean,
 ): Map<NoteEvent, Finger | null> {
-  const { walk, needsTraverse } = chooseScopeWalk(position.groups, hand);
+  const { needsTraverse, fingerByMidi } = chooseScopeWalk(position.groups, hand);
   const fingerByEvent = new Map<NoteEvent, Finger | null>();
 
-  for (const event of walk.relByEvent.keys()) {
-    seenMidis.add(event.midi);
+  for (const group of position.groups) {
+    for (const event of group.events) {
+      seenMidis.add(event.midi);
+    }
   }
 
   if (!needsTraverse) {
-    for (const [event, finger] of bottomAnchoredFingers(walk)) {
-      fingerByEvent.set(event, finger);
+    for (const group of position.groups) {
+      for (const event of group.events) {
+        fingerByEvent.set(event, clampFinger(fingerByMidi.get(event.midi) ?? 1));
+      }
     }
     return fingerByEvent;
   }
 
-  const bottom = bottomAnchoredFingers(walk);
   const firstEvent =
     hand === 'R'
       ? position.groups[0].events[0]
       : position.groups[0].events[position.groups[0].events.length - 1];
-  const startFinger = bottom.get(firstEvent) ?? 1;
+  const startFinger = clampFinger(fingerByMidi.get(firstEvent.midi) ?? 1);
   assignTraversePlacement(position.groups, hand, fingerByEvent, seenMidis, startFinger);
   return fingerByEvent;
 }
