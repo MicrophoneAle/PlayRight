@@ -4,8 +4,9 @@ import {
   countStepNotesByHand,
   isProgramStepComplete,
   programNextUnassignedNote,
-  programTargetMidis,
+  programStepExpectedMidis,
 } from './practiceSteps.ts';
+import { runWithProgramStepIndexWrite } from './programStepGuard.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 import type { StepOrder } from '../types/index.ts';
@@ -72,8 +73,35 @@ export class FingeringProgramEngine {
   }
 
   private syncCurrentStepState(): void {
-    const { script, currentStepIndex, actions } = useEngineStore.getState();
-    const step = script?.[currentStepIndex];
+    const { script, actions } = useEngineStore.getState();
+    if (!script) {
+      actions.setProgramAssignedKeys([]);
+      actions.setExpectedNotes([]);
+      return;
+    }
+
+    let index = useEngineStore.getState().currentStepIndex;
+
+    while (
+      index < script.length &&
+      isProgramStepComplete(script[index], this.assignedKeysForStep(script[index]))
+    ) {
+      index += 1;
+    }
+
+    if (index >= script.length) {
+      actions.setPracticeActive(false);
+      actions.setExpectedNotes([]);
+      actions.setProgramAssignedKeys([]);
+      return;
+    }
+
+    if (index !== useEngineStore.getState().currentStepIndex) {
+      runWithProgramStepIndexWrite(() => actions.setStepIndex(index));
+    }
+
+    const { currentStepIndex } = useEngineStore.getState();
+    const step = script[currentStepIndex];
 
     if (!step) {
       actions.setProgramAssignedKeys([]);
@@ -88,6 +116,7 @@ export class FingeringProgramEngine {
     logProgramAdvance('syncCurrentStepState', {
       stepIndex: currentStepIndex,
       uiStep: currentStepIndex + 1,
+      nextStepIndex: currentStepIndex + 1 < script.length ? currentStepIndex + 1 : null,
       needed: countStepNotesByHand(step),
       assignedKeys: [...assigned],
       next: programNextUnassignedNote(step, assigned)?.pitch ?? null,
@@ -231,31 +260,8 @@ export class FingeringProgramEngine {
       return;
     }
 
-    actions.setStepIndex(nextIndex);
+    runWithProgramStepIndexWrite(() => actions.setStepIndex(nextIndex));
     this.lockSheetSeek();
-    this.syncCurrentStepState();
-  }
-
-  private programExpectedMidis(
-    script: NonNullable<ReturnType<typeof useEngineStore.getState>['script']>,
-    stepIndex: number,
-  ): number[] {
-    const step = script[stepIndex];
-    if (!step) {
-      return [];
-    }
-
-    const assigned = this.assignedKeysForStep(step);
-    const next = programNextUnassignedNote(step, assigned);
-    if (next) {
-      return [next.midi];
-    }
-
-    if (isProgramStepComplete(step, assigned)) {
-      return [];
-    }
-
-    return [...programTargetMidis(step, assigned)];
   }
 
   private syncExpectedNotes(): void {
@@ -265,7 +271,8 @@ export class FingeringProgramEngine {
       return;
     }
 
-    actions.setExpectedNotes(this.programExpectedMidis(script, currentStepIndex));
+    const step = script[currentStepIndex];
+    actions.setExpectedNotes(programStepExpectedMidis(step));
   }
 
   private sustainNote(midi: number, mapping: FingerMapping): void {

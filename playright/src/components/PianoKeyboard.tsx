@@ -277,12 +277,8 @@ export function PianoKeyboard() {
       return null;
     }
 
-    if (isProgramMode) {
-      return programTargetMidiSet;
-    }
-
     return buildTwoHandExpectedMidis(script, currentStepIndex);
-  }, [isTwoHand, isProgramMode, programTargetMidiSet, script, currentStepIndex]);
+  }, [isTwoHand, script, currentStepIndex]);
 
   const twoHandStepNotesByMidi = useMemo(() => {
     if (!isTwoHand) {
@@ -661,6 +657,11 @@ export function PianoKeyboard() {
           {programNextNote ? (
             <span className="ml-2">
               Next: {programNextNote.hand} {programNextNote.pitch ?? `MIDI ${programNextNote.midi}`}
+            </span>
+          ) : null}
+          {script && currentStepIndex + 1 < totalSteps ? (
+            <span className="ml-2 text-amber-200/70">
+              Upcoming step {currentStepIndex + 2}
             </span>
           ) : null}
           <span className="ml-2 text-amber-200/80">

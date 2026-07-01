@@ -196,6 +196,21 @@ export function programAssignmentProgress(
   return { needed, assignedCounts };
 }
 
+/** Every MIDI in the current step, for program-mode highlighting (all notes to assign). */
+export function programStepExpectedMidis(step: StepOrder): number[] {
+  const midis: number[] = [];
+  const seen = new Set<number>();
+
+  for (const note of step.notes) {
+    if (!seen.has(note.midi)) {
+      seen.add(note.midi);
+      midis.push(note.midi);
+    }
+  }
+
+  return midis;
+}
+
 /** Midis of the next note to assign in score order (at most one). */
 export function programTargetMidis(
   step: StepOrder,

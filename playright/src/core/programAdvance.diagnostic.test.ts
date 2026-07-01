@@ -74,7 +74,7 @@ describe('program advance sequencing (chase)', () => {
       scoreTiming,
     );
     useEngineStore.getState().actions.setFingeringMode('program');
-    useEngineStore.getState().actions.setStepIndex(1);
+    useEngineStore.setState({ currentStepIndex: 1 });
     engine.ensureStoreSubscription();
     engine.resyncCurrentStep();
 
@@ -123,7 +123,7 @@ describe('program advance sequencing (chase)', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
-  it('advances from an already-complete step with one press', () => {
+  it('advances from an already-complete step after resync lands on the next incomplete step', () => {
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const step1 = script[1];
     const prefilled: ManualFingeringMap = {};
@@ -139,12 +139,12 @@ describe('program advance sequencing (chase)', () => {
       scoreTiming,
     );
     useEngineStore.getState().actions.setFingeringMode('program');
-    useEngineStore.getState().actions.setStepIndex(1);
+    useEngineStore.setState({ currentStepIndex: 1 });
     engine.ensureStoreSubscription();
     engine.resyncCurrentStep();
 
-    expect(useEngineStore.getState().currentStepIndex).toBe(1);
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(3);
   });
 });

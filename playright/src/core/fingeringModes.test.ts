@@ -195,7 +195,6 @@ describe('FingeringProgramEngine', () => {
     loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 1 });
     engine.start();
-    useEngineStore.getState().actions.setStepIndex(1);
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
@@ -274,7 +273,6 @@ describe('FingeringProgramEngine', () => {
     );
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex });
     engine.start();
-    useEngineStore.getState().actions.setStepIndex(stepIndex);
 
     for (const note of step.notes) {
       engine.handleFingerPress({ hand: note.hand, finger: note.hand === 'L' ? 5 : 1 });
@@ -382,7 +380,6 @@ describe('FingeringProgramEngine', () => {
     );
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex, engineMode: 'two-hand' });
     engine.start();
-    useEngineStore.getState().actions.setStepIndex(stepIndex);
 
     const assigned = () =>
       programAssignmentProgress(
@@ -426,7 +423,6 @@ describe('FingeringProgramEngine', () => {
     );
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: jumpIndex, engineMode: 'two-hand' });
     engine.start();
-    useEngineStore.getState().actions.setStepIndex(jumpIndex);
     engine.resyncCurrentStep();
 
     const stepBefore = useEngineStore.getState().script![jumpIndex];
@@ -456,11 +452,41 @@ describe('FingeringProgramEngine', () => {
     );
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex, engineMode: 'two-hand' });
     engine.start();
-    useEngineStore.getState().actions.setStepIndex(stepIndex);
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
 
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
+  });
+
+  it('blocks external step seeks while in program mode', () => {
+    loadMinimalFixture();
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 2, engineMode: 'two-hand' });
+
+    useEngineStore.getState().actions.setStepIndex(1);
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+  });
+
+  it('highlights every note in the current program step', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-highlight' },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 1, engineMode: 'two-hand' });
+    engine.start();
+
+    expect(useEngineStore.getState().expectedMidiNotes.sort((a, b) => a - b)).toEqual(
+      script[1].notes.map((note) => note.midi).sort((a, b) => a - b),
+    );
   });
 
   it('leaves unprogrammed notes on predicted fingers without a completion gate', () => {

@@ -12,10 +12,9 @@ import {
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
 import type { GraphicalNote } from "opensheetmusicdisplay";
-import { fingeringProgramEngine } from "../core/FingeringProgramEngine.ts";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
-import { getDisplayEngineMode, getDisplayNotesForStep, programNextUnassignedNote, buildProgramAssignedKeys } from "../core/practiceSteps.ts";
+import { getDisplayEngineMode, getDisplayNotesForStep } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -283,23 +282,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           )
         : [];
 
-    let expectedMidiNotes = state.expectedMidiNotes;
-    if (state.fingeringMode === 'program' && state.script) {
-      const step = state.script[state.currentStepIndex];
-      if (step) {
-        const assigned = buildProgramAssignedKeys(step, state.manualFingerings);
-        const next = programNextUnassignedNote(step, assigned);
-        if (next) {
-          expectedMidiNotes = [next.midi];
-          practiceNotes.splice(0, practiceNotes.length, next);
-        }
-      }
-    }
-
     highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
       visualIndex: visualIndexRef.current,
-      expectedMidiNotes,
+      expectedMidiNotes: state.expectedMidiNotes,
       practiceNotes,
       container,
       highlightedNotes: highlightedNotesRef.current,
@@ -348,17 +334,13 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
   };
 
-  const resolveSheetStepAtPointer = (
-    clientX: number,
-    clientY: number,
-    allowBoundingBoxFallback = true,
-  ) =>
+  const resolveSheetStepAtPointer = (clientX: number, clientY: number) =>
     resolveStepIndexFromPointer(
       visualIndexRef.current,
       clientX,
       clientY,
       containerRef.current,
-      { allowBoundingBoxFallback },
+      { allowBoundingBoxFallback: true },
     );
 
   const handleSheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -366,15 +348,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    const isProgram = useEngineStore.getState().fingeringMode === 'program';
+    if (useEngineStore.getState().fingeringMode === 'program') {
+      return;
+    }
+
     sheetPointerStartRef.current = {
       x: event.clientX,
       y: event.clientY,
-      noteStepIndex: resolveSheetStepAtPointer(
-        event.clientX,
-        event.clientY,
-        !isProgram,
-      ),
+      noteStepIndex: resolveSheetStepAtPointer(event.clientX, event.clientY),
     };
   };
 
@@ -384,6 +365,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
+      return;
+    }
+
+    if (useEngineStore.getState().fingeringMode === 'program') {
+      clearSheetPointerStart();
       return;
     }
 
@@ -399,48 +385,20 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    const state = useEngineStore.getState();
-    const isProgram = state.fingeringMode === 'program';
-
-    if (isProgram && fingeringProgramEngine.isSheetSeekLocked()) {
-      return;
-    }
-
-    const upStepIndex = resolveSheetStepAtPointer(
-      event.clientX,
-      event.clientY,
-      !isProgram,
-    );
-
-    if (isProgram) {
-      if (start.noteStepIndex === null || upStepIndex === null) {
-        return;
-      }
-      if (upStepIndex !== start.noteStepIndex) {
-        return;
-      }
-      if (upStepIndex < state.currentStepIndex && !event.altKey) {
-        return;
-      }
-    }
-
-    const stepIndex = isProgram ? upStepIndex : (upStepIndex ?? start.noteStepIndex);
+    const stepIndex =
+      resolveSheetStepAtPointer(event.clientX, event.clientY) ??
+      start.noteStepIndex;
 
     if (stepIndex === null) {
       return;
     }
 
+    const state = useEngineStore.getState();
     if (stepIndex === state.currentStepIndex) {
       return;
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
-
-    if (isProgram) {
-      state.actions.setStepIndex(stepIndex);
-      fingeringProgramEngine.resyncCurrentStep();
-      return;
-    }
 
     if (state.isPlaybackActive) {
       playbackEngine.seekToStep(stepIndex);

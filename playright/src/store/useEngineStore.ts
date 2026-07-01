@@ -5,6 +5,7 @@ import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
 import { shiftScopeStart } from '../core/scopeShift.ts';
 import { fingeringProgramEngine } from '../core/FingeringProgramEngine.ts';
+import { canWriteProgramStepIndex } from '../core/programStepGuard.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import type {
   EngineMode,
@@ -808,6 +809,17 @@ export const useEngineStore = create<EngineState>((set) => {
       set((state) => ({ headerCollapsed: !state.headerCollapsed }));
     },
     setStepIndex: (index) => {
+      const state = useEngineStore.getState();
+      if (state.fingeringMode === 'program' && !canWriteProgramStepIndex()) {
+        if (import.meta.env.DEV) {
+          console.warn('[Program] Ignored external setStepIndex while in program mode', {
+            requested: index,
+            current: state.currentStepIndex,
+          });
+        }
+        return;
+      }
+
       set({ currentStepIndex: index });
     },
     setExpectedNotes: (notes) => {
