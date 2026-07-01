@@ -14,7 +14,7 @@ import {
 import type { GraphicalNote } from "opensheetmusicdisplay";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
-import { getDisplayEngineMode, getDisplayNotesForStep } from "../core/practiceSteps.ts";
+import { getDisplayEngineMode, getDisplayNotesForStep, programStepExpectedMidis } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -272,20 +272,28 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    const practiceNotes =
-      state.script && state.script[state.currentStepIndex]
-        ? getDisplayNotesForStep(
-            state.script[state.currentStepIndex],
-            state.playMode,
-            state.engineMode,
-            state.activeHand,
-          )
-        : [];
+    const step = state.script?.[state.currentStepIndex];
+    let practiceNotes = step
+      ? getDisplayNotesForStep(
+          step,
+          state.playMode,
+          state.engineMode,
+          state.activeHand,
+        )
+      : [];
+
+    // Program mode: mirror the keyboard — derive highlights from the current step
+    // directly so the staff stays green even when store expectedMidiNotes is stale.
+    let expectedMidiNotes = state.expectedMidiNotes;
+    if (state.fingeringMode === 'program' && step) {
+      practiceNotes = getDisplayNotesForStep(step, false, 'two-hand', state.activeHand);
+      expectedMidiNotes = programStepExpectedMidis(step);
+    }
 
     highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
       visualIndex: visualIndexRef.current,
-      expectedMidiNotes: state.expectedMidiNotes,
+      expectedMidiNotes,
       practiceNotes,
       container,
       highlightedNotes: highlightedNotesRef.current,
@@ -531,14 +539,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     scheduleVisualIndexBuild();
-  }, [engineMode, playMode, musicXml, activeHand]);
+  }, [engineMode, playMode, musicXml, activeHand, fingeringMode]);
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
-    if (useEngineStore.getState().fingeringMode === 'program') {
-      syncPracticeVisuals();
-      return;
-    }
     scheduleVisualIndexBuild();
   }, [script]);
 
@@ -557,6 +561,16 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     return useEngineStore.subscribe((state, prevState) => {
+      if (state.fingeringMode === 'program') {
+        if (
+          state.currentStepIndex !== prevState.currentStepIndex ||
+          state.script !== prevState.script
+        ) {
+          syncPracticeVisuals();
+        }
+        return;
+      }
+
       if (
         state.playMode &&
         state.isPlaybackActive &&

@@ -24,10 +24,12 @@ import {
 import { parseMusicXmlToScript } from './parser/index.ts';
 import { MINIMAL_MUSICXML } from './parser/__fixtures__/minimal.musicxml.ts';
 import {
+  getDisplayNotesForStep,
   isProgramStepComplete,
   programAssignmentKey,
   programAssignmentProgress,
   programNextUnassignedNote,
+  programStepExpectedMidis,
   programTargetNote,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -487,6 +489,25 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().expectedMidiNotes.sort((a, b) => a - b)).toEqual(
       script[1].notes.map((note) => note.midi).sort((a, b) => a - b),
     );
+  });
+
+  it('resolves full two-hand step notes for program sheet highlighting', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script } = parseMusicXmlToScript(CHASE_XML);
+    const step = script[1];
+
+    const practiceNotes = getDisplayNotesForStep(step, false, 'two-hand', 'R');
+    const expectedMidis = programStepExpectedMidis(step);
+
+    expect(practiceNotes).toHaveLength(step.notes.length);
+    expect(practiceNotes.map((n) => `${n.hand}:${n.pitch}`)).toEqual(
+      step.notes.map((n) => `${n.hand}:${n.pitch}`),
+    );
+    expect(expectedMidis.length).toBeGreaterThan(0);
+    expect(new Set(expectedMidis)).toEqual(new Set(step.notes.map((n) => n.midi)));
   });
 
   it('leaves unprogrammed notes on predicted fingers without a completion gate', () => {
