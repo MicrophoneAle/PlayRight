@@ -15,7 +15,7 @@ import type { GraphicalNote } from "opensheetmusicdisplay";
 import { fingeringProgramEngine } from "../core/FingeringProgramEngine.ts";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
-import { getDisplayEngineMode, getDisplayNotesForStep } from "../core/practiceSteps.ts";
+import { getDisplayEngineMode, getDisplayNotesForStep, programNextUnassignedNote, buildProgramAssignedKeys } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -242,6 +242,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const isPlaybackPaused = useEngineStore((state) => state.isPlaybackPaused);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
+  const fingeringMode = useEngineStore((state) => state.fingeringMode);
 
   const syncPracticeVisuals = () => {
     const osmd = osmdRef.current;
@@ -282,10 +283,23 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           )
         : [];
 
+    let expectedMidiNotes = state.expectedMidiNotes;
+    if (state.fingeringMode === 'program' && state.script) {
+      const step = state.script[state.currentStepIndex];
+      if (step) {
+        const assigned = buildProgramAssignedKeys(step, state.manualFingerings);
+        const next = programNextUnassignedNote(step, assigned);
+        if (next) {
+          expectedMidiNotes = [next.midi];
+          practiceNotes.splice(0, practiceNotes.length, next);
+        }
+      }
+    }
+
     highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
       visualIndex: visualIndexRef.current,
-      expectedMidiNotes: state.expectedMidiNotes,
+      expectedMidiNotes,
       practiceNotes,
       container,
       highlightedNotes: highlightedNotesRef.current,
@@ -334,13 +348,17 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
   };
 
-  const resolveSheetStepAtPointer = (clientX: number, clientY: number) =>
+  const resolveSheetStepAtPointer = (
+    clientX: number,
+    clientY: number,
+    allowBoundingBoxFallback = true,
+  ) =>
     resolveStepIndexFromPointer(
       visualIndexRef.current,
       clientX,
       clientY,
       containerRef.current,
-      { allowBoundingBoxFallback: true },
+      { allowBoundingBoxFallback },
     );
 
   const handleSheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -348,11 +366,20 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
+    const isProgram = useEngineStore.getState().fingeringMode === 'program';
     sheetPointerStartRef.current = {
       x: event.clientX,
       y: event.clientY,
-      noteStepIndex: resolveSheetStepAtPointer(event.clientX, event.clientY),
+      noteStepIndex: resolveSheetStepAtPointer(
+        event.clientX,
+        event.clientY,
+        !isProgram,
+      ),
     };
+  };
+
+  const clearSheetPointerStart = () => {
+    sheetPointerStartRef.current = null;
   };
 
   const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -361,7 +388,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     const start = sheetPointerStartRef.current;
-    sheetPointerStartRef.current = null;
+    clearSheetPointerStart();
     if (!start) {
       return;
     }
@@ -372,22 +399,44 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    const stepIndex =
-      resolveSheetStepAtPointer(event.clientX, event.clientY) ??
-      start.noteStepIndex;
+    const state = useEngineStore.getState();
+    const isProgram = state.fingeringMode === 'program';
+
+    if (isProgram && fingeringProgramEngine.isSheetSeekLocked()) {
+      return;
+    }
+
+    const upStepIndex = resolveSheetStepAtPointer(
+      event.clientX,
+      event.clientY,
+      !isProgram,
+    );
+
+    if (isProgram) {
+      if (start.noteStepIndex === null || upStepIndex === null) {
+        return;
+      }
+      if (upStepIndex !== start.noteStepIndex) {
+        return;
+      }
+      if (upStepIndex < state.currentStepIndex && !event.altKey) {
+        return;
+      }
+    }
+
+    const stepIndex = isProgram ? upStepIndex : (upStepIndex ?? start.noteStepIndex);
 
     if (stepIndex === null) {
       return;
     }
 
-    const state = useEngineStore.getState();
     if (stepIndex === state.currentStepIndex) {
       return;
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
 
-    if (state.fingeringMode === 'program') {
+    if (isProgram) {
       state.actions.setStepIndex(stepIndex);
       fingeringProgramEngine.resyncCurrentStep();
       return;
@@ -545,6 +594,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     isPlaybackActive,
     isPlaybackPaused,
     sheetScrollMode,
+    fingeringMode,
   ]);
 
   useEffect(() => {
@@ -570,6 +620,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       ref={containerRef}
       onPointerDown={handleSheetPointerDown}
       onPointerUp={handleSheetPointerSeek}
+      onPointerCancel={clearSheetPointerStart}
       className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-6 [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );

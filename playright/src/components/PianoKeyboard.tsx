@@ -256,13 +256,33 @@ export function PianoKeyboard() {
     return isMidiInDisplayScope(midi, scopeStartMidi);
   };
 
+  const programAssignedSet = useMemo(() => {
+    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
+      return new Set<string>();
+    }
+
+    return buildProgramAssignedKeys(script[currentStepIndex], manualFingerings);
+  }, [isProgramMode, script, currentStepIndex, manualFingerings]);
+
+  const programTargetMidiSet = useMemo(() => {
+    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
+      return new Set<number>();
+    }
+
+    return programTargetMidis(script[currentStepIndex], programAssignedSet);
+  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+
   const twoHandExpectedMidis = useMemo(() => {
     if (!isTwoHand) {
       return null;
     }
 
+    if (isProgramMode) {
+      return programTargetMidiSet;
+    }
+
     return buildTwoHandExpectedMidis(script, currentStepIndex);
-  }, [isTwoHand, script, currentStepIndex]);
+  }, [isTwoHand, isProgramMode, programTargetMidiSet, script, currentStepIndex]);
 
   const twoHandStepNotesByMidi = useMemo(() => {
     if (!isTwoHand) {
@@ -314,22 +334,6 @@ export function PianoKeyboard() {
       fingeringKey(selectedNote.onset, selectedNote.hand, selectedNote.midi),
     );
   }, [manualFingerings, selectedNote]);
-
-  const programAssignedSet = useMemo(() => {
-    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
-      return new Set<string>();
-    }
-
-    return buildProgramAssignedKeys(script[currentStepIndex], manualFingerings);
-  }, [isProgramMode, script, currentStepIndex, manualFingerings]);
-
-  const programTargetMidiSet = useMemo(() => {
-    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
-      return new Set<number>();
-    }
-
-    return programTargetMidis(script[currentStepIndex], programAssignedSet);
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
 
   const programNextNote = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {

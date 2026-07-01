@@ -1,10 +1,10 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildProgramAssignedKeys,
-  buildTwoHandExpectedMidis,
   countStepNotesByHand,
   isProgramStepComplete,
   programNextUnassignedNote,
+  programTargetMidis,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
@@ -26,6 +26,16 @@ export class FingeringProgramEngine {
   private activeFingerSounds = new Map<string, number>();
   private soundingMidis = new Set<number>();
   private storeSubscriptionInitialized = false;
+  /** Ignore accidental sheet seeks briefly after advancing. */
+  private sheetSeekLockedUntil = 0;
+
+  isSheetSeekLocked(): boolean {
+    return Date.now() < this.sheetSeekLockedUntil;
+  }
+
+  private lockSheetSeek(): void {
+    this.sheetSeekLockedUntil = Date.now() + 500;
+  }
 
   attachAudioEngine(audioEngine: AudioEngine): void {
     this.audioEngine = audioEngine;
@@ -44,6 +54,7 @@ export class FingeringProgramEngine {
       }
 
       if (state.currentStepIndex !== prevState.currentStepIndex) {
+        this.lockSheetSeek();
         this.syncCurrentStepState();
       }
     });
@@ -168,6 +179,7 @@ export class FingeringProgramEngine {
     const stepAfter = afterAssign.script![stepIndex];
     assigned = this.assignedKeysForStep(stepAfter);
     this.syncAssignedToStore(stepAfter);
+    this.syncExpectedNotes();
     this.sustainNote(nextNote.midi, mapping);
 
     const complete = isProgramStepComplete(stepAfter, assigned);
@@ -220,7 +232,30 @@ export class FingeringProgramEngine {
     }
 
     actions.setStepIndex(nextIndex);
+    this.lockSheetSeek();
     this.syncCurrentStepState();
+  }
+
+  private programExpectedMidis(
+    script: NonNullable<ReturnType<typeof useEngineStore.getState>['script']>,
+    stepIndex: number,
+  ): number[] {
+    const step = script[stepIndex];
+    if (!step) {
+      return [];
+    }
+
+    const assigned = this.assignedKeysForStep(step);
+    const next = programNextUnassignedNote(step, assigned);
+    if (next) {
+      return [next.midi];
+    }
+
+    if (isProgramStepComplete(step, assigned)) {
+      return [];
+    }
+
+    return [...programTargetMidis(step, assigned)];
   }
 
   private syncExpectedNotes(): void {
@@ -230,8 +265,7 @@ export class FingeringProgramEngine {
       return;
     }
 
-    const midis = [...buildTwoHandExpectedMidis(script, currentStepIndex)];
-    actions.setExpectedNotes(midis);
+    actions.setExpectedNotes(this.programExpectedMidis(script, currentStepIndex));
   }
 
   private sustainNote(midi: number, mapping: FingerMapping): void {
