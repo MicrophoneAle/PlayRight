@@ -772,10 +772,12 @@ export function buildPracticeVisualIndex(
   }
 
   const emptyStepCount = stepGraphicalNotes.filter((notes) => notes.length === 0).length;
-  console.log('[SheetSeek] buildPracticeVisualIndex', {
-    totalSteps: script.length,
-    emptyStepGraphicalNotes: emptyStepCount,
-  });
+  if (emptyStepCount > 0 && import.meta.env.DEV) {
+    console.debug('[SheetMusic] buildPracticeVisualIndex empty steps', {
+      totalSteps: script.length,
+      emptyStepGraphicalNotes: emptyStepCount,
+    });
+  }
 
   osmd.cursor.reset();
   return { stepCursorOffsets, stepGraphicalNotes, stepMeasureNumbers };
@@ -1223,13 +1225,40 @@ function hitBoundsForGraphicalNote(gNote: GraphicalNote): DOMRect | null {
   return inflateRect(rect, NOTE_HIT_PADDING_PX);
 }
 
+export interface StepPointerResolveOptions {
+  /** When false, only direct note-element hits count (no bbox / nearest fallback). */
+  allowBoundingBoxFallback?: boolean;
+}
+
+/** Resolve a step only when the pointer is over a rendered note element. */
+export function resolveStepIndexFromNoteElement(
+  visualIndex: PracticeVisualIndex | null,
+  clientX: number,
+  clientY: number,
+  container?: HTMLElement | null,
+): number | null {
+  if (!visualIndex) {
+    return null;
+  }
+
+  return resolveStepFromElementsAtPoint(
+    visualIndex,
+    clientX,
+    clientY,
+    container,
+  );
+}
+
 /** Resolve a sheet pointer position to a practice step using the visual index. */
 export function resolveStepIndexFromPointer(
   visualIndex: PracticeVisualIndex | null,
   clientX: number,
   clientY: number,
   container?: HTMLElement | null,
+  options: StepPointerResolveOptions = {},
 ): number | null {
+  const allowBoundingBoxFallback = options.allowBoundingBoxFallback ?? true;
+
   if (!visualIndex) {
     return null;
   }
@@ -1241,11 +1270,12 @@ export function resolveStepIndexFromPointer(
     container,
   );
   if (elementMatch !== null) {
-    console.log('[SheetSeek] resolveStepFromElementsAtPoint matched', elementMatch);
     return elementMatch;
   }
 
-  console.log('[SheetSeek] resolveStepFromElementsAtPoint: no match, trying bounding-box fallback');
+  if (!allowBoundingBoxFallback) {
+    return null;
+  }
 
   let matchedStep: number | null = null;
   let matchedArea = Infinity;
@@ -1286,23 +1316,12 @@ export function resolveStepIndexFromPointer(
   }
 
   if (matchedStep !== null) {
-    console.log('[SheetSeek] bounding-box fallback matchedStep', matchedStep);
     return matchedStep;
   }
 
   if (nearestStep !== null && nearestDistance <= NOTE_HIT_MAX_DISTANCE_PX) {
-    console.log('[SheetSeek] bounding-box fallback nearestStep', {
-      nearestStep,
-      nearestDistance,
-    });
     return nearestStep;
   }
-
-  console.log('[SheetSeek] bounding-box fallback: no match', {
-    nearestStep,
-    nearestDistance,
-    maxDistance: NOTE_HIT_MAX_DISTANCE_PX,
-  });
 
   return null;
 }

@@ -8,6 +8,7 @@ import {
   type PracticeScrollState,
   type PracticeVisualIndex,
   resolveStepIndexFromPointer,
+  resolveStepIndexFromNoteElement,
   syncSheetMusicPlaybackVisuals,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
@@ -227,7 +228,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     systemKey: null,
     lineScrollTop: null,
   });
-  const sheetPointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const sheetPointerStartRef = useRef<{
+    x: number;
+    y: number;
+    noteStepIndex: number | null;
+  } | null>(null);
   const script = useEngineStore((state) => state.script);
   const playMode = useEngineStore((state) => state.playMode);
   const engineMode = useEngineStore((state) => state.engineMode);
@@ -335,7 +340,22 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    sheetPointerStartRef.current = { x: event.clientX, y: event.clientY };
+    const state = useEngineStore.getState();
+    const noteStepIndex =
+      state.fingeringMode === 'program'
+        ? resolveStepIndexFromNoteElement(
+            visualIndexRef.current,
+            event.clientX,
+            event.clientY,
+            containerRef.current,
+          )
+        : null;
+
+    sheetPointerStartRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      noteStepIndex,
+    };
   };
 
   const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -355,25 +375,38 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    const stepIndex = resolveStepIndexFromPointer(
-      visualIndexRef.current,
-      event.clientX,
-      event.clientY,
-      containerRef.current,
-    );
+    const state = useEngineStore.getState();
+    const isProgramMode = state.fingeringMode === 'program';
+
+    if (isProgramMode && start.noteStepIndex === null) {
+      return;
+    }
+
+    const stepIndex = isProgramMode
+      ? (resolveStepIndexFromNoteElement(
+          visualIndexRef.current,
+          event.clientX,
+          event.clientY,
+          containerRef.current,
+        ) ?? start.noteStepIndex)
+      : resolveStepIndexFromPointer(
+          visualIndexRef.current,
+          event.clientX,
+          event.clientY,
+          containerRef.current,
+        );
 
     if (stepIndex === null) {
       return;
     }
 
-    const state = useEngineStore.getState();
     if (stepIndex === state.currentStepIndex) {
       return;
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
 
-    if (state.fingeringMode === 'program') {
+    if (isProgramMode) {
       state.actions.setStepIndex(stepIndex);
       fingeringProgramEngine.resyncCurrentStep();
       return;
@@ -509,6 +542,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+    if (useEngineStore.getState().fingeringMode === 'program') {
+      syncPracticeVisuals();
+      return;
+    }
     scheduleVisualIndexBuild();
   }, [script, engineMode, playMode, musicXml]);
 
