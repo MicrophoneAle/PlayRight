@@ -1,15 +1,16 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildProgramAssignedKeys,
-  countStepNotesByHand,
   isProgramStepComplete,
-  programNextUnassignedNote,
+  programCurrentNote,
   programStepExpectedMidis,
+  programStepNotesAscendingMidi,
 } from './practiceSteps.ts';
 import { runWithProgramStepIndexWrite } from './programStepGuard.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 import type { StepOrder } from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 
 const logProgramAdvance = (...args: unknown[]): void => {
   if (import.meta.env.DEV) {
@@ -19,9 +20,9 @@ const logProgramAdvance = (...args: unknown[]): void => {
 
 /**
  * Step-through finger capture for fingering program mode. Advances when every note
- * in the step has received a finger press in score order; each press must be on the
- * hand of the next unassigned note. Sheet click-jump enters refinger mode to overwrite
- * fingerings in score order for that step.
+ * in the step has received a finger press in ascending MIDI order; any LH/RH finger
+ * key binds to the current lowest-unassigned note. Sheet click-jump enters refinger
+ * mode to overwrite fingerings in MIDI order for that step.
  */
 export class FingeringProgramEngine {
   private audioEngine: AudioEngine | null = null;
@@ -74,7 +75,7 @@ export class FingeringProgramEngine {
   }
 
   private skipForwardToFirstIncompleteStep(): void {
-    const { script, actions } = useEngineStore.getState();
+    const { script, actions, manualFingerings } = useEngineStore.getState();
     if (!script) {
       return;
     }
@@ -83,7 +84,7 @@ export class FingeringProgramEngine {
 
     while (
       index < script.length &&
-      isProgramStepComplete(script[index], this.assignedKeysForStep(script[index]))
+      isProgramStepComplete(script[index], manualFingerings)
     ) {
       index += 1;
     }
@@ -102,7 +103,7 @@ export class FingeringProgramEngine {
   }
 
   private syncCurrentStepState(): void {
-    const { script, actions } = useEngineStore.getState();
+    const { script, actions, manualFingerings } = useEngineStore.getState();
     if (!script) {
       actions.setProgramAssignedKeys([]);
       actions.setExpectedNotes([]);
@@ -121,23 +122,22 @@ export class FingeringProgramEngine {
     this.syncAssignedToStore(step);
     this.syncExpectedNotes();
 
-    const assigned = this.assignedKeysForStep(step);
     const refingerIndex = useEngineStore.getState().programRefingerNoteIndex;
+    const ascending = programStepNotesAscendingMidi(step);
     const refingerTarget =
-      refingerIndex !== null ? (step.notes[refingerIndex] ?? null) : null;
+      refingerIndex !== null ? (ascending[refingerIndex] ?? null) : null;
 
     logProgramAdvance('syncCurrentStepState', {
       stepIndex: currentStepIndex,
       uiStep: currentStepIndex + 1,
       nextStepIndex: currentStepIndex + 1 < script.length ? currentStepIndex + 1 : null,
-      needed: countStepNotesByHand(step),
-      assignedKeys: [...assigned],
-      next: refingerTarget?.pitch ?? programNextUnassignedNote(step, assigned)?.pitch ?? null,
+      assignedKeys: [...this.assignedKeysForStep(step)],
+      next: refingerTarget?.pitch ?? programCurrentNote(step, manualFingerings)?.pitch ?? null,
       refingerNoteIndex: refingerIndex,
     });
   }
 
-  /** Jump to a step from a deliberate sheet click; enables score-order refingering. */
+  /** Jump to a step from a deliberate sheet click; enables MIDI-order refingering. */
   seekToStep(stepIndex: number): void {
     const { script, actions, fingeringMode } = useEngineStore.getState();
     if (fingeringMode !== 'program' || !script) {
@@ -207,11 +207,10 @@ export class FingeringProgramEngine {
       return;
     }
 
-    let assigned = this.assignedKeysForStep(step);
-    const nextNote = programNextUnassignedNote(step, assigned);
+    const nextNote = programCurrentNote(step, state.manualFingerings);
 
     if (nextNote === null) {
-      if (isProgramStepComplete(step, assigned)) {
+      if (isProgramStepComplete(step, state.manualFingerings)) {
         logProgramAdvance('press on complete step — advancing', {
           stepIndex,
           uiStep: stepIndex + 1,
@@ -221,22 +220,9 @@ export class FingeringProgramEngine {
         logProgramAdvance('press ignored (no next note and step incomplete)', {
           stepIndex,
           uiStep: stepIndex + 1,
-          assignedKeys: [...assigned],
-          needed: countStepNotesByHand(step),
+          assignedKeys: [...this.assignedKeysForStep(step)],
         });
       }
-      return;
-    }
-
-    if (mapping.hand !== nextNote.hand) {
-      logProgramAdvance('press ignored (wrong hand for next note)', {
-        stepIndex,
-        uiStep: stepIndex + 1,
-        expectedHand: nextNote.hand,
-        expectedPitch: nextNote.pitch,
-        pressedHand: mapping.hand,
-        finger: mapping.finger,
-      });
       return;
     }
 
@@ -244,16 +230,14 @@ export class FingeringProgramEngine {
 
     const afterAssign = useEngineStore.getState();
     const stepAfter = afterAssign.script![stepIndex];
-    assigned = this.assignedKeysForStep(stepAfter);
-
-    const complete = isProgramStepComplete(stepAfter, assigned);
+    const complete = isProgramStepComplete(stepAfter, afterAssign.manualFingerings);
     logProgramAdvance('press assigned', {
       stepIndex,
       uiStep: stepIndex + 1,
-      target: `${nextNote.hand}:${nextNote.midi}`,
+      target: fingeringKey(step.onset, nextNote.hand, nextNote.midi),
       pitch: nextNote.pitch,
-      assignedKeys: [...assigned],
-      needed: countStepNotesByHand(stepAfter),
+      physicalHand: mapping.hand,
+      assignedKeys: [...this.assignedKeysForStep(stepAfter)],
       complete,
     });
 
@@ -274,29 +258,17 @@ export class FingeringProgramEngine {
       return;
     }
 
-    const target = step.notes[refingerIndex];
+    const ascending = programStepNotesAscendingMidi(step);
+    const target = ascending[refingerIndex];
     if (!target) {
       actions.setProgramRefingerNoteIndex(null);
-      return;
-    }
-
-    if (mapping.hand !== target.hand) {
-      logProgramAdvance('refinger press ignored (wrong hand)', {
-        stepIndex,
-        uiStep: stepIndex + 1,
-        expectedHand: target.hand,
-        expectedPitch: target.pitch,
-        pressedHand: mapping.hand,
-        finger: mapping.finger,
-        refingerNoteIndex: refingerIndex,
-      });
       return;
     }
 
     this.assignFingerToNote(step, stepIndex, target, mapping, userId);
 
     const nextRefingerIndex = refingerIndex + 1;
-    if (nextRefingerIndex >= step.notes.length) {
+    if (nextRefingerIndex >= ascending.length) {
       logProgramAdvance('refinger pass complete — advancing', {
         stepIndex,
         uiStep: stepIndex + 1,
@@ -319,6 +291,7 @@ export class FingeringProgramEngine {
       note.hand,
       note.midi,
       mapping.finger,
+      mapping.hand,
       userId,
     );
 

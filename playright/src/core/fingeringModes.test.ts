@@ -25,15 +25,21 @@ import { parseMusicXmlToScript } from './parser/index.ts';
 import { MINIMAL_MUSICXML } from './parser/__fixtures__/minimal.musicxml.ts';
 import {
   getDisplayNotesForStep,
+  getExpectedNoteForFinger,
   isProgramStepComplete,
-  programAssignmentKey,
   programAssignmentProgress,
-  programNextUnassignedNote,
+  programCurrentNote,
   programStepExpectedMidis,
+  programStepNotesAscendingMidi,
   programTargetNote,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
-import { fingeringKey, manualHandOverrideKey, type Finger, type ManualFingeringMap } from '../types/index.ts';
+import {
+  fingeringKey,
+  manualHandOverrideKey,
+  type Finger,
+  type ManualFingeringMap,
+} from '../types/index.ts';
 import type { PlaybackScript } from '../types/index.ts';
 import * as scoreLibrary from './scoreLibrary.ts';
 
@@ -105,25 +111,25 @@ describe('program-mode chord targeting', () => {
 
     expect(programTargetNote(chordStep, 'R', assigned)?.midi).toBe(64);
 
-    assigned.add(programAssignmentKey('R', 64));
+    assigned.add(fingeringKey(480, 'R', 64));
     expect(programTargetNote(chordStep, 'R', assigned)?.midi).toBe(67);
 
-    assigned.add(programAssignmentKey('R', 67));
+    assigned.add(fingeringKey(480, 'R', 67));
     expect(programTargetNote(chordStep, 'R', assigned)).toBeNull();
   });
 
   it('requires every note in the step before the step is complete', () => {
-    const assigned = new Set<string>();
-    expect(isProgramStepComplete(chordStep, assigned)).toBe(false);
+    const manualFingerings: ManualFingeringMap = {};
+    expect(isProgramStepComplete(chordStep, manualFingerings)).toBe(false);
 
-    assigned.add(programAssignmentKey('R', 64));
-    expect(isProgramStepComplete(chordStep, assigned)).toBe(false);
+    manualFingerings[fingeringKey(480, 'R', 64)] = 1;
+    expect(isProgramStepComplete(chordStep, manualFingerings)).toBe(false);
 
-    assigned.add(programAssignmentKey('R', 67));
-    expect(isProgramStepComplete(chordStep, assigned)).toBe(true);
+    manualFingerings[fingeringKey(480, 'R', 67)] = 2;
+    expect(isProgramStepComplete(chordStep, manualFingerings)).toBe(true);
   });
 
-  it('selects the next unassigned note in score order', () => {
+  it('selects the next unassigned note in ascending MIDI order', () => {
     const step: PlaybackScript[number] = {
       order: 0,
       onset: 0,
@@ -134,16 +140,16 @@ describe('program-mode chord targeting', () => {
         { pitch: 'E4', midi: 64, hand: 'R', finger: null },
       ],
     };
-    const assigned = new Set<string>();
+    const manualFingerings: ManualFingeringMap = {};
 
-    expect(programNextUnassignedNote(step, assigned)?.midi).toBe(60);
-    assigned.add(programAssignmentKey('R', 60));
-    expect(programNextUnassignedNote(step, assigned)?.midi).toBe(48);
-    assigned.add(programAssignmentKey('L', 48));
-    expect(programNextUnassignedNote(step, assigned)?.midi).toBe(64);
+    expect(programCurrentNote(step, manualFingerings)?.midi).toBe(48);
+    manualFingerings[fingeringKey(0, 'L', 48)] = 5;
+    expect(programCurrentNote(step, manualFingerings)?.midi).toBe(60);
+    manualFingerings[fingeringKey(0, 'R', 60)] = 2;
+    expect(programCurrentNote(step, manualFingerings)?.midi).toBe(64);
   });
 
-  it('reports per-hand assignment progress', () => {
+  it('reports per-hand assignment progress by physical playing hand', () => {
     const lhChordRhSingle: PlaybackScript[number] = {
       order: 0,
       onset: 0,
@@ -154,12 +160,41 @@ describe('program-mode chord targeting', () => {
         { pitch: 'E5', midi: 76, hand: 'R', finger: null },
       ],
     };
-    const assigned = new Set<string>([programAssignmentKey('R', 76)]);
+    const manualFingerings: ManualFingeringMap = {
+      [fingeringKey(0, 'R', 76)]: 4,
+    };
 
-    expect(programAssignmentProgress(lhChordRhSingle, assigned)).toEqual({
+    expect(programAssignmentProgress(lhChordRhSingle, manualFingerings)).toEqual({
       needed: { L: 2, R: 1 },
       assignedCounts: { L: 0, R: 1 },
     });
+
+    manualFingerings[fingeringKey(0, 'L', 49)] = { finger: 2, physicalHand: 'R' };
+    expect(programAssignmentProgress(lhChordRhSingle, manualFingerings)).toEqual({
+      needed: { L: 1, R: 2 },
+      assignedCounts: { L: 0, R: 2 },
+    });
+  });
+
+  it('matches practice finger presses by playingHand', () => {
+    const step: PlaybackScript[number] = {
+      order: 0,
+      onset: 0,
+      measureNumber: 1,
+      notes: [
+        {
+          pitch: 'C3',
+          midi: 48,
+          hand: 'L',
+          finger: 2,
+          playingHand: 'R',
+          fingerSource: 'manual',
+        },
+      ],
+    };
+
+    expect(getExpectedNoteForFinger(step, 'R', 2)).toMatchObject({ midi: 48 });
+    expect(getExpectedNoteForFinger(step, 'L', 2)).toBeNull();
   });
 });
 
@@ -186,13 +221,119 @@ describe('FingeringProgramEngine', () => {
 
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
     engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
 
     const state = useEngineStore.getState();
     expect(state.manualFingerings[fingeringKey(0, 'L', 48)]).toBe(5);
     expect(state.manualFingerings[fingeringKey(0, 'R', 60)]).toBe(2);
     expect(state.currentStepIndex).toBe(1);
+  });
+
+  it('records RH crossover on bass note and counts physical RH in progress', () => {
+    const lhBassRhTreble: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C3', midi: 48, hand: 'L', finger: null },
+          { pitch: 'C4', midi: 60, hand: 'R', finger: null },
+        ],
+      },
+    ];
+
+    useEngineStore.setState({
+      script: lhBassRhTreble,
+      rawXml: null,
+      totalSteps: 1,
+      fingeringMode: 'program',
+      currentStepIndex: 0,
+      manualFingerings: {},
+    });
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+
+    const state = useEngineStore.getState();
+    expect(state.manualFingerings[fingeringKey(0, 'L', 48)]).toEqual({
+      finger: 2,
+      physicalHand: 'R',
+    });
+    expect(
+      programAssignmentProgress(lhBassRhTreble[0], state.manualFingerings),
+    ).toEqual({
+      needed: { L: 0, R: 2 },
+      assignedCounts: { L: 0, R: 1 },
+    });
+  });
+
+  it('persists crossover assignment shape to the score library', async () => {
+    const persistSpy = vi
+      .spyOn(scoreLibrary, 'updateScoreManualFingerings')
+      .mockResolvedValue({ ok: true });
+
+    const lhBassRhTreble: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C3', midi: 48, hand: 'L', finger: null }],
+      },
+    ];
+
+    useEngineStore.setState({
+      script: lhBassRhTreble,
+      rawXml: null,
+      totalSteps: 1,
+      fingeringMode: 'program',
+      currentStepIndex: 0,
+      scoreId: 'crossover-score',
+      manualFingerings: {},
+    });
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 }, 'clerk-user-abc');
+
+    await vi.waitFor(() => {
+      expect(persistSpy).toHaveBeenCalledWith(
+        'crossover-score',
+        'clerk-user-abc',
+        expect.objectContaining({
+          [fingeringKey(0, 'L', 48)]: { finger: 2, physicalHand: 'R' },
+        }),
+      );
+    });
+
+    persistSpy.mockRestore();
+  });
+
+  it('recalls crossover from persisted manual fingerings into playingHand', () => {
+    const lhBassRhTreble: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C3', midi: 48, hand: 'L', finger: null }],
+      },
+    ];
+    const manualFingerings: ManualFingeringMap = {
+      [fingeringKey(0, 'L', 48)]: { finger: 2, physicalHand: 'R' },
+    };
+
+    const prepared = prepareScriptWithFingering(
+      lhBassRhTreble,
+      manualFingerings,
+      false,
+      1,
+    );
+
+    expect(prepared[0].notes[0]).toMatchObject({
+      hand: 'L',
+      finger: 2,
+      playingHand: 'R',
+    });
+    expect(getExpectedNoteForFinger(prepared[0], 'R', 2)?.midi).toBe(48);
   });
 
   it('persists program fingerings to the score library when userId is provided', async () => {
@@ -207,14 +348,14 @@ describe('FingeringProgramEngine', () => {
     });
     engine.start();
 
-    engine.handleFingerPress({ hand: 'R', finger: 2 }, 'clerk-user-abc');
+    engine.handleFingerPress({ hand: 'L', finger: 5 }, 'clerk-user-abc');
 
     await vi.waitFor(() => {
       expect(persistSpy).toHaveBeenCalledWith(
         'saved-score-id',
         'clerk-user-abc',
         expect.objectContaining({
-          [fingeringKey(0, 'R', 60)]: 2,
+          [fingeringKey(0, 'L', 48)]: 5,
         }),
       );
     });
@@ -325,7 +466,7 @@ describe('FingeringProgramEngine', () => {
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex });
     engine.start();
 
-    for (const note of step.notes) {
+    for (const note of programStepNotesAscendingMidi(step)) {
       engine.handleFingerPress({ hand: note.hand, finger: note.hand === 'L' ? 5 : 1 });
       expect(
         useEngineStore.getState().manualFingerings[
@@ -370,8 +511,8 @@ describe('FingeringProgramEngine', () => {
     expect(practiceEngine.suspendForFingeringMode).toHaveBeenCalled();
     expect(practiceEngine.stop).not.toHaveBeenCalled();
 
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
     engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -380,8 +521,8 @@ describe('FingeringProgramEngine', () => {
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 0, engineMode: 'two-hand' });
     engine.ensureStoreSubscription();
 
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
     engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
 
     engine.start();
@@ -435,13 +576,13 @@ describe('FingeringProgramEngine', () => {
     const assigned = () =>
       programAssignmentProgress(
         useEngineStore.getState().script![stepIndex],
-        new Set(useEngineStore.getState().programAssignedKeys),
+        useEngineStore.getState().manualFingerings,
       );
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
     expect(assigned()).toEqual({
-      needed: { L: 2, R: 1 },
+      needed: { L: 1, R: 2 },
       assignedCounts: { L: 0, R: 1 },
     });
     expect(useEngineStore.getState().scoreTiming).toBe(scoreTimingBefore);
@@ -449,7 +590,7 @@ describe('FingeringProgramEngine', () => {
     engine.handleFingerPress({ hand: 'L', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
     expect(assigned()).toEqual({
-      needed: { L: 2, R: 1 },
+      needed: { L: 1, R: 2 },
       assignedCounts: { L: 1, R: 1 },
     });
 
@@ -480,9 +621,10 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().programRefingerNoteIndex).toBe(0);
 
     const stepBefore = useEngineStore.getState().script![jumpIndex];
+    const ascending = programStepNotesAscendingMidi(stepBefore);
 
-    for (let finger = 1; finger <= stepBefore.notes.length; finger += 1) {
-      const note = stepBefore.notes[finger - 1];
+    for (let finger = 1; finger <= ascending.length; finger += 1) {
+      const note = ascending[finger - 1];
       engine.handleFingerPress({ hand: note.hand, finger: finger as Finger });
     }
 
@@ -577,10 +719,13 @@ describe('FingeringProgramEngine', () => {
     engine.start();
     engine.seekToStep(1);
 
+    const ascending = programStepNotesAscendingMidi(step1);
     engine.handleFingerPress({ hand: 'R', finger: 2 }, 'clerk-user-abc');
 
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
-    expect(useEngineStore.getState().manualFingerings[fingeringKey(step1.onset, 'R', step1.notes[0].midi)]).toBe(2);
+    expect(useEngineStore.getState().manualFingerings[
+      fingeringKey(step1.onset, ascending[0].hand, ascending[0].midi)
+    ]).toEqual({ finger: 2, physicalHand: 'R' });
     expect(useEngineStore.getState().programRefingerNoteIndex).toBe(1);
 
     await vi.waitFor(() => {
@@ -588,7 +733,10 @@ describe('FingeringProgramEngine', () => {
         'chase-refinger',
         'clerk-user-abc',
         expect.objectContaining({
-          [fingeringKey(step1.onset, 'R', step1.notes[0].midi)]: 2,
+          [fingeringKey(step1.onset, ascending[0].hand, ascending[0].midi)]: {
+            finger: 2,
+            physicalHand: 'R',
+          },
         }),
       );
     });
@@ -642,8 +790,8 @@ describe('FingeringProgramEngine', () => {
     useEngineStore.setState({ fingeringMode: 'program' });
     engine.start();
 
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
     engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
 
     const afterFirstStep = useEngineStore.getState();
     const unprogrammed = afterFirstStep.script?.[2].notes.find((note) => note.midi === 62);

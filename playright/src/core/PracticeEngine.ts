@@ -205,7 +205,9 @@ export class PracticeEngine {
     }
 
     const hitIndex = this.practiceNotesForStep.findIndex(
-      (note) => note.hand === mapping.hand && note.finger === mapping.finger,
+      (note) =>
+        (note.playingHand ?? note.hand) === mapping.hand &&
+        note.finger === mapping.finger,
     );
     if (hitIndex < 0) {
       return;

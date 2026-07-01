@@ -296,6 +296,7 @@ interface EngineState {
       hand: Hand,
       midi: number,
       finger: Finger,
+      physicalHand: Hand,
       userId?: string | null,
     ) => void;
     clearManualFinger: (
@@ -448,11 +449,15 @@ export const useEngineStore = create<EngineState>((set) => {
         };
       });
     },
-    setManualFingerInProgram: (onset, hand, midi, finger, userId) => {
+    setManualFingerInProgram: (onset, hand, midi, finger, physicalHand, userId) => {
       set((state) => {
+        const value =
+          physicalHand === hand
+            ? finger
+            : { finger, physicalHand };
         const manualFingerings = {
           ...state.manualFingerings,
-          [fingeringKey(onset, hand, midi)]: finger,
+          [fingeringKey(onset, hand, midi)]: value,
         };
 
         persistManualFingerings(state.scoreId, manualFingerings, userId);
@@ -470,7 +475,12 @@ export const useEngineStore = create<EngineState>((set) => {
             ...step,
             notes: step.notes.map((note) =>
               note.hand === hand && note.midi === midi
-                ? { ...note, finger, fingerSource: 'manual' as const }
+                ? {
+                    ...note,
+                    finger,
+                    playingHand: physicalHand,
+                    fingerSource: 'manual' as const,
+                  }
                 : note,
             ),
           };

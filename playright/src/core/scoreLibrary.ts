@@ -38,7 +38,7 @@ function isMissingManualFingeringsColumn(message: string): boolean {
   return message.includes('manual_fingerings');
 }
 
-/** Keys are onset:hand:midi. Legacy step-index keys are not migrated. */
+/** Keys are onset:notatedHand:midi. Values are finger 1–5 or { finger, physicalHand } for crossovers. */
 function parseManualFingerings(value: unknown): ManualFingeringMap {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -46,8 +46,8 @@ function parseManualFingerings(value: unknown): ManualFingeringMap {
 
   const overrides: ManualFingeringMap = {};
 
-  for (const [key, finger] of Object.entries(value)) {
-    if (typeof key !== 'string' || typeof finger !== 'number' || !isFinger(finger)) {
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof key !== 'string') {
       continue;
     }
 
@@ -69,7 +69,24 @@ function parseManualFingerings(value: unknown): ManualFingeringMap {
       continue;
     }
 
-    overrides[fingeringKey(onset, hand, midi)] = finger as Finger;
+    const stableKey = fingeringKey(onset, hand, midi);
+
+    if (typeof raw === 'number' && isFinger(raw)) {
+      overrides[stableKey] = raw;
+      continue;
+    }
+
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const finger = (raw as { finger?: unknown }).finger;
+      const physicalHand = (raw as { physicalHand?: unknown }).physicalHand;
+      if (
+        typeof finger === 'number' &&
+        isFinger(finger) &&
+        (physicalHand === 'L' || physicalHand === 'R')
+      ) {
+        overrides[stableKey] = { finger, physicalHand };
+      }
+    }
   }
 
   return overrides;

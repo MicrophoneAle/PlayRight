@@ -7,7 +7,7 @@ import type {
   ScriptNote,
   StepOrder,
 } from '../types/index.ts';
-import { fingeringKey } from '../types/index.ts';
+import { fingeringKey, resolveManualAssignment } from '../types/index.ts';
 import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
 
 export interface TwoHandStepNoteInfo {
@@ -92,47 +92,74 @@ export function getExpectedNoteForFinger(
   finger: Finger,
 ): ScriptNote | null {
   return (
-    step.notes.find((note) => note.hand === hand && note.finger === finger) ?? null
+    step.notes.find(
+      (note) =>
+        (note.playingHand ?? note.hand) === hand && note.finger === finger,
+    ) ?? null
   );
 }
 
-/** Key for tracking which notes in a program step already received a finger press. */
+/** @deprecated Use fingeringKey(onset, notatedHand, midi) for program assignment tracking. */
 export function programAssignmentKey(hand: Hand, midi: number): string {
   return `${hand}:${midi}`;
 }
 
-/** Count notes per hand in a step (all notes, regardless of predicted finger). */
-export function countStepNotesByHand(step: StepOrder): Record<Hand, number> {
-  const counts: Record<Hand, number> = { L: 0, R: 0 };
-  for (const note of step.notes) {
-    counts[note.hand] += 1;
-  }
-  return counts;
+/** Step notes sorted ascending by MIDI (stable tie-break: L before R). */
+export function programStepNotesAscendingMidi(step: StepOrder): ScriptNote[] {
+  return [...step.notes].sort((left, right) => {
+    if (left.midi !== right.midi) {
+      return left.midi - right.midi;
+    }
+
+    if (left.hand === right.hand) {
+      return 0;
+    }
+
+    return left.hand === 'L' ? -1 : 1;
+  });
 }
 
-/** Build assigned keys from manual fingerings recorded for this step. */
+/** Build assigned note-identity keys from manual fingerings recorded for this step. */
 export function buildProgramAssignedKeys(
   step: StepOrder,
   manualFingerings: ManualFingeringMap,
 ): Set<string> {
   const assigned = new Set<string>();
   for (const note of step.notes) {
-    if (manualFingerings[fingeringKey(step.onset, note.hand, note.midi)] !== undefined) {
-      assigned.add(programAssignmentKey(note.hand, note.midi));
+    const key = fingeringKey(step.onset, note.hand, note.midi);
+    if (manualFingerings[key] !== undefined) {
+      assigned.add(key);
     }
   }
   return assigned;
 }
 
+/** Lowest unassigned note in the step by ascending MIDI. */
+export function programCurrentNote(
+  step: StepOrder,
+  manualFingerings: ManualFingeringMap,
+): ScriptNote | null {
+  const assigned = buildProgramAssignedKeys(step, manualFingerings);
+
+  for (const note of programStepNotesAscendingMidi(step)) {
+    const key = fingeringKey(step.onset, note.hand, note.midi);
+    if (!assigned.has(key)) {
+      return note;
+    }
+  }
+
+  return null;
+}
+
 /**
- * Next note to assign within the step, in script/score order (same sequence as practice).
+ * @deprecated Use programCurrentNote for MIDI-walk program mode.
  */
 export function programNextUnassignedNote(
   step: StepOrder,
   assigned: ReadonlySet<string>,
 ): ScriptNote | null {
-  for (const note of step.notes) {
-    if (!assigned.has(programAssignmentKey(note.hand, note.midi))) {
+  for (const note of programStepNotesAscendingMidi(step)) {
+    if (!assigned.has(fingeringKey(step.onset, note.hand, note.midi))) {
       return note;
     }
   }
@@ -150,50 +177,62 @@ export function programTargetNote(
   assigned: ReadonlySet<string>,
 ): ScriptNote | null {
   const candidates = step.notes
-    .filter((note) => note.hand === hand && !assigned.has(programAssignmentKey(hand, note.midi)))
+    .filter(
+      (note) =>
+        note.hand === hand &&
+        !assigned.has(fingeringKey(step.onset, note.hand, note.midi)),
+    )
     .sort((left, right) => left.midi - right.midi);
 
   return candidates[0] ?? null;
 }
 
-/**
- * Step is complete when each hand has received as many finger presses as it has notes.
- * Equivalent to every note assigned when each press maps to a distinct note.
- */
+/** Step is complete when every note in the step has a manual fingering assignment. */
 export function isProgramStepComplete(
   step: StepOrder,
-  assigned: ReadonlySet<string>,
+  manualFingerings: ManualFingeringMap,
 ): boolean {
-  const needed = countStepNotesByHand(step);
-  const assignedCounts: Record<Hand, number> = { L: 0, R: 0 };
-
-  for (const note of step.notes) {
-    if (assigned.has(programAssignmentKey(note.hand, note.midi))) {
-      assignedCounts[note.hand] += 1;
-    }
-  }
-
-  return assignedCounts.L >= needed.L && assignedCounts.R >= needed.R;
+  return step.notes.every(
+    (note) =>
+      manualFingerings[fingeringKey(step.onset, note.hand, note.midi)] !== undefined,
+  );
 }
 
-/** Per-hand assignment progress for the current program step. */
+/** Per-hand assignment progress by physical playing hand. */
 export function programAssignmentProgress(
   step: StepOrder,
-  assigned: ReadonlySet<string>,
+  manualFingerings: ManualFingeringMap,
 ): {
   needed: Record<Hand, number>;
   assignedCounts: Record<Hand, number>;
 } {
-  const needed = countStepNotesByHand(step);
   const assignedCounts: Record<Hand, number> = { L: 0, R: 0 };
+  let unassignedNotatedL = 0;
+  let unassignedNotatedR = 0;
 
   for (const note of step.notes) {
-    if (assigned.has(programAssignmentKey(note.hand, note.midi))) {
-      assignedCounts[note.hand] += 1;
+    const assignment = resolveManualAssignment(
+      step.onset,
+      note.hand,
+      note.midi,
+      manualFingerings,
+    );
+    if (assignment) {
+      assignedCounts[assignment.physicalHand] += 1;
+    } else if (note.hand === 'L') {
+      unassignedNotatedL += 1;
+    } else {
+      unassignedNotatedR += 1;
     }
   }
 
-  return { needed, assignedCounts };
+  return {
+    needed: {
+      L: assignedCounts.L + unassignedNotatedL,
+      R: assignedCounts.R + unassignedNotatedR,
+    },
+    assignedCounts,
+  };
 }
 
 /** Every MIDI in the current step, for program-mode highlighting (all notes to assign). */
@@ -211,12 +250,12 @@ export function programStepExpectedMidis(step: StepOrder): number[] {
   return midis;
 }
 
-/** Midis of the next note to assign in score order (at most one). */
+/** Midis of the next note to assign by ascending MIDI (at most one). */
 export function programTargetMidis(
   step: StepOrder,
-  assigned: ReadonlySet<string>,
+  manualFingerings: ManualFingeringMap,
 ): Set<number> {
-  const next = programNextUnassignedNote(step, assigned);
+  const next = programCurrentNote(step, manualFingerings);
   return next ? new Set([next.midi]) : new Set();
 }
 
@@ -291,7 +330,9 @@ export function buildTwoHandPhysicalKeysByMidi(
       continue;
     }
 
-    const physicalKey = fingerToKey.get(`${note.hand}:${note.finger}`);
+    const physicalKey = fingerToKey.get(
+      `${note.playingHand ?? note.hand}:${note.finger}`,
+    );
     if (physicalKey === undefined) {
       continue;
     }

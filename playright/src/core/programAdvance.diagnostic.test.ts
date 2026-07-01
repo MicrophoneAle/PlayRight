@@ -10,7 +10,7 @@ vi.mock('./PracticeEngine.ts', () => ({
 
 import { FingeringProgramEngine } from './FingeringProgramEngine.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
-import { programAssignmentProgress } from './practiceSteps.ts';
+import { programAssignmentProgress, programStepNotesAscendingMidi } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { fingeringKey, type Finger, type ManualFingeringMap } from '../types/index.ts';
 
@@ -81,20 +81,20 @@ describe('program advance sequencing (chase)', () => {
     const progress = () =>
       programAssignmentProgress(
         useEngineStore.getState().script![1],
-        new Set(useEngineStore.getState().programAssignedKeys),
+        useEngineStore.getState().manualFingerings,
       );
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(progress()).toEqual({
-      needed: { L: 2, R: 1 },
+      needed: { L: 1, R: 2 },
       assignedCounts: { L: 0, R: 1 },
     });
 
     engine.handleFingerPress({ hand: 'L', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(progress()).toEqual({
-      needed: { L: 2, R: 1 },
+      needed: { L: 1, R: 2 },
       assignedCounts: { L: 1, R: 1 },
     });
 
@@ -114,7 +114,7 @@ describe('program advance sequencing (chase)', () => {
     useEngineStore.setState({ fingeringMode: 'program', engineMode: 'two-hand', currentStepIndex: 1 });
     engine.ensureStoreSubscription();
 
-    for (const note of script[1].notes) {
+    for (const note of programStepNotesAscendingMidi(script[1])) {
       engine.handleFingerPress({ hand: note.hand, finger: 1 });
     }
     expect(useEngineStore.getState().currentStepIndex).toBe(2);

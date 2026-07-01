@@ -14,9 +14,9 @@ import {
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandStepNotesByMidi,
   buildProgramAssignedKeys,
-  programAssignmentKey,
   programAssignmentProgress,
-  programNextUnassignedNote,
+  programCurrentNote,
+  programStepNotesAscendingMidi,
   programTargetMidis,
   type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
@@ -271,12 +271,13 @@ export function PianoKeyboard() {
     }
 
     if (programRefingerNoteIndex !== null) {
-      const note = script[currentStepIndex].notes[programRefingerNoteIndex];
+      const ascending = programStepNotesAscendingMidi(script[currentStepIndex]);
+      const note = ascending[programRefingerNoteIndex];
       return note ? new Set([note.midi]) : new Set();
     }
 
-    return programTargetMidis(script[currentStepIndex], programAssignedSet);
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet, programRefingerNoteIndex]);
+    return programTargetMidis(script[currentStepIndex], manualFingerings);
+  }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
 
   const twoHandExpectedMidis = useMemo(() => {
     if (!isTwoHand) {
@@ -344,11 +345,12 @@ export function PianoKeyboard() {
 
     const step = script[currentStepIndex];
     if (programRefingerNoteIndex !== null) {
-      return step.notes[programRefingerNoteIndex] ?? null;
+      const ascending = programStepNotesAscendingMidi(step);
+      return ascending[programRefingerNoteIndex] ?? null;
     }
 
-    return programNextUnassignedNote(step, programAssignedSet);
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet, programRefingerNoteIndex]);
+    return programCurrentNote(step, manualFingerings);
+  }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
 
   const programTargetByHand = useMemo(() => {
     if (!programNextNote) {
@@ -356,8 +358,8 @@ export function PianoKeyboard() {
     }
 
     return {
-      L: programNextNote.hand === 'L' ? programNextNote : null,
-      R: programNextNote.hand === 'R' ? programNextNote : null,
+      L: programNextNote,
+      R: programNextNote,
     };
   }, [programNextNote]);
 
@@ -366,8 +368,8 @@ export function PianoKeyboard() {
       return null;
     }
 
-    return programAssignmentProgress(script[currentStepIndex], programAssignedSet);
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+    return programAssignmentProgress(script[currentStepIndex], manualFingerings);
+  }, [isProgramMode, script, currentStepIndex, manualFingerings]);
 
   const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) => {
     if (playMode || !isKeyInDisplayRange(midi)) {
@@ -588,10 +590,17 @@ export function PianoKeyboard() {
             return null;
           }
 
+          const step = script?.[currentStepIndex];
+          const noteKey =
+            step && programNextNote
+              ? fingeringKey(step.onset, programNextNote.hand, programNextNote.midi)
+              : null;
           const isProgramTarget =
             isProgramMode &&
-            programTargetByHand[note.hand]?.midi === midi &&
-            !programAssignedSet.has(programAssignmentKey(note.hand, note.midi));
+            programNextNote?.midi === midi &&
+            note.hand === programNextNote.hand &&
+            noteKey !== null &&
+            !programAssignedSet.has(noteKey);
 
           return (
             <button
@@ -676,7 +685,7 @@ export function PianoKeyboard() {
             </span>
           ) : null}
           <span className="ml-2 text-amber-200/80">
-            Assign each note in score order before advancing
+            Assign each note in pitch order before advancing
           </span>
         </div>
       ) : null}

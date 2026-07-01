@@ -7,6 +7,8 @@ export interface ScriptNote {
   midi: number;
   hand: Hand;
   finger: Finger | null;
+  /** Physical hand that plays this note (crossovers); defaults to notated hand when unset. */
+  playingHand?: Hand;
   fingerSource?: 'score' | 'predicted' | 'manual';
   /** Note length in MusicXML divisions, when present in the score. */
   durationDivisions?: number;
@@ -55,7 +57,15 @@ export interface PlayingPlaybackNote {
  */
 export type ManualFingeringKey = `${number}:${Hand}:${number}`;
 
-export type ManualFingeringMap = Partial<Record<ManualFingeringKey, Finger>>;
+export interface ManualFingeringAssignment {
+  finger: Finger;
+  physicalHand: Hand;
+}
+
+/** Plain finger = same physical hand as notated; object records a cross-hand assignment. */
+export type ManualFingeringValue = Finger | ManualFingeringAssignment;
+
+export type ManualFingeringMap = Partial<Record<ManualFingeringKey, ManualFingeringValue>>;
 
 /** Stable key for a hand crossover override: onset:midi (MusicXML divisions). */
 export type ManualHandOverrideKey = `${number}:${number}`;
@@ -89,4 +99,26 @@ export interface SelectedFingeringNote {
 
 export function isFinger(value: number): value is Finger {
   return Number.isInteger(value) && value >= 1 && value <= 5;
+}
+
+export function manualFingeringFinger(value: ManualFingeringValue): Finger {
+  return typeof value === 'number' ? value : value.finger;
+}
+
+export function resolveManualAssignment(
+  onset: number,
+  notatedHand: Hand,
+  midi: number,
+  map: ManualFingeringMap,
+): ManualFingeringAssignment | null {
+  const raw = map[fingeringKey(onset, notatedHand, midi)];
+  if (raw === undefined) {
+    return null;
+  }
+
+  if (typeof raw === 'number') {
+    return { finger: raw, physicalHand: notatedHand };
+  }
+
+  return raw;
 }

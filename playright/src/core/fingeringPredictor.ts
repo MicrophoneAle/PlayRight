@@ -6,7 +6,7 @@ import type {
   PlaybackScript,
   ScriptNote,
 } from '../types/index.ts';
-import { fingeringKey, manualHandOverrideKey } from '../types/index.ts';
+import { fingeringKey, manualHandOverrideKey, resolveManualAssignment } from '../types/index.ts';
 
 export interface NoteEvent {
   stepIndex: number;
@@ -1499,14 +1499,20 @@ export function applyManualFingerings(
   return script.map((step) => ({
     ...step,
     notes: step.notes.map((note) => {
-      const finger = overrides[fingeringKey(step.onset, note.hand, note.midi)];
-      if (finger === undefined) {
+      const assignment = resolveManualAssignment(
+        step.onset,
+        note.hand,
+        note.midi,
+        overrides,
+      );
+      if (assignment === null) {
         return note;
       }
 
       return {
         ...note,
-        finger,
+        finger: assignment.finger,
+        playingHand: assignment.physicalHand,
         fingerSource: 'manual' as const,
       };
     }),
@@ -1521,7 +1527,12 @@ export function extractManualFingerings(
   for (const step of script) {
     for (const note of step.notes) {
       if (note.fingerSource === 'manual' && note.finger !== null) {
-        overrides[fingeringKey(step.onset, note.hand, note.midi)] = note.finger;
+        const key = fingeringKey(step.onset, note.hand, note.midi);
+        const physicalHand = note.playingHand ?? note.hand;
+        overrides[key] =
+          physicalHand === note.hand
+            ? note.finger
+            : { finger: note.finger, physicalHand };
       }
     }
   }
