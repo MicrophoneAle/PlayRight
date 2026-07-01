@@ -7,6 +7,7 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Sheet music practice** — Renders scores with [OpenSheetMusicDisplay](https://opensheetmusicdisplay.org); highlights the current note(s) in green
 - **One-hand mode** — Practice left or right hand separately with an LH/RH toggle; computer keys map to a movable slice of the piano
 - **Two-hand mode** — Press finger keys (`Q`–`R`, `V`, `N`, `I`–`P`, `[`) to match predicted or score-provided fingerings; click keys on the virtual piano to override fingerings
+- **Program mode** — Step through the score and assign fingerings in score order; all notes in the current step highlight green on the sheet and keyboard, with an amber ring on the next note to assign; advances automatically when every note in the step is set; fingerings persist to the score library
 - **17-note core scope** — The playable window spans 17 semitones; the on-screen keyboard shows a 22-semitone display window (Shift through `]`) including low and high extension keys when needed
 - **Smart scope mapping** — Extension keys (`Shift`, Caps Lock, Tab, `Q`, `'`, `]`) are assigned contextually so labels stay aligned as you shift the window
 - **Scope shifting** — Arrow keys or `1`/`2` move the window; `↑`/`3` cycles shift distance (semitone, octave, or full 22-semitone range)
@@ -15,8 +16,19 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Practice controls** — Start, pause, restart, and stop; practice mode is the default; chord steps require all notes before advancing
 - **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
 - **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase)
-- **Settings** — Practice mode, **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
+- **Settings** — Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
 - **Collapsible header** — More room for sheet music (`Z` to toggle)
+
+### Program mode behavior
+
+Enable **Program** in Settings (under Fingering mode):
+
+- **Score-order assignment** — Press finger keys for the hand of the next unassigned note in the step. Wrong-hand presses are ignored.
+- **Full-step highlights** — Every note in the current step is green on the sheet music and virtual keyboard.
+- **Next-note hint** — The keyboard shows an amber ring on the next note to assign; the status bar shows LH/RH progress, the next pitch, and the upcoming step number.
+- **Chord steps** — Steps with multiple notes (e.g. LH chord + RH melody) require a finger press for each note before advancing.
+- **Stable step index** — The program engine owns step progression; clicking the score does not seek while in program mode. Already-fingered steps from saved library data are skipped forward to the first incomplete step.
+- **Persistence** — Assignments are stored as manual fingerings and sync to Supabase when signed in.
 
 ### Play mode behavior
 
@@ -170,6 +182,8 @@ playright/
 | Module | Role |
 |--------|------|
 | `PracticeEngine.ts` | Step progression, chords, pause/stop, one-hand notes and two-hand finger input |
+| `FingeringProgramEngine.ts` | Program-mode finger capture, score-order assignment, step advance, and highlight sync |
+| `programStepGuard.ts` | Prevents external step seeks while program mode is active |
 | `PlaybackEngine.ts` | Play mode transport scheduling, per-note press/release tracking, auto-end and replay |
 | `playbackTiming.ts` | Musical timing helpers (onsets, durations, articulation gap, piece end) |
 | `playingMidiPressTracker.ts` | Tracks overlapping presses by unique id (same pitch repeated consecutively) |
@@ -191,6 +205,17 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 - [ ] Additional practice modes and scoring
 - [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
 - [x] Play mode with tempo control, seek, replay, and sheet/keyboard duration sync
+- [x] Program mode with stable step progression, full-step highlights, and persisted fingerings
+
+## Checkpoints
+
+Annotated git tags mark stable milestones:
+
+| Tag | Description |
+|-----|-------------|
+| `checkpoint-program-mode` | Program mode: score-order fingering, full-step green highlights, engine-owned step index, no sheet seek loop |
+| `checkpoint-play-mode` | Play mode with tempo, seek, and duration-aligned highlights |
+| `checkpoint-2026-06-19` | Earlier stable build |
 
 ## License
 
