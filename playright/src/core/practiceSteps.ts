@@ -94,6 +94,52 @@ export function getExpectedNoteForFinger(
   );
 }
 
+/** Key for tracking which notes in a program step already received a finger press. */
+export function programAssignmentKey(hand: Hand, midi: number): string {
+  return `${hand}:${midi}`;
+}
+
+/**
+ * Program-mode chord targeting: the pressed finger binds to the lowest-pitch note on
+ * that hand in the step that has not yet been assigned in this pass.
+ */
+export function programTargetNote(
+  step: StepOrder,
+  hand: Hand,
+  assigned: ReadonlySet<string>,
+): ScriptNote | null {
+  const candidates = step.notes
+    .filter((note) => note.hand === hand && !assigned.has(programAssignmentKey(hand, note.midi)))
+    .sort((left, right) => left.midi - right.midi);
+
+  return candidates[0] ?? null;
+}
+
+/** True when every note in the step has received a finger press in program mode. */
+export function isProgramStepComplete(
+  step: StepOrder,
+  assigned: ReadonlySet<string>,
+): boolean {
+  return step.notes.every((note) =>
+    assigned.has(programAssignmentKey(note.hand, note.midi)),
+  );
+}
+
+/** Midis of the current program targets (one per hand), for UI highlighting. */
+export function programTargetMidis(
+  step: StepOrder,
+  assigned: ReadonlySet<string>,
+): Set<number> {
+  const midis = new Set<number>();
+  for (const hand of ['L', 'R'] as const) {
+    const target = programTargetNote(step, hand, assigned);
+    if (target) {
+      midis.add(target.midi);
+    }
+  }
+  return midis;
+}
+
 function buildTwoHandFingerToPhysicalKeyMap(): Map<string, string> {
   const map = new Map<string, string>();
 

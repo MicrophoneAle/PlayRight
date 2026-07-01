@@ -57,12 +57,34 @@ export type ManualFingeringKey = `${number}:${Hand}:${number}`;
 
 export type ManualFingeringMap = Partial<Record<ManualFingeringKey, Finger>>;
 
+/** Stable key for a hand crossover override: onset:midi (MusicXML divisions). */
+export type ManualHandOverrideKey = `${number}:${number}`;
+
+export type ManualHandOverrideMap = Partial<Record<ManualHandOverrideKey, Hand>>;
+
 export function fingeringKey(
   onset: number,
   hand: Hand,
   midi: number,
 ): ManualFingeringKey {
   return `${onset}:${hand}:${midi}`;
+}
+
+export function manualHandOverrideKey(
+  onset: number,
+  midi: number,
+): ManualHandOverrideKey {
+  return `${onset}:${midi}`;
+}
+
+/** Program captures fingers; edit reassigns a selected note (including cross-hand). */
+export type FingeringMode = 'off' | 'program' | 'edit';
+
+export interface SelectedFingeringNote {
+  stepIndex: number;
+  onset: number;
+  hand: Hand;
+  midi: number;
 }
 
 export function isFinger(value: number): value is Finger {

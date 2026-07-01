@@ -9,7 +9,7 @@ import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
-import type { Hand, ManualFingeringMap, PlaybackScript } from '../types/index.ts';
+import type { FingeringMode, Hand, ManualFingeringMap, ManualHandOverrideMap, PlaybackScript } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
@@ -59,9 +59,15 @@ export function Lid() {
   const setPlayMode = useEngineStore((state) => state.actions.setPlayMode);
   const setTempoFactor = useEngineStore((state) => state.actions.setTempoFactor);
 
+  const setFingeringMode = useEngineStore((state) => state.actions.setFingeringMode);
+  const fingeringMode = useEngineStore((state) => state.fingeringMode);
+  const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
+  const totalSteps = useEngineStore((state) => state.totalSteps);
+
   const prepareScriptForLoad = (
     script: PlaybackScript,
     manualFingerings: ManualFingeringMap = {},
+    manualHandOverrides: ManualHandOverrideMap = {},
   ) => {
     const state = useEngineStore.getState();
     return prepareScriptWithFingering(
@@ -70,6 +76,7 @@ export function Lid() {
       state.autoFingering,
       state.handSpan,
       state.overrideScoreFingerings,
+      manualHandOverrides,
     );
   };
 
@@ -159,6 +166,7 @@ export function Lid() {
             type="checkbox"
             checked={playMode}
             onChange={(event) => setPlayMode(event.target.checked)}
+            disabled={fingeringMode !== 'off'}
             className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
           />
         </div>
@@ -179,6 +187,43 @@ export function Lid() {
             onChange={(event) => setTempoFactor(Number(event.target.value))}
             className="w-full accent-violet-600"
           />
+        </div>
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-zinc-400">Fingering mode</span>
+          <div
+            className="flex gap-1 rounded-md border border-zinc-700 bg-zinc-800 p-0.5"
+            role="group"
+            aria-label="Fingering mode"
+          >
+            {(['off', 'program', 'edit'] as FingeringMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                disabled={playMode}
+                onClick={() => setFingeringMode(mode)}
+                aria-pressed={fingeringMode === mode}
+                className={`flex-1 rounded px-2 py-1.5 text-xs font-medium capitalize transition-colors disabled:opacity-40 ${
+                  fingeringMode === mode
+                    ? 'bg-violet-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+          {fingeringMode === 'program' ? (
+            <p className="text-[10px] leading-snug text-zinc-500">
+              Step {currentStepIndex + 1} / {totalSteps}. Press finger keys low→high per hand;
+              each press records manual fingering.
+            </p>
+          ) : null}
+          {fingeringMode === 'edit' ? (
+            <p className="text-[10px] leading-snug text-zinc-500">
+              Click a note label to select it (chord labels are per-hand). Press a finger key or
+              use the toolbar; opposite-hand keys crossover.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-col gap-2">
           <span className="text-xs text-zinc-400">Practice Mode</span>

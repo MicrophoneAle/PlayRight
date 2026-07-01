@@ -592,6 +592,7 @@ export function resolveNoteMidiFromKeyboard(
 
 export interface InputManagerOptions {
   onFingerPress?: (mapping: FingerMapping) => void;
+  onFingerRelease?: (mapping: FingerMapping) => void;
   getScopeTranspose?: () => number;
 }
 
@@ -600,6 +601,7 @@ export class InputManager {
   private readonly getScopeStart: () => number;
   private readonly getScopeTranspose: () => number;
   private readonly onFingerPress?: (mapping: FingerMapping) => void;
+  private readonly onFingerRelease?: (mapping: FingerMapping) => void;
   private readonly activePhysicalKeys = new Set<string>();
   /** One-hand: physical key code → MIDI attacked on keydown (persists across scope shifts). */
   private readonly heldNoteMidis = new Map<string, number>();
@@ -616,6 +618,7 @@ export class InputManager {
     this.getScopeStart = getScopeStart;
     this.getScopeTranspose = options.getScopeTranspose ?? (() => 0);
     this.onFingerPress = options.onFingerPress;
+    this.onFingerRelease = options.onFingerRelease;
     practiceEngine.attachAudioEngine(audioEngine);
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
@@ -672,7 +675,12 @@ export class InputManager {
       return;
     }
 
-    if (state.engineMode === 'two-hand') {
+    const useFingerKeys =
+      state.fingeringMode === 'program' ||
+      state.fingeringMode === 'edit' ||
+      state.engineMode === 'two-hand';
+
+    if (useFingerKeys) {
       if (event.repeat) {
         return;
       }
@@ -728,14 +736,23 @@ export class InputManager {
       return;
     }
 
-    if (state.engineMode === 'two-hand') {
+    const useFingerKeys =
+      state.fingeringMode === 'program' ||
+      state.fingeringMode === 'edit' ||
+      state.engineMode === 'two-hand';
+
+    if (useFingerKeys) {
       const mapping = getFingerMappingFromKeyboard(event);
       if (mapping !== null) {
         if (this.activePhysicalKeys.has(event.code)) {
           this.activePhysicalKeys.delete(event.code);
         }
 
-        practiceEngine.handleFingerRelease(mapping);
+        if (this.onFingerRelease) {
+          this.onFingerRelease(mapping);
+        } else {
+          practiceEngine.handleFingerRelease(mapping);
+        }
         event.preventDefault();
         return;
       }
@@ -766,7 +783,8 @@ export class InputManager {
       return true;
     }
 
-    if (useEngineStore.getState().engineMode === 'two-hand') {
+    if (useEngineStore.getState().engineMode === 'two-hand' ||
+        useEngineStore.getState().fingeringMode !== 'off') {
       return (
         getFingerMappingFromKeyboard(event) !== null ||
         this.isOneHandNoteKeyCode(event.code)

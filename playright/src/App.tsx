@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
+import { fingeringProgramEngine } from './core/FingeringProgramEngine.ts';
+import { handleEditModeFingerPress } from './core/fingeringEditMode.ts';
 import { practiceEngine } from './core/PracticeEngine.ts';
 import { playbackEngine } from './core/PlaybackEngine.ts';
 import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
@@ -20,12 +22,38 @@ function App() {
     initializedRef.current = true;
 
     const audioEngine = new AudioEngine();
+    fingeringProgramEngine.attachAudioEngine(audioEngine);
+    practiceEngine.attachAudioEngine(audioEngine);
+
+    const routeFingerPress = (mapping: Parameters<NonNullable<typeof practiceEngine.handleFingerPress>>[0]) => {
+      const { fingeringMode } = useEngineStore.getState();
+      if (fingeringMode === 'program') {
+        fingeringProgramEngine.handleFingerPress(mapping);
+        return;
+      }
+      if (fingeringMode === 'edit') {
+        handleEditModeFingerPress(mapping);
+        return;
+      }
+      practiceEngine.handleFingerPress(mapping);
+    };
+
+    const routeFingerRelease = (mapping: Parameters<NonNullable<typeof practiceEngine.handleFingerRelease>>[0]) => {
+      const { fingeringMode } = useEngineStore.getState();
+      if (fingeringMode === 'program') {
+        fingeringProgramEngine.handleFingerRelease(mapping);
+        return;
+      }
+      practiceEngine.handleFingerRelease(mapping);
+    };
+
     const inputManager = new InputManager(
       audioEngine,
       () => useEngineStore.getState().scopeStartMidi,
       {
         getScopeTranspose: () => useEngineStore.getState().scopeTranspose,
-        onFingerPress: (mapping) => practiceEngine.handleFingerPress(mapping),
+        onFingerPress: routeFingerPress,
+        onFingerRelease: routeFingerRelease,
       },
     );
     playbackEngine.attachAudioEngine(audioEngine);
