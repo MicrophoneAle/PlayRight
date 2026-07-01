@@ -1,12 +1,14 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildTwoHandExpectedMidis,
+  buildProgramAssignedKeys,
   isProgramStepComplete,
   programAssignmentKey,
   programTargetNote,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
+import type { StepOrder } from '../types/index.ts';
 
 /**
  * Step-through finger capture for fingering program mode. Advances when every note
@@ -18,9 +20,44 @@ export class FingeringProgramEngine {
   private assignedThisStep = new Set<string>();
   private activeFingerSounds = new Map<string, number>();
   private soundingMidis = new Set<number>();
+  private storeSubscriptionInitialized = false;
 
   attachAudioEngine(audioEngine: AudioEngine): void {
     this.audioEngine = audioEngine;
+  }
+
+  ensureStoreSubscription(): void {
+    if (this.storeSubscriptionInitialized) {
+      return;
+    }
+
+    this.storeSubscriptionInitialized = true;
+
+    useEngineStore.subscribe((state, prevState) => {
+      if (state.fingeringMode !== 'program') {
+        return;
+      }
+
+      if (state.currentStepIndex !== prevState.currentStepIndex) {
+        this.assignedThisStep.clear();
+        this.syncAssignedToStore();
+        this.syncExpectedNotes();
+        return;
+      }
+
+      if (state.script !== prevState.script && state.script) {
+        const step = state.script[state.currentStepIndex];
+        if (step) {
+          this.syncAssignedFromStep(step);
+        }
+      }
+    });
+  }
+
+  private syncAssignedFromStep(step: StepOrder): void {
+    const { manualFingerings } = useEngineStore.getState();
+    this.assignedThisStep = buildProgramAssignedKeys(step, manualFingerings);
+    this.syncAssignedToStore();
   }
 
   private syncAssignedToStore(): void {
@@ -30,6 +67,8 @@ export class FingeringProgramEngine {
   }
 
   start(): void {
+    this.ensureStoreSubscription();
+
     const { script, actions } = useEngineStore.getState();
     if (!script) {
       return;
@@ -75,6 +114,8 @@ export class FingeringProgramEngine {
     }
 
     const step = state.script[currentStepIndex];
+    this.syncAssignedFromStep(step);
+
     const target = programTargetNote(step, mapping.hand, this.assignedThisStep);
     if (target === null) {
       return;
@@ -92,7 +133,15 @@ export class FingeringProgramEngine {
     this.syncAssignedToStore();
     this.sustainNote(target.midi, mapping);
 
-    if (isProgramStepComplete(step, this.assignedThisStep)) {
+    const freshState = useEngineStore.getState();
+    const freshStep = freshState.script?.[currentStepIndex];
+    if (!freshStep) {
+      return;
+    }
+
+    this.syncAssignedFromStep(freshStep);
+
+    if (isProgramStepComplete(freshStep, this.assignedThisStep)) {
       this.advanceStep();
     }
   }

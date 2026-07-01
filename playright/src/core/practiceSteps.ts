@@ -2,10 +2,12 @@ import type {
   EngineMode,
   Finger,
   Hand,
+  ManualFingeringMap,
   PlaybackScript,
   ScriptNote,
   StepOrder,
 } from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
 
 export interface TwoHandStepNoteInfo {
@@ -99,6 +101,29 @@ export function programAssignmentKey(hand: Hand, midi: number): string {
   return `${hand}:${midi}`;
 }
 
+/** Count notes per hand in a step (all notes, regardless of predicted finger). */
+export function countStepNotesByHand(step: StepOrder): Record<Hand, number> {
+  const counts: Record<Hand, number> = { L: 0, R: 0 };
+  for (const note of step.notes) {
+    counts[note.hand] += 1;
+  }
+  return counts;
+}
+
+/** Build assigned keys from manual fingerings recorded for this step. */
+export function buildProgramAssignedKeys(
+  step: StepOrder,
+  manualFingerings: ManualFingeringMap,
+): Set<string> {
+  const assigned = new Set<string>();
+  for (const note of step.notes) {
+    if (manualFingerings[fingeringKey(step.onset, note.hand, note.midi)] !== undefined) {
+      assigned.add(programAssignmentKey(note.hand, note.midi));
+    }
+  }
+  return assigned;
+}
+
 /**
  * Program-mode chord targeting: the pressed finger binds to the lowest-pitch note on
  * that hand in the step that has not yet been assigned in this pass.
@@ -115,14 +140,24 @@ export function programTargetNote(
   return candidates[0] ?? null;
 }
 
-/** True when every note in the step has received a finger press in program mode. */
+/**
+ * Step is complete when each hand has received as many finger presses as it has notes.
+ * Equivalent to every note assigned when each press maps to a distinct note.
+ */
 export function isProgramStepComplete(
   step: StepOrder,
   assigned: ReadonlySet<string>,
 ): boolean {
-  return step.notes.every((note) =>
-    assigned.has(programAssignmentKey(note.hand, note.midi)),
-  );
+  const needed = countStepNotesByHand(step);
+  const assignedCounts: Record<Hand, number> = { L: 0, R: 0 };
+
+  for (const note of step.notes) {
+    if (assigned.has(programAssignmentKey(note.hand, note.midi))) {
+      assignedCounts[note.hand] += 1;
+    }
+  }
+
+  return assignedCounts.L >= needed.L && assignedCounts.R >= needed.R;
 }
 
 /** Midis of the current program targets (one per hand), for UI highlighting. */

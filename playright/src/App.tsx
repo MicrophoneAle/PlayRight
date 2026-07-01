@@ -23,6 +23,7 @@ function App() {
 
     const audioEngine = new AudioEngine();
     fingeringProgramEngine.attachAudioEngine(audioEngine);
+    fingeringProgramEngine.ensureStoreSubscription();
     practiceEngine.attachAudioEngine(audioEngine);
 
     const routeFingerPress = (mapping: Parameters<NonNullable<typeof practiceEngine.handleFingerPress>>[0]) => {

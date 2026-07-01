@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./PlaybackEngine.ts', () => ({
@@ -154,6 +155,96 @@ describe('FingeringProgramEngine', () => {
     expect(state.manualFingerings[fingeringKey(480, 'R', 64)]).toBe(1);
     expect(state.manualFingerings[fingeringKey(480, 'R', 67)]).toBe(2);
     expect(state.currentStepIndex).toBe(2);
+  });
+
+  it('advances when LH chord and RH single note each receive a finger press', () => {
+    const lhChordRhSingle: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C#3', midi: 49, hand: 'L', finger: null },
+          { pitch: 'G#3', midi: 56, hand: 'L', finger: null },
+          { pitch: 'E5', midi: 76, hand: 'R', finger: null },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: null }],
+      },
+    ];
+
+    useEngineStore.setState({
+      script: lhChordRhSingle,
+      rawXml: null,
+      totalSteps: lhChordRhSingle.length,
+      fingeringMode: 'program',
+      currentStepIndex: 0,
+      manualFingerings: {},
+    });
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'L', finger: 5 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleFingerPress({ hand: 'R', finger: 4 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleFingerPress({ hand: 'L', finger: 4 });
+    const state = useEngineStore.getState();
+    expect(state.manualFingerings[fingeringKey(0, 'L', 49)]).toBe(5);
+    expect(state.manualFingerings[fingeringKey(0, 'L', 56)]).toBe(4);
+    expect(state.manualFingerings[fingeringKey(0, 'R', 76)]).toBe(4);
+    expect(state.currentStepIndex).toBe(1);
+  });
+
+  it('survives script reprocess while programming a LH chord step', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const stepIndex = 1;
+    const step = script[stepIndex];
+    const lhNotes = step.notes.filter((note) => note.hand === 'L');
+    const rhNotes = step.notes.filter((note) => note.hand === 'R');
+
+    expect(lhNotes.length).toBeGreaterThanOrEqual(2);
+    expect(rhNotes.length).toBeGreaterThanOrEqual(1);
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-fixture' },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex });
+    engine.start();
+    useEngineStore.getState().actions.setStepIndex(stepIndex);
+
+    for (const note of lhNotes) {
+      engine.handleFingerPress({ hand: 'L', finger: 5 });
+      expect(
+        useEngineStore.getState().manualFingerings[
+          fingeringKey(step.onset, note.hand, note.midi)
+        ],
+      ).toBeDefined();
+    }
+
+    for (const note of rhNotes) {
+      engine.handleFingerPress({ hand: 'R', finger: 1 });
+      expect(
+        useEngineStore.getState().manualFingerings[
+          fingeringKey(step.onset, note.hand, note.midi)
+        ],
+      ).toBeDefined();
+    }
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex + 1);
   });
 
   it('leaves unprogrammed notes on predicted fingers without a completion gate', () => {

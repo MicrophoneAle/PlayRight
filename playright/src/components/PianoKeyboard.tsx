@@ -13,6 +13,7 @@ import {
   buildTwoHandExpectedMidis,
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandStepNotesByMidi,
+  buildProgramAssignedKeys,
   programAssignmentKey,
   programTargetMidis,
   programTargetNote,
@@ -204,7 +205,6 @@ export function PianoKeyboard() {
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const engineMode = useEngineStore((state) => state.engineMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
-  const programAssignedKeys = useEngineStore((state) => state.programAssignedKeys);
   const selectedFingeringNote = useEngineStore((state) => state.selectedFingeringNote);
   const setSelectedFingeringNote = useEngineStore(
     (state) => state.actions.setSelectedFingeringNote,
@@ -323,10 +323,13 @@ export function PianoKeyboard() {
     );
   }, [isEditMode, manualFingerings, selectedFingeringNote, selectedNote]);
 
-  const programAssignedSet = useMemo(
-    () => new Set(programAssignedKeys),
-    [programAssignedKeys],
-  );
+  const programAssignedSet = useMemo(() => {
+    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
+      return new Set<string>();
+    }
+
+    return buildProgramAssignedKeys(script[currentStepIndex], manualFingerings);
+  }, [isProgramMode, script, currentStepIndex, manualFingerings]);
 
   const programTargetMidiSet = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {

@@ -28,6 +28,10 @@ export class PracticeEngine {
 
     useEngineStore.subscribe((state, prevState) => {
       if (state.script !== prevState.script) {
+        if (state.fingeringMode === 'program' || state.fingeringMode === 'edit') {
+          return;
+        }
+
         this.syncAfterScriptChange();
         return;
       }
