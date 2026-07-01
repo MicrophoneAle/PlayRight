@@ -104,7 +104,7 @@ describe('program advance diagnostics (chase)', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
-  it('auto-skips step 2 when every note already has saved fingerings', () => {
+  it('does not auto-skip steps that already have saved fingerings', () => {
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const step1 = script[1];
     const prefilled: ManualFingeringMap = {};
@@ -123,6 +123,9 @@ describe('program advance diagnostics (chase)', () => {
     useEngineStore.getState().actions.setStepIndex(1);
     engine.resyncCurrentStep();
 
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 });

@@ -16,8 +16,8 @@ import {
   buildProgramAssignedKeys,
   programAssignmentKey,
   programAssignmentProgress,
+  programNextUnassignedNote,
   programTargetMidis,
-  programTargetNote,
   type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
 import { getFingerMappingFromKeyboard } from '../core/twoHandMapping.ts';
@@ -331,17 +331,24 @@ export function PianoKeyboard() {
     return programTargetMidis(script[currentStepIndex], programAssignedSet);
   }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
 
-  const programTargetByHand = useMemo(() => {
+  const programNextNote = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
+      return null;
+    }
+
+    return programNextUnassignedNote(script[currentStepIndex], programAssignedSet);
+  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+
+  const programTargetByHand = useMemo(() => {
+    if (!programNextNote) {
       return { L: null as ScriptNote | null, R: null as ScriptNote | null };
     }
 
-    const step = script[currentStepIndex];
     return {
-      L: programTargetNote(step, 'L', programAssignedSet),
-      R: programTargetNote(step, 'R', programAssignedSet),
+      L: programNextNote.hand === 'L' ? programNextNote : null,
+      R: programNextNote.hand === 'R' ? programNextNote : null,
     };
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+  }, [programNextNote]);
 
   const programProgress = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
@@ -647,18 +654,13 @@ export function PianoKeyboard() {
               {programProgress.assignedCounts.R}/{programProgress.needed.R}
             </span>
           ) : null}
-          {programTargetByHand.L ? (
+          {programNextNote ? (
             <span className="ml-2">
-              LH next: {programTargetByHand.L.pitch ?? `MIDI ${programTargetByHand.L.midi}`}
-            </span>
-          ) : null}
-          {programTargetByHand.R ? (
-            <span className="ml-2">
-              RH next: {programTargetByHand.R.pitch ?? `MIDI ${programTargetByHand.R.midi}`}
+              Next: {programNextNote.hand} {programNextNote.pitch ?? `MIDI ${programNextNote.midi}`}
             </span>
           ) : null}
           <span className="ml-2 text-amber-200/80">
-            Assign every note in this step (low→high per hand) before advancing
+            Assign each note in score order before advancing
           </span>
         </div>
       ) : null}

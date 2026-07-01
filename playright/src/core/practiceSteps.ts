@@ -125,6 +125,22 @@ export function buildProgramAssignedKeys(
 }
 
 /**
+ * Next note to assign within the step, in script/score order (same sequence as practice).
+ */
+export function programNextUnassignedNote(
+  step: StepOrder,
+  assigned: ReadonlySet<string>,
+): ScriptNote | null {
+  for (const note of step.notes) {
+    if (!assigned.has(programAssignmentKey(note.hand, note.midi))) {
+      return note;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Program-mode chord targeting: the pressed finger binds to the lowest-pitch note on
  * that hand in the step that has not yet been assigned in this pass.
  */
@@ -180,19 +196,13 @@ export function programAssignmentProgress(
   return { needed, assignedCounts };
 }
 
-/** Midis of the current program targets (one per hand), for UI highlighting. */
+/** Midis of the next note to assign in score order (at most one). */
 export function programTargetMidis(
   step: StepOrder,
   assigned: ReadonlySet<string>,
 ): Set<number> {
-  const midis = new Set<number>();
-  for (const hand of ['L', 'R'] as const) {
-    const target = programTargetNote(step, hand, assigned);
-    if (target) {
-      midis.add(target.midi);
-    }
-  }
-  return midis;
+  const next = programNextUnassignedNote(step, assigned);
+  return next ? new Set([next.midi]) : new Set();
 }
 
 function buildTwoHandFingerToPhysicalKeyMap(): Map<string, string> {
