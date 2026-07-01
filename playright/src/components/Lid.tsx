@@ -195,7 +195,7 @@ export function Lid() {
             role="group"
             aria-label="Fingering mode"
           >
-            {(['off', 'program', 'edit'] as FingeringMode[]).map((mode) => (
+            {(['off', 'program'] as FingeringMode[]).map((mode) => (
               <button
                 key={mode}
                 type="button"
@@ -222,14 +222,8 @@ export function Lid() {
           ) : null}
           {fingeringMode === 'program' ? (
             <p className="text-[10px] leading-snug text-zinc-500">
-              Step {currentStepIndex + 1} / {totalSteps}. Press finger keys low→high per hand;
-              each press records manual fingering.
-            </p>
-          ) : null}
-          {fingeringMode === 'edit' ? (
-            <p className="text-[10px] leading-snug text-zinc-500">
-              Click a note label to select it (chord labels are per-hand). Press a finger key or
-              use the toolbar; opposite-hand keys crossover.
+              Step {currentStepIndex + 1} / {totalSteps}. Press finger keys low→high per hand for
+              every note in the step before advancing.
             </p>
           ) : null}
         </div>

@@ -15,6 +15,7 @@ import {
   buildTwoHandStepNotesByMidi,
   buildProgramAssignedKeys,
   programAssignmentKey,
+  programAssignmentProgress,
   programTargetMidis,
   programTargetNote,
   type TwoHandStepNoteInfo,
@@ -205,24 +206,16 @@ export function PianoKeyboard() {
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const engineMode = useEngineStore((state) => state.engineMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
-  const selectedFingeringNote = useEngineStore((state) => state.selectedFingeringNote);
-  const setSelectedFingeringNote = useEngineStore(
-    (state) => state.actions.setSelectedFingeringNote,
-  );
   const script = useEngineStore((state) => state.script);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const totalSteps = useEngineStore((state) => state.totalSteps);
   const manualFingerings = useEngineStore((state) => state.manualFingerings);
   const setManualFinger = useEngineStore((state) => state.actions.setManualFinger);
-  const setManualFingerCrossover = useEngineStore(
-    (state) => state.actions.setManualFingerCrossover,
-  );
   const clearManualFinger = useEngineStore(
     (state) => state.actions.clearManualFinger,
   );
   const { userId } = useAuth();
   const isTwoHand = engineMode === 'two-hand' || fingeringMode !== 'off';
-  const isEditMode = fingeringMode === 'edit';
   const isProgramMode = fingeringMode === 'program';
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
     () => new Set(),
@@ -312,16 +305,15 @@ export function PianoKeyboard() {
   ]);
 
   const selectedHasManualOverride = useMemo(() => {
-    const note = isEditMode ? selectedFingeringNote : selectedNote;
-    if (!note) {
+    if (!selectedNote) {
       return false;
     }
 
     return Object.prototype.hasOwnProperty.call(
       manualFingerings,
-      fingeringKey(note.onset, note.hand, note.midi),
+      fingeringKey(selectedNote.onset, selectedNote.hand, selectedNote.midi),
     );
-  }, [isEditMode, manualFingerings, selectedFingeringNote, selectedNote]);
+  }, [manualFingerings, selectedNote]);
 
   const programAssignedSet = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
@@ -349,6 +341,14 @@ export function PianoKeyboard() {
       L: programTargetNote(step, 'L', programAssignedSet),
       R: programTargetNote(step, 'R', programAssignedSet),
     };
+  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+
+  const programProgress = useMemo(() => {
+    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
+      return null;
+    }
+
+    return programAssignmentProgress(script[currentStepIndex], programAssignedSet);
   }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
 
   const mappedLabelForMidi = (midi: number, onBlackPianoKey: boolean) => {
@@ -380,9 +380,8 @@ export function PianoKeyboard() {
 
   useEffect(() => {
     setSelectedNote(null);
-    setSelectedFingeringNote(null);
     setActiveTwoHandFingers(new Set());
-  }, [currentStepIndex, setSelectedFingeringNote]);
+  }, [currentStepIndex]);
 
   useEffect(() => {
     if (isTwoHand) {
@@ -511,6 +510,10 @@ export function PianoKeyboard() {
   }, [isTwoHand, keyMap]);
 
   const handleTwoHandKeySelect = (midi: number, hand?: Hand) => {
+    if (isProgramMode) {
+      return;
+    }
+
     const stepNotes = twoHandStepNotesByMidi?.get(midi);
     if (!stepNotes?.length) {
       return;
@@ -528,16 +531,6 @@ export function PianoKeyboard() {
           ? stepNotes[0]
           : stepNotes[0];
 
-    if (isEditMode) {
-      setSelectedFingeringNote({
-        stepIndex: currentStepIndex,
-        onset: step.onset,
-        hand: note.hand,
-        midi: note.midi,
-      });
-      return;
-    }
-
     setSelectedNote({
       onset: step.onset,
       hand: note.hand,
@@ -545,39 +538,20 @@ export function PianoKeyboard() {
     });
   };
 
-  const handleAssignFinger = (finger: Finger, assignHand?: Hand) => {
-    const note = isEditMode ? selectedFingeringNote : selectedNote;
-    if (!note) {
+  const handleAssignFinger = (finger: Finger) => {
+    if (isProgramMode || !selectedNote) {
       return;
     }
 
-    const targetHand = assignHand ?? note.hand;
-    if (isEditMode && selectedFingeringNote && targetHand !== selectedFingeringNote.hand) {
-      setManualFingerCrossover(
-        selectedFingeringNote.onset,
-        selectedFingeringNote.hand,
-        selectedFingeringNote.midi,
-        targetHand,
-        finger,
-        userId,
-      );
-      setSelectedFingeringNote({ ...selectedFingeringNote, hand: targetHand });
-      return;
-    }
-
-    setManualFinger(note.onset, targetHand, note.midi, finger, userId);
+    setManualFinger(selectedNote.onset, selectedNote.hand, selectedNote.midi, finger, userId);
   };
 
   const handleClearManualFinger = () => {
-    const note = isEditMode ? selectedFingeringNote : selectedNote;
-    if (!note) {
+    if (!selectedNote) {
       return;
     }
 
-    clearManualFinger(note.onset, note.hand, note.midi, userId);
-    if (isEditMode) {
-      setSelectedFingeringNote(null);
-    }
+    clearManualFinger(selectedNote.onset, selectedNote.hand, selectedNote.midi, userId);
   };
 
   const renderTwoHandHint = (midi: number, onBlack: boolean) => {
@@ -591,8 +565,7 @@ export function PianoKeyboard() {
     return (
       <div className="absolute bottom-2 flex w-full flex-col items-center gap-px leading-none">
         {stepNotes.map((note, index) => {
-          const showLabel =
-            note.finger !== null || isProgramMode || isEditMode;
+          const showLabel = note.finger !== null || isProgramMode;
           if (!showLabel) {
             return null;
           }
@@ -611,12 +584,7 @@ export function PianoKeyboard() {
                 handleTwoHandKeySelect(midi, note.hand);
               }}
               className={`rounded px-0.5 ${twoHandFingerLabelClass(note.fingerSource, onBlack)} ${
-                (isEditMode &&
-                  selectedFingeringNote?.hand === note.hand &&
-                  selectedFingeringNote?.midi === midi) ||
-                (!isEditMode &&
-                  selectedNote?.hand === note.hand &&
-                  selectedNote?.midi === midi)
+                selectedNote?.hand === note.hand && selectedNote?.midi === midi
                   ? 'ring-1 ring-violet-400'
                   : ''
               } ${isProgramTarget ? 'animate-pulse ring-2 ring-amber-400' : ''}`}
@@ -638,13 +606,6 @@ export function PianoKeyboard() {
   };
 
   const isNoteSelected = (midi: number, hand?: Hand) => {
-    if (isEditMode && selectedFingeringNote) {
-      return (
-        selectedFingeringNote.midi === midi &&
-        (hand === undefined || selectedFingeringNote.hand === hand)
-      );
-    }
-
     return (
       selectedNote !== null &&
       selectedNote.midi === midi &&
@@ -680,29 +641,25 @@ export function PianoKeyboard() {
           role="status"
         >
           Program step {currentStepIndex + 1} / {totalSteps}
+          {programProgress ? (
+            <span className="ml-2">
+              LH {programProgress.assignedCounts.L}/{programProgress.needed.L} · RH{' '}
+              {programProgress.assignedCounts.R}/{programProgress.needed.R}
+            </span>
+          ) : null}
           {programTargetByHand.L ? (
             <span className="ml-2">
-              LH target: {programTargetByHand.L.pitch ?? `MIDI ${programTargetByHand.L.midi}`}
+              LH next: {programTargetByHand.L.pitch ?? `MIDI ${programTargetByHand.L.midi}`}
             </span>
           ) : null}
           {programTargetByHand.R ? (
             <span className="ml-2">
-              RH target: {programTargetByHand.R.pitch ?? `MIDI ${programTargetByHand.R.midi}`}
+              RH next: {programTargetByHand.R.pitch ?? `MIDI ${programTargetByHand.R.midi}`}
             </span>
           ) : null}
           <span className="ml-2 text-amber-200/80">
-            Press lowest unassigned note per hand (low→high for chords)
+            Assign every note in this step (low→high per hand) before advancing
           </span>
-        </div>
-      ) : null}
-      {isEditMode && selectedFingeringNote ? (
-        <div
-          className="mb-1 rounded border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-center text-[11px] text-violet-100"
-          role="status"
-        >
-          Editing {selectedFingeringNote.hand === 'L' ? 'LH' : 'RH'} note at MIDI{' '}
-          {selectedFingeringNote.midi} — press a finger key or use the toolbar; opposite-hand
-          keys crossover.
         </div>
       ) : null}
       {showOneHandCoverageNotice ? (
@@ -715,7 +672,7 @@ export function PianoKeyboard() {
             : 'An expected note has no keyboard key in the current window — shift scope to reach it.'}
         </div>
       ) : null}
-      {(isTwoHand && (selectedNote || (isEditMode && selectedFingeringNote))) ? (
+      {isTwoHand && !isProgramMode && selectedNote ? (
         <div
           className="absolute -top-10 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 shadow-lg"
           onMouseDown={(event) => event.stopPropagation()}

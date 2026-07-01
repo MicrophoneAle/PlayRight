@@ -85,8 +85,8 @@ function readStoredFingeringMode(): FingeringMode {
   }
 
   const stored = window.localStorage.getItem(FINGERING_MODE_STORAGE_KEY);
-  if (stored === 'program' || stored === 'edit') {
-    return stored;
+  if (stored === 'program') {
+    return 'program';
   }
 
   return 'off';
@@ -128,14 +128,14 @@ function stopPlaybackSession(): void {
   });
 }
 
-/** Restored when leaving program/edit fingering mode. */
+/** Restored when leaving program fingering mode. */
 let engineModeBeforeFingering: EngineMode | null = null;
 
 function stopPracticeSession(): void {
   practiceEngine.stop();
 }
 
-/** Pause practice without resetting step — used when entering fingering program/edit. */
+/** Pause practice without resetting step — used when entering fingering program mode. */
 function suspendPracticeForFingeringMode(): void {
   practiceEngine.suspendForFingeringMode();
 }
@@ -365,9 +365,7 @@ export const useEngineStore = create<EngineState>((set) => {
   handSpan: readStoredHandSpan(),
   overrideScoreFingerings: readStoredOverrideScoreFingerings(),
   engineMode:
-    initialFingeringMode === 'program' || initialFingeringMode === 'edit'
-      ? 'two-hand'
-      : 'one-hand',
+    initialFingeringMode === 'program' ? 'two-hand' : 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
   hasPracticeStarted: false,
@@ -529,7 +527,7 @@ export const useEngineStore = create<EngineState>((set) => {
 
       const prevMode = useEngineStore.getState().fingeringMode;
 
-      if (mode === 'program' || mode === 'edit') {
+      if (mode === 'program') {
         stopPlaybackSession();
         suspendPracticeForFingeringMode();
       }
@@ -552,11 +550,7 @@ export const useEngineStore = create<EngineState>((set) => {
             ? ('two-hand' as const)
             : leavingToOff
               ? (engineModeBeforeFingering ?? state.engineMode)
-              : mode === 'off'
-                ? state.engineMode
-                : mode === 'edit'
-                  ? ('two-hand' as const)
-                  : state.engineMode;
+              : state.engineMode;
 
         if (leavingToOff) {
           engineModeBeforeFingering = null;
@@ -573,7 +567,7 @@ export const useEngineStore = create<EngineState>((set) => {
           expectedMidiNotes: [],
           playingMidiNotes: [],
           playingPlaybackNotes: [],
-          selectedFingeringNote: mode === 'edit' ? state.selectedFingeringNote : null,
+          selectedFingeringNote: null,
           currentStepIndex: enteringProgram ? 0 : state.currentStepIndex,
           engineMode: restoredEngineMode,
         };

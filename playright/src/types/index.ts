@@ -78,7 +78,7 @@ export function manualHandOverrideKey(
 }
 
 /** Program captures fingers; edit reassigns a selected note (including cross-hand). */
-export type FingeringMode = 'off' | 'program' | 'edit';
+export type FingeringMode = 'off' | 'program';
 
 export interface SelectedFingeringNote {
   stepIndex: number;

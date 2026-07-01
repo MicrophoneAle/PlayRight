@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { fingeringProgramEngine } from './core/FingeringProgramEngine.ts';
-import { handleEditModeFingerPress } from './core/fingeringEditMode.ts';
 import { practiceEngine } from './core/PracticeEngine.ts';
 import { playbackEngine } from './core/PlaybackEngine.ts';
 import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
@@ -34,10 +33,6 @@ function App() {
       const { fingeringMode } = useEngineStore.getState();
       if (fingeringMode === 'program') {
         fingeringProgramEngine.handleFingerPress(mapping);
-        return;
-      }
-      if (fingeringMode === 'edit') {
-        handleEditModeFingerPress(mapping);
         return;
       }
       practiceEngine.handleFingerPress(mapping);

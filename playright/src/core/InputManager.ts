@@ -676,9 +676,7 @@ export class InputManager {
     }
 
     const useFingerKeys =
-      state.fingeringMode === 'program' ||
-      state.fingeringMode === 'edit' ||
-      state.engineMode === 'two-hand';
+      state.fingeringMode === 'program' || state.engineMode === 'two-hand';
 
     if (useFingerKeys) {
       if (event.repeat) {
@@ -737,9 +735,7 @@ export class InputManager {
     }
 
     const useFingerKeys =
-      state.fingeringMode === 'program' ||
-      state.fingeringMode === 'edit' ||
-      state.engineMode === 'two-hand';
+      state.fingeringMode === 'program' || state.engineMode === 'two-hand';
 
     if (useFingerKeys) {
       const mapping = getFingerMappingFromKeyboard(event);

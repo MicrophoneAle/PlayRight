@@ -17,7 +17,6 @@ vi.mock('./PracticeEngine.ts', () => ({
 import type { AudioEngine } from './AudioEngine.ts';
 import { FingeringProgramEngine } from './FingeringProgramEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
-import { handleEditModeFingerPress } from './fingeringEditMode.ts';
 import {
   applyManualHandOverrides,
   prepareScriptWithFingering,
@@ -27,6 +26,7 @@ import { MINIMAL_MUSICXML } from './parser/__fixtures__/minimal.musicxml.ts';
 import {
   isProgramStepComplete,
   programAssignmentKey,
+  programAssignmentProgress,
   programTargetNote,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -108,6 +108,25 @@ describe('program-mode chord targeting', () => {
 
     assigned.add(programAssignmentKey('R', 67));
     expect(isProgramStepComplete(chordStep, assigned)).toBe(true);
+  });
+
+  it('reports per-hand assignment progress', () => {
+    const lhChordRhSingle: PlaybackScript[number] = {
+      order: 0,
+      onset: 0,
+      measureNumber: 1,
+      notes: [
+        { pitch: 'C#3', midi: 49, hand: 'L', finger: null },
+        { pitch: 'G#3', midi: 56, hand: 'L', finger: null },
+        { pitch: 'E5', midi: 76, hand: 'R', finger: null },
+      ],
+    };
+    const assigned = new Set<string>([programAssignmentKey('R', 76)]);
+
+    expect(programAssignmentProgress(lhChordRhSingle, assigned)).toEqual({
+      needed: { L: 2, R: 1 },
+      assignedCounts: { L: 0, R: 1 },
+    });
   });
 });
 
@@ -325,6 +344,30 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
+  it('preserves step index until every note in the step is assigned', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const stepIndex = 1;
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-fixture' },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex, engineMode: 'two-hand' });
+    engine.start();
+    useEngineStore.getState().actions.setStepIndex(stepIndex);
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
+  });
+
   it('leaves unprogrammed notes on predicted fingers without a completion gate', () => {
     loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program' });
@@ -338,80 +381,6 @@ describe('FingeringProgramEngine', () => {
     expect(afterFirstStep.manualFingerings[fingeringKey(960, 'R', 62)]).toBeUndefined();
     expect(unprogrammed?.finger).not.toBeNull();
     expect(unprogrammed?.fingerSource).not.toBe('manual');
-  });
-});
-
-describe('edit mode and crossover', () => {
-  beforeEach(() => {
-    resetStore();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('changes only the selected chord note when editing', () => {
-    loadMinimalFixture();
-    useEngineStore.setState({
-      fingeringMode: 'edit',
-      currentStepIndex: 1,
-      selectedFingeringNote: {
-        stepIndex: 1,
-        onset: 480,
-        hand: 'R',
-        midi: 67,
-      },
-    });
-
-    handleEditModeFingerPress({ hand: 'R', finger: 4 });
-
-    const state = useEngineStore.getState();
-    expect(state.manualFingerings[fingeringKey(480, 'R', 67)]).toBe(4);
-    expect(state.manualFingerings[fingeringKey(480, 'R', 64)]).toBeUndefined();
-    expect(
-      state.script?.[1].notes.find((note) => note.midi === 67)?.fingerSource,
-    ).toBe('manual');
-  });
-
-  it('crossover reassigns hand, moves manual key, and reflects in script', () => {
-    loadMinimalFixture();
-    useEngineStore.setState({
-      fingeringMode: 'edit',
-      selectedFingeringNote: {
-        stepIndex: 0,
-        onset: 0,
-        hand: 'L',
-        midi: 48,
-      },
-    });
-
-    handleEditModeFingerPress({ hand: 'R', finger: 3 });
-
-    const state = useEngineStore.getState();
-    expect(state.manualFingerings[fingeringKey(0, 'L', 48)]).toBeUndefined();
-    expect(state.manualFingerings[fingeringKey(0, 'R', 48)]).toBe(3);
-    expect(state.manualHandOverrides[manualHandOverrideKey(0, 48)]).toBe('R');
-    expect(state.selectedFingeringNote?.hand).toBe('R');
-
-    const note = state.script?.[0].notes.find((entry) => entry.midi === 48);
-    expect(note?.hand).toBe('R');
-    expect(note?.finger).toBe(3);
-    expect(note?.fingerSource).toBe('manual');
-  });
-
-  it('re-edit overwrites and clear reverts to predicted', () => {
-    loadMinimalFixture();
-    const { actions } = useEngineStore.getState();
-
-    actions.setManualFinger(480, 'R', 64, 1);
-    actions.setManualFinger(480, 'R', 64, 5);
-    expect(useEngineStore.getState().manualFingerings[fingeringKey(480, 'R', 64)]).toBe(5);
-
-    actions.clearManualFinger(480, 'R', 64);
-    const cleared = useEngineStore.getState();
-    expect(cleared.manualFingerings[fingeringKey(480, 'R', 64)]).toBeUndefined();
-    const note = cleared.script?.[1].notes.find((entry) => entry.midi === 64);
-    expect(note?.fingerSource).not.toBe('manual');
   });
 });
 
@@ -489,21 +458,6 @@ describe('useEngineStore fingering mode', () => {
     expect(state.engineMode).toBe('two-hand');
     expect(state.hasPracticeStarted).toBe(true);
     expect(storage.get(FINGERING_MODE_STORAGE_KEY)).toBe('program');
-  });
-
-  it('entering edit mode stops active practice and playback', () => {
-    useEngineStore.setState({
-      isPracticeActive: true,
-      hasPracticeStarted: true,
-      isPlaybackActive: true,
-    });
-
-    useEngineStore.getState().actions.setFingeringMode('edit');
-
-    const state = useEngineStore.getState();
-    expect(state.fingeringMode).toBe('edit');
-    expect(state.isPracticeActive).toBe(false);
-    expect(state.isPlaybackActive).toBe(false);
   });
 
   it('leaving program mode restores off and stops program session', async () => {

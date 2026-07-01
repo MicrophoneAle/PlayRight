@@ -227,6 +227,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     systemKey: null,
     lineScrollTop: null,
   });
+  const sheetPointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const script = useEngineStore((state) => state.script);
   const playMode = useEngineStore((state) => state.playMode);
   const engineMode = useEngineStore((state) => state.engineMode);
@@ -329,15 +330,28 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
   };
 
-  const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
-    const seekState = useEngineStore.getState();
-    console.log('[SheetSeek] seek handler fired', {
-      clientX: event.clientX,
-      clientY: event.clientY,
-      fingeringMode: seekState.fingeringMode,
-    });
-
+  const handleSheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
+      return;
+    }
+
+    sheetPointerStartRef.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const start = sheetPointerStartRef.current;
+    sheetPointerStartRef.current = null;
+    if (!start) {
+      return;
+    }
+
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (dx * dx + dy * dy > 100) {
       return;
     }
 
@@ -348,42 +362,28 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       containerRef.current,
     );
 
-    console.log('[SheetSeek] resolveStepIndexFromPointer returned', stepIndex);
-
     if (stepIndex === null) {
-      console.log('[SheetSeek] branch: no match (stepIndex null)');
       return;
     }
 
     const state = useEngineStore.getState();
     if (stepIndex === state.currentStepIndex) {
-      console.log('[SheetSeek] branch: no-op: same step', stepIndex);
       return;
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
 
-    if (state.fingeringMode === 'edit') {
-      console.log('[SheetSeek] branch: edit mode setStepIndex', stepIndex);
-      state.actions.setStepIndex(stepIndex);
-      return;
-    }
-
     if (state.fingeringMode === 'program') {
-      console.log('[SheetSeek] branch: program mode setStepIndex', stepIndex);
       state.actions.setStepIndex(stepIndex);
-      fingeringProgramEngine.resetStepAssignments();
-      fingeringProgramEngine.syncAssignedToStore();
+      fingeringProgramEngine.resyncCurrentStep();
       return;
     }
 
     if (state.isPlaybackActive) {
-      console.log('[SheetSeek] branch: practice/playback seek (playback)', stepIndex);
       playbackEngine.seekToStep(stepIndex);
       return;
     }
 
-    console.log('[SheetSeek] branch: practice/playback seek (practice)', stepIndex);
     practiceEngine.seekToStep(stepIndex);
   };
 
@@ -550,6 +550,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
+      onPointerDown={handleSheetPointerDown}
       onPointerUp={handleSheetPointerSeek}
       className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-6 [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />

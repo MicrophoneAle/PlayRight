@@ -160,6 +160,26 @@ export function isProgramStepComplete(
   return assignedCounts.L >= needed.L && assignedCounts.R >= needed.R;
 }
 
+/** Per-hand assignment progress for the current program step. */
+export function programAssignmentProgress(
+  step: StepOrder,
+  assigned: ReadonlySet<string>,
+): {
+  needed: Record<Hand, number>;
+  assignedCounts: Record<Hand, number>;
+} {
+  const needed = countStepNotesByHand(step);
+  const assignedCounts: Record<Hand, number> = { L: 0, R: 0 };
+
+  for (const note of step.notes) {
+    if (assigned.has(programAssignmentKey(note.hand, note.midi))) {
+      assignedCounts[note.hand] += 1;
+    }
+  }
+
+  return { needed, assignedCounts };
+}
+
 /** Midis of the current program targets (one per hand), for UI highlighting. */
 export function programTargetMidis(
   step: StepOrder,
