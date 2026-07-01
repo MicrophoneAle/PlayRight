@@ -297,11 +297,11 @@ export class FingeringProgramEngine {
 
     const nextRefingerIndex = refingerIndex + 1;
     if (nextRefingerIndex >= step.notes.length) {
-      actions.setProgramRefingerNoteIndex(null);
-      logProgramAdvance('refinger pass complete', {
+      logProgramAdvance('refinger pass complete — advancing', {
         stepIndex,
         uiStep: stepIndex + 1,
       });
+      this.advanceStep();
     } else {
       actions.setProgramRefingerNoteIndex(nextRefingerIndex);
     }

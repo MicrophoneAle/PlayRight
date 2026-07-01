@@ -486,7 +486,7 @@ describe('FingeringProgramEngine', () => {
       engine.handleFingerPress({ hand: note.hand, finger: finger as Finger });
     }
 
-    expect(useEngineStore.getState().currentStepIndex).toBe(jumpIndex);
+    expect(useEngineStore.getState().currentStepIndex).toBe(jumpIndex + 1);
     expect(useEngineStore.getState().programRefingerNoteIndex).toBeNull();
   });
 
