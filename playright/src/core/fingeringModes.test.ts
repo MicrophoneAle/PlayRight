@@ -66,14 +66,22 @@ function resetStore(): void {
 
 function loadMinimalFixture(): PlaybackScript {
   const { script, scoreTiming } = parseMusicXmlToScript(MINIMAL_MUSICXML);
-  useEngineStore.getState().actions.loadScript(
+  const state = useEngineStore.getState();
+  const prepared = prepareScriptWithFingering(
     script,
+    {},
+    state.autoFingering,
+    state.handSpan,
+    state.overrideScoreFingerings,
+  );
+  useEngineStore.getState().actions.loadScript(
+    prepared,
     MINIMAL_MUSICXML,
     'minimal',
     { scoreId: 'minimal-fixture' },
     scoreTiming,
   );
-  return script;
+  return prepared;
 }
 
 describe('program-mode chord targeting', () => {
@@ -342,6 +350,86 @@ describe('FingeringProgramEngine', () => {
     useEngineStore.getState().actions.setFingeringMode('program');
 
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
+  });
+
+  it('advances chase step 2 (1 RH + 2 LH) only after all three presses', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const stepIndex = 1;
+    const step = script[stepIndex];
+    const scoreTimingBefore = scoreTiming;
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-fixture' },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: stepIndex, engineMode: 'two-hand' });
+    engine.start();
+    useEngineStore.getState().actions.setStepIndex(stepIndex);
+
+    const assigned = () =>
+      programAssignmentProgress(
+        useEngineStore.getState().script![stepIndex],
+        new Set(useEngineStore.getState().programAssignedKeys),
+      );
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
+    expect(assigned()).toEqual({
+      needed: { L: 2, R: 1 },
+      assignedCounts: { L: 0, R: 1 },
+    });
+    expect(useEngineStore.getState().scoreTiming).toBe(scoreTimingBefore);
+
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
+    expect(assigned()).toEqual({
+      needed: { L: 2, R: 1 },
+      assignedCounts: { L: 1, R: 1 },
+    });
+
+    engine.handleFingerPress({ hand: 'L', finger: 2 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex + 1);
+  });
+
+  it('advances forward after sheet jump to a mid-piece step', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const jumpIndex = 5;
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-fixture' },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: jumpIndex, engineMode: 'two-hand' });
+    engine.start();
+    useEngineStore.getState().actions.setStepIndex(jumpIndex);
+    engine.resyncCurrentStep();
+
+    const stepBefore = useEngineStore.getState().script![jumpIndex];
+    const rhNotes = stepBefore.notes.filter((n) => n.hand === 'R');
+    const lhNotes = stepBefore.notes.filter((n) => n.hand === 'L');
+
+    for (let i = 0; i < rhNotes.length; i += 1) {
+      engine.handleFingerPress({ hand: 'R', finger: (i + 1) as Finger });
+    }
+    for (let i = 0; i < lhNotes.length; i += 1) {
+      engine.handleFingerPress({ hand: 'L', finger: (i + 1) as Finger });
+    }
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(jumpIndex + 1);
   });
 
   it('preserves step index until every note in the step is assigned', () => {

@@ -301,6 +301,13 @@ interface EngineState {
       finger: Finger,
       userId?: string | null,
     ) => void;
+    setManualFingerInProgram: (
+      onset: number,
+      hand: Hand,
+      midi: number,
+      finger: Finger,
+      userId?: string | null,
+    ) => void;
     clearManualFinger: (
       onset: number,
       hand: Hand,
@@ -450,6 +457,37 @@ export const useEngineStore = create<EngineState>((set) => {
           scoreTiming: reprocessed.scoreTiming,
           totalSteps: reprocessed.script.length,
         };
+      });
+    },
+    setManualFingerInProgram: (onset, hand, midi, finger, userId) => {
+      set((state) => {
+        const manualFingerings = {
+          ...state.manualFingerings,
+          [fingeringKey(onset, hand, midi)]: finger,
+        };
+
+        persistManualFingerings(state.scoreId, manualFingerings, userId);
+
+        if (!state.script) {
+          return { manualFingerings };
+        }
+
+        const script = state.script.map((step) => {
+          if (step.onset !== onset) {
+            return step;
+          }
+
+          return {
+            ...step,
+            notes: step.notes.map((note) =>
+              note.hand === hand && note.midi === midi
+                ? { ...note, finger, fingerSource: 'manual' as const }
+                : note,
+            ),
+          };
+        });
+
+        return { manualFingerings, script };
       });
     },
     clearManualFinger: (onset, hand, midi, userId) => {

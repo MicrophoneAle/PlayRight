@@ -39,21 +39,14 @@ export class FingeringProgramEngine {
       }
 
       if (state.currentStepIndex !== prevState.currentStepIndex) {
-        this.assignedThisStep.clear();
-        this.syncAssignedToStore();
         const step = state.script?.[state.currentStepIndex];
         if (step) {
           this.syncAssignedFromStep(step);
+        } else {
+          this.assignedThisStep.clear();
+          this.syncAssignedToStore();
         }
         this.syncExpectedNotes();
-        return;
-      }
-
-      if (state.script !== prevState.script && state.script) {
-        const step = state.script[state.currentStepIndex];
-        if (step) {
-          this.syncAssignedFromStep(step);
-        }
       }
     });
   }
@@ -132,14 +125,13 @@ export class FingeringProgramEngine {
     }
 
     const step = state.script[stepIndex];
-    this.syncAssignedFromStep(step);
 
     const target = programTargetNote(step, mapping.hand, this.assignedThisStep);
     if (target === null) {
       return;
     }
 
-    state.actions.setManualFinger(
+    state.actions.setManualFingerInProgram(
       step.onset,
       target.hand,
       target.midi,
@@ -151,19 +143,7 @@ export class FingeringProgramEngine {
     this.syncAssignedToStore();
     this.sustainNote(target.midi, mapping);
 
-    const freshState = useEngineStore.getState();
-    if (freshState.currentStepIndex !== stepIndex) {
-      return;
-    }
-
-    const freshStep = freshState.script?.[stepIndex];
-    if (!freshStep) {
-      return;
-    }
-
-    this.syncAssignedFromStep(freshStep);
-
-    if (isProgramStepComplete(freshStep, this.assignedThisStep)) {
+    if (isProgramStepComplete(step, this.assignedThisStep)) {
       this.advanceStep();
     }
   }
