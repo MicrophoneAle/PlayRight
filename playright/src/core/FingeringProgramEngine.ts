@@ -2,6 +2,7 @@ import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildTwoHandExpectedMidis,
   buildProgramAssignedKeys,
+  countStepNotesByHand,
   isProgramStepComplete,
   programAssignmentKey,
   programTargetNote,
@@ -9,6 +10,12 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 import type { StepOrder } from '../types/index.ts';
+
+const logProgramAdvance = (...args: unknown[]): void => {
+  if (import.meta.env.DEV) {
+    console.debug('[ProgramAdvance]', ...args);
+  }
+};
 
 /**
  * Step-through finger capture for fingering program mode. Advances when every note
@@ -39,16 +46,60 @@ export class FingeringProgramEngine {
       }
 
       if (state.currentStepIndex !== prevState.currentStepIndex) {
-        const step = state.script?.[state.currentStepIndex];
-        if (step) {
-          this.syncAssignedFromStep(step);
-        } else {
-          this.assignedThisStep.clear();
-          this.syncAssignedToStore();
-        }
-        this.syncExpectedNotes();
+        this.ensureCurrentStepNeedsInput();
       }
     });
+  }
+
+  /**
+   * Sync assignment state for the current step and skip forward across steps that
+   * already have every note fingered in manualFingerings (e.g. saved progress).
+   */
+  private ensureCurrentStepNeedsInput(): void {
+    const { script, actions } = useEngineStore.getState();
+    if (!script || script.length === 0) {
+      actions.setExpectedNotes([]);
+      return;
+    }
+
+    let index = useEngineStore.getState().currentStepIndex;
+
+    for (let guard = 0; guard < script.length; guard += 1) {
+      if (index < 0 || index >= script.length) {
+        actions.setPracticeActive(false);
+        actions.setExpectedNotes([]);
+        return;
+      }
+
+      const step = script[index];
+      this.syncAssignedFromStep(step);
+      const complete = isProgramStepComplete(step, this.assignedThisStep);
+
+      logProgramAdvance('ensureCurrentStepNeedsInput', {
+        stepIndex: index,
+        uiStep: index + 1,
+        needed: countStepNotesByHand(step),
+        assignedKeys: [...this.assignedThisStep],
+        complete,
+      });
+
+      if (!complete) {
+        if (index !== useEngineStore.getState().currentStepIndex) {
+          actions.setStepIndex(index);
+        }
+        this.syncExpectedNotes();
+        return;
+      }
+
+      logProgramAdvance('skip already-complete step', {
+        stepIndex: index,
+        uiStep: index + 1,
+      });
+      index += 1;
+    }
+
+    actions.setPracticeActive(false);
+    actions.setExpectedNotes([]);
   }
 
   private syncAssignedFromStep(step: StepOrder): void {
@@ -65,17 +116,7 @@ export class FingeringProgramEngine {
 
   /** Reload assignment state for the current step from persisted manual fingerings. */
   resyncCurrentStep(): void {
-    const { script, currentStepIndex } = useEngineStore.getState();
-    const step = script?.[currentStepIndex];
-    if (!step) {
-      this.assignedThisStep.clear();
-      this.syncAssignedToStore();
-      this.syncExpectedNotes();
-      return;
-    }
-
-    this.syncAssignedFromStep(step);
-    this.syncExpectedNotes();
+    this.ensureCurrentStepNeedsInput();
   }
 
   start(): void {
@@ -128,6 +169,14 @@ export class FingeringProgramEngine {
 
     const target = programTargetNote(step, mapping.hand, this.assignedThisStep);
     if (target === null) {
+      logProgramAdvance('press ignored (no unassigned note on hand)', {
+        stepIndex,
+        uiStep: stepIndex + 1,
+        hand: mapping.hand,
+        finger: mapping.finger,
+        assignedKeys: [...this.assignedThisStep],
+        needed: countStepNotesByHand(step),
+      });
       return;
     }
 
@@ -143,7 +192,17 @@ export class FingeringProgramEngine {
     this.syncAssignedToStore();
     this.sustainNote(target.midi, mapping);
 
-    if (isProgramStepComplete(step, this.assignedThisStep)) {
+    const complete = isProgramStepComplete(step, this.assignedThisStep);
+    logProgramAdvance('press assigned', {
+      stepIndex,
+      uiStep: stepIndex + 1,
+      target: `${target.hand}:${target.midi}`,
+      assignedKeys: [...this.assignedThisStep],
+      needed: countStepNotesByHand(step),
+      complete,
+    });
+
+    if (complete) {
       this.advanceStep();
     }
   }
@@ -169,6 +228,13 @@ export class FingeringProgramEngine {
     this.syncAssignedToStore();
     const nextIndex = currentStepIndex + 1;
 
+    logProgramAdvance('advanceStep', {
+      fromIndex: currentStepIndex,
+      fromUiStep: currentStepIndex + 1,
+      toIndex: nextIndex,
+      toUiStep: nextIndex + 1,
+    });
+
     if (nextIndex >= script.length) {
       actions.setPracticeActive(false);
       actions.setExpectedNotes([]);
@@ -176,11 +242,6 @@ export class FingeringProgramEngine {
     }
 
     actions.setStepIndex(nextIndex);
-    const nextStep = script[nextIndex];
-    if (nextStep) {
-      this.syncAssignedFromStep(nextStep);
-    }
-    this.syncExpectedNotes();
   }
 
   private syncExpectedNotes(): void {

@@ -79,19 +79,6 @@ function readStoredOverrideScoreFingerings(): boolean {
   return window.localStorage.getItem(OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY) === 'true';
 }
 
-function readStoredFingeringMode(): FingeringMode {
-  if (typeof window === 'undefined') {
-    return 'off';
-  }
-
-  const stored = window.localStorage.getItem(FINGERING_MODE_STORAGE_KEY);
-  if (stored === 'program') {
-    return 'program';
-  }
-
-  return 'off';
-}
-
 function readStoredPlayMode(): boolean {
   return false;
 }
@@ -351,8 +338,6 @@ interface EngineState {
 }
 
 export const useEngineStore = create<EngineState>((set) => {
-  const initialFingeringMode = readStoredFingeringMode();
-
   return {
   script: null,
   rawXml: null,
@@ -361,7 +346,7 @@ export const useEngineStore = create<EngineState>((set) => {
   scoreTiming: null,
   manualFingerings: {},
   manualHandOverrides: {},
-  fingeringMode: initialFingeringMode,
+  fingeringMode: 'off',
   selectedFingeringNote: null,
   programAssignedKeys: [],
   scopeStartMidi: 60,
@@ -371,8 +356,7 @@ export const useEngineStore = create<EngineState>((set) => {
   autoFingering: readStoredAutoFingering(),
   handSpan: readStoredHandSpan(),
   overrideScoreFingerings: readStoredOverrideScoreFingerings(),
-  engineMode:
-    initialFingeringMode === 'program' ? 'two-hand' : 'one-hand',
+  engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
   hasPracticeStarted: false,
