@@ -11,10 +11,12 @@ vi.mock('./PlaybackEngine.ts', () => ({
 vi.mock('./PracticeEngine.ts', () => ({
   practiceEngine: {
     stop: vi.fn(),
+    suspendForFingeringMode: vi.fn(),
   },
 }));
 import type { AudioEngine } from './AudioEngine.ts';
 import { FingeringProgramEngine } from './FingeringProgramEngine.ts';
+import { practiceEngine } from './PracticeEngine.ts';
 import { handleEditModeFingerPress } from './fingeringEditMode.ts';
 import {
   applyManualHandOverrides,
@@ -245,6 +247,44 @@ describe('FingeringProgramEngine', () => {
     }
 
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex + 1);
+  });
+
+  it('uses suspend instead of stop when entering program mode', () => {
+    const storage = new Map<string, string>();
+    const localStorageMock = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      clear: () => {
+        storage.clear();
+      },
+    };
+    vi.stubGlobal('localStorage', localStorageMock);
+    vi.stubGlobal('window', { localStorage: localStorageMock });
+
+    vi.mocked(practiceEngine.stop).mockClear();
+    vi.mocked(practiceEngine.suspendForFingeringMode).mockClear();
+
+    loadMinimalFixture();
+    useEngineStore.setState({
+      engineMode: 'two-hand',
+      isPracticeActive: true,
+      hasPracticeStarted: true,
+      currentStepIndex: 0,
+    });
+
+    useEngineStore.getState().actions.setFingeringMode('program');
+
+    expect(practiceEngine.suspendForFingeringMode).toHaveBeenCalled();
+    expect(practiceEngine.stop).not.toHaveBeenCalled();
+
+    engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
   it('does not reset step index when start runs after the user has advanced', () => {

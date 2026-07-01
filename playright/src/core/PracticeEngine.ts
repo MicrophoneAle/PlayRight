@@ -89,6 +89,17 @@ export class PracticeEngine {
     actions.setExpectedNotes([]);
   }
 
+  /** Pause practice without resetting step (entering fingering program/edit). */
+  suspendForFingeringMode(): void {
+    this.hitNoteIndices.clear();
+    this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
+    this.releaseAllSoundingNotes();
+    const { actions } = useEngineStore.getState();
+    actions.setPracticeActive(false);
+    actions.setExpectedNotes([]);
+  }
+
   /** End the current playthrough and return to the beginning. */
   stop(): void {
     const { script, actions } = useEngineStore.getState();

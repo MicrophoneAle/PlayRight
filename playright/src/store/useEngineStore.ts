@@ -5,6 +5,7 @@ import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
 import { shiftScopeStart } from '../core/scopeShift.ts';
 import { fingeringProgramEngine } from '../core/FingeringProgramEngine.ts';
+import { practiceEngine } from '../core/PracticeEngine.ts';
 import type {
   EngineMode,
   Finger,
@@ -131,9 +132,12 @@ function stopPlaybackSession(): void {
 let engineModeBeforeFingering: EngineMode | null = null;
 
 function stopPracticeSession(): void {
-  void import('../core/PracticeEngine.ts').then(({ practiceEngine }) => {
-    practiceEngine.stop();
-  });
+  practiceEngine.stop();
+}
+
+/** Pause practice without resetting step — used when entering fingering program/edit. */
+function suspendPracticeForFingeringMode(): void {
+  practiceEngine.suspendForFingeringMode();
 }
 
 function stopFingeringProgramSession(): void {
@@ -527,7 +531,7 @@ export const useEngineStore = create<EngineState>((set) => {
 
       if (mode === 'program' || mode === 'edit') {
         stopPlaybackSession();
-        stopPracticeSession();
+        suspendPracticeForFingeringMode();
       }
       if (mode !== 'program') {
         stopFingeringProgramSession();

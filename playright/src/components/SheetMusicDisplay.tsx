@@ -349,6 +349,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
+    if (state.fingeringMode === 'program' || state.fingeringMode === 'edit') {
+      return;
+    }
+
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
 
     if (state.isPlaybackActive) {
