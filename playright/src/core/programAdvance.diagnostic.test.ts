@@ -10,10 +10,7 @@ vi.mock('./PracticeEngine.ts', () => ({
 
 import { FingeringProgramEngine } from './FingeringProgramEngine.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
-import {
-  isProgramStepComplete,
-  programAssignmentProgress,
-} from './practiceSteps.ts';
+import { programAssignmentProgress } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { fingeringKey, type Finger, type ManualFingeringMap } from '../types/index.ts';
 
@@ -22,7 +19,25 @@ const CHASE_XML = readFileSync(
   'utf8',
 );
 
-describe('program advance diagnostics (chase)', () => {
+describe('chase step onsets', () => {
+  it('uses unique onsets for the first several steps', () => {
+    const { script } = parseMusicXmlToScript(CHASE_XML);
+    const onsets = script.slice(0, 10).map((step) => step.onset);
+    expect(new Set(onsets).size).toBe(onsets.length);
+  });
+
+  it('step 2 (index 1) note order is R then L chord', () => {
+    const { script } = parseMusicXmlToScript(CHASE_XML);
+    const step = script[1];
+    expect(step.notes.map((n) => `${n.hand}:${n.pitch}`)).toEqual([
+      'R:E5',
+      'L:C#3',
+      'L:G#3',
+    ]);
+  });
+});
+
+describe('program advance sequencing (chase)', () => {
   let engine: FingeringProgramEngine;
   let localStorageMock: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn> };
 
@@ -49,62 +64,66 @@ describe('program advance diagnostics (chase)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('logs step 0→1→2 flow via setFingeringMode like the app', () => {
+  it('does not reset step index after each note on step 2', () => {
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     useEngineStore.getState().actions.loadScript(
       script,
       CHASE_XML,
       'chase',
-      { scoreId: 'chase-diagnostic' },
+      { scoreId: 'chase-seq' },
       scoreTiming,
     );
-
     useEngineStore.getState().actions.setFingeringMode('program');
-    expect(useEngineStore.getState().engineMode).toBe('two-hand');
-    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+    useEngineStore.getState().actions.setStepIndex(1);
+    engine.ensureStoreSubscription();
+    engine.resyncCurrentStep();
 
-    const log: string[] = [];
-    const press = (label: string, hand: 'L' | 'R', finger: 1 | 2) => {
-      const before = useEngineStore.getState().currentStepIndex;
-      engine.handleFingerPress({ hand, finger });
-      const after = useEngineStore.getState().currentStepIndex;
-      const step = useEngineStore.getState().script![after];
-      const progress = programAssignmentProgress(
-        step,
+    const progress = () =>
+      programAssignmentProgress(
+        useEngineStore.getState().script![1],
         new Set(useEngineStore.getState().programAssignedKeys),
       );
-      log.push(
-        `${label}: step ${before + 1}→${after + 1} progress L=${progress.assignedCounts.L}/${progress.needed.L} R=${progress.assignedCounts.R}/${progress.needed.R} complete=${isProgramStepComplete(step, new Set(useEngineStore.getState().programAssignedKeys))}`,
-      );
-    };
 
-    // Step 1 (index 0)
-    const step0 = script[0];
-    log.push(
-      `step1 notes: ${step0.notes.map((n) => `${n.hand}:${n.midi}`).join(', ')}`,
-    );
-    for (const note of step0.notes) {
-      engine.handleFingerPress({ hand: note.hand, finger: 1 });
-    }
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(progress()).toEqual({
+      needed: { L: 2, R: 1 },
+      assignedCounts: { L: 0, R: 1 },
+    });
 
-    // Step 2 (index 1) — n, v, r
-    const step1 = script[1];
-    log.push(
-      `step2 notes: ${step1.notes.map((n) => `${n.hand}:${n.midi}`).join(', ')} needed L=${step1.notes.filter((n) => n.hand === 'L').length} R=${step1.notes.filter((n) => n.hand === 'R').length}`,
-    );
-
-    press('n (R1)', 'R', 1);
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(progress()).toEqual({
+      needed: { L: 2, R: 1 },
+      assignedCounts: { L: 1, R: 1 },
+    });
 
-    press('v (L1)', 'L', 1);
-    expect(useEngineStore.getState().currentStepIndex).toBe(1);
-
-    press('r (L2)', 'L', 2);
+    engine.handleFingerPress({ hand: 'L', finger: 2 });
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
-  it('does not auto-skip steps that already have saved fingerings', () => {
+  it('does not reset step index when start runs mid-session', () => {
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-seq' },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', engineMode: 'two-hand', currentStepIndex: 1 });
+    engine.ensureStoreSubscription();
+
+    for (const note of script[1].notes) {
+      engine.handleFingerPress({ hand: note.hand, finger: 1 });
+    }
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+
+    engine.start();
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+  });
+
+  it('advances from an already-complete step with one press', () => {
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const step1 = script[1];
     const prefilled: ManualFingeringMap = {};
@@ -121,10 +140,10 @@ describe('program advance diagnostics (chase)', () => {
     );
     useEngineStore.getState().actions.setFingeringMode('program');
     useEngineStore.getState().actions.setStepIndex(1);
+    engine.ensureStoreSubscription();
     engine.resyncCurrentStep();
 
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
-
     engine.handleFingerPress({ hand: 'R', finger: 2 });
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });

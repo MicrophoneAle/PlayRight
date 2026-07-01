@@ -545,9 +545,12 @@ export const useEngineStore = create<EngineState>((set) => {
       });
     },
     setFingeringMode: (mode) => {
-      window.localStorage.setItem(FINGERING_MODE_STORAGE_KEY, mode);
-
       const prevMode = useEngineStore.getState().fingeringMode;
+      if (mode === prevMode) {
+        return;
+      }
+
+      window.localStorage.setItem(FINGERING_MODE_STORAGE_KEY, mode);
 
       if (mode === 'program') {
         stopPlaybackSession();

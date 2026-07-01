@@ -1,10 +1,9 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import {
-  buildTwoHandExpectedMidis,
   buildProgramAssignedKeys,
+  buildTwoHandExpectedMidis,
   countStepNotesByHand,
   isProgramStepComplete,
-  programAssignmentKey,
   programNextUnassignedNote,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -24,7 +23,6 @@ const logProgramAdvance = (...args: unknown[]): void => {
  */
 export class FingeringProgramEngine {
   private audioEngine: AudioEngine | null = null;
-  private assignedThisStep = new Set<string>();
   private activeFingerSounds = new Map<string, number>();
   private soundingMidis = new Set<number>();
   private storeSubscriptionInitialized = false;
@@ -51,39 +49,38 @@ export class FingeringProgramEngine {
     });
   }
 
+  private assignedKeysForStep(step: StepOrder): Set<string> {
+    const { manualFingerings } = useEngineStore.getState();
+    return buildProgramAssignedKeys(step, manualFingerings);
+  }
+
+  private syncAssignedToStore(step: StepOrder): void {
+    useEngineStore
+      .getState()
+      .actions.setProgramAssignedKeys([...this.assignedKeysForStep(step)]);
+  }
+
   private syncCurrentStepState(): void {
     const { script, currentStepIndex, actions } = useEngineStore.getState();
     const step = script?.[currentStepIndex];
 
     if (!step) {
-      this.assignedThisStep.clear();
-      this.syncAssignedToStore();
+      actions.setProgramAssignedKeys([]);
       actions.setExpectedNotes([]);
       return;
     }
 
-    this.syncAssignedFromStep(step);
+    this.syncAssignedToStore(step);
     this.syncExpectedNotes();
 
+    const assigned = this.assignedKeysForStep(step);
     logProgramAdvance('syncCurrentStepState', {
       stepIndex: currentStepIndex,
       uiStep: currentStepIndex + 1,
       needed: countStepNotesByHand(step),
-      assignedKeys: [...this.assignedThisStep],
-      next: programNextUnassignedNote(step, this.assignedThisStep)?.pitch ?? null,
+      assignedKeys: [...assigned],
+      next: programNextUnassignedNote(step, assigned)?.pitch ?? null,
     });
-  }
-
-  private syncAssignedFromStep(step: StepOrder): void {
-    const { manualFingerings } = useEngineStore.getState();
-    this.assignedThisStep = buildProgramAssignedKeys(step, manualFingerings);
-    this.syncAssignedToStore();
-  }
-
-  syncAssignedToStore(): void {
-    useEngineStore
-      .getState()
-      .actions.setProgramAssignedKeys([...this.assignedThisStep]);
   }
 
   /** Reload assignment state for the current step from persisted manual fingerings. */
@@ -99,8 +96,6 @@ export class FingeringProgramEngine {
       return;
     }
 
-    this.assignedThisStep.clear();
-    this.syncAssignedToStore();
     this.releaseAllSoundingNotes();
     actions.setHasPracticeStarted(true);
     actions.setPracticeActive(true);
@@ -108,22 +103,12 @@ export class FingeringProgramEngine {
   }
 
   stop(): void {
-    this.assignedThisStep.clear();
-    this.syncAssignedToStore();
+    useEngineStore.getState().actions.setProgramAssignedKeys([]);
     this.releaseAllSoundingNotes();
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
     actions.setHasPracticeStarted(false);
     actions.setExpectedNotes([]);
-  }
-
-  resetStepAssignments(): void {
-    this.assignedThisStep.clear();
-  }
-
-  /** Current program targets for UI highlighting (lowest unassigned per hand). */
-  getAssignedKeys(): ReadonlySet<string> {
-    return this.assignedThisStep;
   }
 
   handleFingerPress(mapping: FingerMapping, userId?: string | null): void {
@@ -138,10 +123,11 @@ export class FingeringProgramEngine {
     }
 
     const step = state.script[stepIndex];
-    const nextNote = programNextUnassignedNote(step, this.assignedThisStep);
+    let assigned = this.assignedKeysForStep(step);
+    const nextNote = programNextUnassignedNote(step, assigned);
 
     if (nextNote === null) {
-      if (isProgramStepComplete(step, this.assignedThisStep)) {
+      if (isProgramStepComplete(step, assigned)) {
         logProgramAdvance('press on complete step — advancing', {
           stepIndex,
           uiStep: stepIndex + 1,
@@ -151,7 +137,7 @@ export class FingeringProgramEngine {
         logProgramAdvance('press ignored (no next note and step incomplete)', {
           stepIndex,
           uiStep: stepIndex + 1,
-          assignedKeys: [...this.assignedThisStep],
+          assignedKeys: [...assigned],
           needed: countStepNotesByHand(step),
         });
       }
@@ -178,18 +164,20 @@ export class FingeringProgramEngine {
       userId,
     );
 
-    this.assignedThisStep.add(programAssignmentKey(nextNote.hand, nextNote.midi));
-    this.syncAssignedToStore();
+    const afterAssign = useEngineStore.getState();
+    const stepAfter = afterAssign.script![stepIndex];
+    assigned = this.assignedKeysForStep(stepAfter);
+    this.syncAssignedToStore(stepAfter);
     this.sustainNote(nextNote.midi, mapping);
 
-    const complete = isProgramStepComplete(step, this.assignedThisStep);
+    const complete = isProgramStepComplete(stepAfter, assigned);
     logProgramAdvance('press assigned', {
       stepIndex,
       uiStep: stepIndex + 1,
       target: `${nextNote.hand}:${nextNote.midi}`,
       pitch: nextNote.pitch,
-      assignedKeys: [...this.assignedThisStep],
-      needed: countStepNotesByHand(step),
+      assignedKeys: [...assigned],
+      needed: countStepNotesByHand(stepAfter),
       complete,
     });
 
@@ -215,8 +203,6 @@ export class FingeringProgramEngine {
       return;
     }
 
-    this.assignedThisStep.clear();
-    this.syncAssignedToStore();
     const nextIndex = currentStepIndex + 1;
 
     logProgramAdvance('advanceStep', {
@@ -229,10 +215,12 @@ export class FingeringProgramEngine {
     if (nextIndex >= script.length) {
       actions.setPracticeActive(false);
       actions.setExpectedNotes([]);
+      actions.setProgramAssignedKeys([]);
       return;
     }
 
     actions.setStepIndex(nextIndex);
+    this.syncCurrentStepState();
   }
 
   private syncExpectedNotes(): void {
