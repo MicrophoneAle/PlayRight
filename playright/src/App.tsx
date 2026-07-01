@@ -26,6 +26,10 @@ function App() {
     fingeringProgramEngine.ensureStoreSubscription();
     practiceEngine.attachAudioEngine(audioEngine);
 
+    if (useEngineStore.getState().fingeringMode === 'program') {
+      fingeringProgramEngine.start();
+    }
+
     const routeFingerPress = (mapping: Parameters<NonNullable<typeof practiceEngine.handleFingerPress>>[0]) => {
       const { fingeringMode } = useEngineStore.getState();
       if (fingeringMode === 'program') {

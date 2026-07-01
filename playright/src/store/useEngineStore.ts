@@ -4,6 +4,7 @@ import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { cycleShiftMode as cycleShiftModeValue } from '../core/shiftMode.ts';
 import { shiftScopeStart } from '../core/scopeShift.ts';
+import { fingeringProgramEngine } from '../core/FingeringProgramEngine.ts';
 import type {
   EngineMode,
   Finger,
@@ -136,15 +137,11 @@ function stopPracticeSession(): void {
 }
 
 function stopFingeringProgramSession(): void {
-  void import('../core/FingeringProgramEngine.ts').then(({ fingeringProgramEngine }) => {
-    fingeringProgramEngine.stop();
-  });
+  fingeringProgramEngine.stop();
 }
 
 function startFingeringProgramSession(): void {
-  void import('../core/FingeringProgramEngine.ts').then(({ fingeringProgramEngine }) => {
-    fingeringProgramEngine.start();
-  });
+  fingeringProgramEngine.start();
 }
 
 function reprocessScriptFromRaw(
@@ -342,7 +339,10 @@ interface EngineState {
   };
 }
 
-export const useEngineStore = create<EngineState>((set) => ({
+export const useEngineStore = create<EngineState>((set) => {
+  const initialFingeringMode = readStoredFingeringMode();
+
+  return {
   script: null,
   rawXml: null,
   songTitle: null,
@@ -350,7 +350,7 @@ export const useEngineStore = create<EngineState>((set) => ({
   scoreTiming: null,
   manualFingerings: {},
   manualHandOverrides: {},
-  fingeringMode: readStoredFingeringMode(),
+  fingeringMode: initialFingeringMode,
   selectedFingeringNote: null,
   programAssignedKeys: [],
   scopeStartMidi: 60,
@@ -360,7 +360,10 @@ export const useEngineStore = create<EngineState>((set) => ({
   autoFingering: readStoredAutoFingering(),
   handSpan: readStoredHandSpan(),
   overrideScoreFingerings: readStoredOverrideScoreFingerings(),
-  engineMode: 'one-hand',
+  engineMode:
+    initialFingeringMode === 'program' || initialFingeringMode === 'edit'
+      ? 'two-hand'
+      : 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
   hasPracticeStarted: false,
@@ -520,6 +523,8 @@ export const useEngineStore = create<EngineState>((set) => ({
     setFingeringMode: (mode) => {
       window.localStorage.setItem(FINGERING_MODE_STORAGE_KEY, mode);
 
+      const prevMode = useEngineStore.getState().fingeringMode;
+
       if (mode === 'program' || mode === 'edit') {
         stopPlaybackSession();
         stopPracticeSession();
@@ -536,17 +541,23 @@ export const useEngineStore = create<EngineState>((set) => ({
           engineModeBeforeFingering = state.engineMode;
         }
 
-        const restoredEngineMode = leavingToOff
-          ? (engineModeBeforeFingering ?? state.engineMode)
-          : mode === 'off'
-            ? state.engineMode
-            : ('two-hand' as const);
+        const enteringProgram = mode === 'program' && prevMode !== 'program';
+
+        const restoredEngineMode =
+          mode === 'program'
+            ? ('two-hand' as const)
+            : leavingToOff
+              ? (engineModeBeforeFingering ?? state.engineMode)
+              : mode === 'off'
+                ? state.engineMode
+                : mode === 'edit'
+                  ? ('two-hand' as const)
+                  : state.engineMode;
 
         if (leavingToOff) {
           engineModeBeforeFingering = null;
         }
 
-        const enteringProgram = mode === 'program';
         const base = {
           fingeringMode: mode,
           playMode: false,
@@ -566,7 +577,7 @@ export const useEngineStore = create<EngineState>((set) => ({
         return base;
       });
 
-      if (mode === 'program') {
+      if (mode === 'program' && prevMode !== 'program') {
         startFingeringProgramSession();
       }
     },
@@ -682,7 +693,25 @@ export const useEngineStore = create<EngineState>((set) => ({
       }));
     },
     setEngineMode: (mode) => {
-      set({ engineMode: mode });
+      set((state) => {
+        if (mode === state.engineMode) {
+          return state;
+        }
+
+        if (mode === 'one-hand' && state.fingeringMode === 'program') {
+          stopFingeringProgramSession();
+          window.localStorage.setItem(FINGERING_MODE_STORAGE_KEY, 'off');
+          return {
+            engineMode: mode,
+            fingeringMode: 'off' as const,
+            isPracticeActive: false,
+            hasPracticeStarted: false,
+            expectedMidiNotes: [],
+          };
+        }
+
+        return { engineMode: mode };
+      });
     },
     setActiveHand: (hand) => {
       set({
@@ -768,7 +797,8 @@ export const useEngineStore = create<EngineState>((set) => ({
       set({ playingPlaybackNotes: notes });
     },
   },
-}));
+};
+});
 
 /** True when practice is actively running (started, not paused or stopped). */
 export const selectIsPracticeActive = (state: EngineState): boolean =>

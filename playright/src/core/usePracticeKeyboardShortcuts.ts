@@ -25,6 +25,10 @@ export function usePracticeKeyboardShortcuts(): void {
 
       const state = useEngineStore.getState();
 
+      if (state.fingeringMode === 'program') {
+        return;
+      }
+
       if (state.playMode) {
         switch (event.code) {
           case 'Enter':

@@ -199,7 +199,10 @@ export function Lid() {
               <button
                 key={mode}
                 type="button"
-                disabled={playMode}
+                disabled={
+                  playMode ||
+                  (mode === 'program' && engineMode !== 'two-hand')
+                }
                 onClick={() => setFingeringMode(mode)}
                 aria-pressed={fingeringMode === mode}
                 className={`flex-1 rounded px-2 py-1.5 text-xs font-medium capitalize transition-colors disabled:opacity-40 ${
@@ -212,6 +215,11 @@ export function Lid() {
               </button>
             ))}
           </div>
+          {engineMode !== 'two-hand' ? (
+            <p className="text-[10px] leading-snug text-zinc-500">
+              Program mode requires Two Hand practice.
+            </p>
+          ) : null}
           {fingeringMode === 'program' ? (
             <p className="text-[10px] leading-snug text-zinc-500">
               Step {currentStepIndex + 1} / {totalSteps}. Press finger keys low→high per hand;
@@ -235,6 +243,7 @@ export function Lid() {
             <button
               type="button"
               onClick={() => setEngineMode('one-hand')}
+              disabled={fingeringMode === 'program' || playMode}
               aria-pressed={engineMode === 'one-hand'}
               className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
                 engineMode === 'one-hand'
@@ -528,7 +537,7 @@ export function Lid() {
       <button
         type="button"
         onClick={() => practiceEngine.start()}
-        disabled={!script || isPracticeActive}
+        disabled={!script || isPracticeActive || fingeringMode === 'program'}
         className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Play size={15} strokeWidth={2} aria-hidden />
@@ -538,7 +547,8 @@ export function Lid() {
         <button
           type="button"
           onClick={() => practiceEngine.pause()}
-          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          disabled={fingeringMode === 'program'}
+          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Pause size={15} strokeWidth={2} aria-hidden />
           Pause
@@ -547,7 +557,7 @@ export function Lid() {
         <button
           type="button"
           onClick={() => practiceEngine.restart()}
-          disabled={!script || !hasPracticeStarted}
+          disabled={!script || !hasPracticeStarted || fingeringMode === 'program'}
           className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RotateCcw size={15} strokeWidth={2} aria-hidden />

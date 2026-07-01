@@ -247,6 +247,44 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex + 1);
   });
 
+  it('does not reset step index when start runs after the user has advanced', () => {
+    loadMinimalFixture();
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 0, engineMode: 'two-hand' });
+    engine.ensureStoreSubscription();
+
+    engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+
+    engine.start();
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
+
+  it('does not restart program when program mode is selected again', () => {
+    const storage = new Map<string, string>();
+    const localStorageMock = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      clear: () => {
+        storage.clear();
+      },
+    };
+    vi.stubGlobal('localStorage', localStorageMock);
+    vi.stubGlobal('window', { localStorage: localStorageMock });
+
+    loadMinimalFixture();
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 2, engineMode: 'two-hand' });
+
+    useEngineStore.getState().actions.setFingeringMode('program');
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(2);
+  });
+
   it('leaves unprogrammed notes on predicted fingers without a completion gate', () => {
     loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program' });
@@ -441,5 +479,16 @@ describe('useEngineStore fingering mode', () => {
     expect(state.fingeringMode).toBe('off');
     expect(state.engineMode).toBe('one-hand');
     expect(state.isPracticeActive).toBe(false);
+  });
+
+  it('exits program mode when switching to one-hand practice', () => {
+    useEngineStore.getState().actions.setEngineMode('two-hand');
+    useEngineStore.getState().actions.setFingeringMode('program');
+
+    useEngineStore.getState().actions.setEngineMode('one-hand');
+
+    const state = useEngineStore.getState();
+    expect(state.engineMode).toBe('one-hand');
+    expect(state.fingeringMode).toBe('off');
   });
 });

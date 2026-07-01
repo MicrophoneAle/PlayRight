@@ -77,7 +77,6 @@ export class FingeringProgramEngine {
     this.assignedThisStep.clear();
     this.syncAssignedToStore();
     this.releaseAllSoundingNotes();
-    actions.setStepIndex(0);
     actions.setHasPracticeStarted(true);
     actions.setPracticeActive(true);
     this.syncExpectedNotes();
