@@ -744,6 +744,64 @@ describe('FingeringProgramEngine', () => {
     persistSpy.mockRestore();
   });
 
+  it('reprograms a complete step on finger press without sheet click', async () => {
+    const persistSpy = vi
+      .spyOn(scoreLibrary, 'updateScoreManualFingerings')
+      .mockResolvedValue({ ok: true });
+
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const step1 = script[1];
+    const prefilled: ManualFingeringMap = {};
+    for (const note of step1.notes) {
+      prefilled[fingeringKey(step1.onset, note.hand, note.midi)] = 1 as Finger;
+    }
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-reprogram', manualFingerings: prefilled },
+      scoreTiming,
+    );
+    useEngineStore.setState({
+      fingeringMode: 'program',
+      engineMode: 'two-hand',
+      currentStepIndex: 1,
+      programRefingerNoteIndex: null,
+      isPracticeActive: true,
+      hasPracticeStarted: true,
+    });
+    engine.ensureStoreSubscription();
+
+    const ascending = programStepNotesAscendingMidi(step1);
+    engine.handleFingerPress({ hand: 'R', finger: 3 }, 'clerk-user-abc');
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().manualFingerings[
+      fingeringKey(step1.onset, ascending[0].hand, ascending[0].midi)
+    ]).toEqual({ finger: 3, physicalHand: 'R' });
+    expect(useEngineStore.getState().programRefingerNoteIndex).toBe(1);
+
+    await vi.waitFor(() => {
+      expect(persistSpy).toHaveBeenCalledWith(
+        'chase-reprogram',
+        'clerk-user-abc',
+        expect.objectContaining({
+          [fingeringKey(step1.onset, ascending[0].hand, ascending[0].midi)]: {
+            finger: 3,
+            physicalHand: 'R',
+          },
+        }),
+      );
+    });
+
+    persistSpy.mockRestore();
+  });
+
   it('highlights every note in the current program step', () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),

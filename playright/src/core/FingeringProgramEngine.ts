@@ -21,8 +21,9 @@ const logProgramAdvance = (...args: unknown[]): void => {
 /**
  * Step-through finger capture for fingering program mode. Advances when every note
  * in the step has received a finger press in ascending MIDI order; any LH/RH finger
- * key binds to the current lowest-unassigned note. Sheet click-jump enters refinger
- * mode to overwrite fingerings in MIDI order for that step.
+ * key binds to the current lowest-unassigned note. When every note in the step is
+ * already assigned, finger presses walk ascending MIDI order and overwrite
+ * (reprogram); sheet click-jump does the same from the start of that step.
  */
 export class FingeringProgramEngine {
   private audioEngine: AudioEngine | null = null;
@@ -211,6 +212,16 @@ export class FingeringProgramEngine {
 
     if (nextNote === null) {
       if (isProgramStepComplete(step, state.manualFingerings)) {
+        if (state.programRefingerNoteIndex === null) {
+          logProgramAdvance('reprogram pass started on complete step', {
+            stepIndex,
+            uiStep: stepIndex + 1,
+          });
+          useEngineStore.getState().actions.setProgramRefingerNoteIndex(0);
+          this.handleRefingerPress(step, stepIndex, mapping, userId);
+          return;
+        }
+
         logProgramAdvance('press on complete step — advancing', {
           stepIndex,
           uiStep: stepIndex + 1,

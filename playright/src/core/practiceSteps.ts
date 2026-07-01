@@ -168,8 +168,7 @@ export function programNextUnassignedNote(
 }
 
 /**
- * Program-mode chord targeting: the pressed finger binds to the lowest-pitch note on
- * that hand in the step that has not yet been assigned in this pass.
+ * @deprecated Per-hand chord targeting; use programCurrentNote for MIDI-walk program mode.
  */
 export function programTargetNote(
   step: StepOrder,
@@ -185,6 +184,29 @@ export function programTargetNote(
     .sort((left, right) => left.midi - right.midi);
 
   return candidates[0] ?? null;
+}
+
+/** Next note to assign, or the first note when reprogramming a complete step. */
+export function programActiveTargetNote(
+  step: StepOrder,
+  manualFingerings: ManualFingeringMap,
+  reprogramNoteIndex: number | null,
+): ScriptNote | null {
+  if (reprogramNoteIndex !== null) {
+    const ascending = programStepNotesAscendingMidi(step);
+    return ascending[reprogramNoteIndex] ?? null;
+  }
+
+  const unassigned = programCurrentNote(step, manualFingerings);
+  if (unassigned !== null) {
+    return unassigned;
+  }
+
+  if (isProgramStepComplete(step, manualFingerings)) {
+    return programStepNotesAscendingMidi(step)[0] ?? null;
+  }
+
+  return null;
 }
 
 /** Step is complete when every note in the step has a manual fingering assignment. */

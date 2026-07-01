@@ -14,8 +14,8 @@ import {
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandStepNotesByMidi,
   buildProgramAssignedKeys,
+  programActiveTargetNote,
   programAssignmentProgress,
-  programCurrentNote,
   programStepNotesAscendingMidi,
   programTargetMidis,
   type TwoHandStepNoteInfo,
@@ -344,12 +344,7 @@ export function PianoKeyboard() {
     }
 
     const step = script[currentStepIndex];
-    if (programRefingerNoteIndex !== null) {
-      const ascending = programStepNotesAscendingMidi(step);
-      return ascending[programRefingerNoteIndex] ?? null;
-    }
-
-    return programCurrentNote(step, manualFingerings);
+    return programActiveTargetNote(step, manualFingerings, programRefingerNoteIndex);
   }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
 
   const programProgress = useMemo(() => {
