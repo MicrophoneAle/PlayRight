@@ -60,7 +60,7 @@ export class FingeringProgramEngine {
     this.syncAssignedToStore();
   }
 
-  private syncAssignedToStore(): void {
+  syncAssignedToStore(): void {
     useEngineStore
       .getState()
       .actions.setProgramAssignedKeys([...this.assignedThisStep]);

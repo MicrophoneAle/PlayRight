@@ -12,6 +12,7 @@ import {
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
 import type { GraphicalNote } from "opensheetmusicdisplay";
+import { fingeringProgramEngine } from "../core/FingeringProgramEngine.ts";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
 import { getDisplayEngineMode, getDisplayNotesForStep } from "../core/practiceSteps.ts";
@@ -329,6 +330,13 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   };
 
   const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
+    const seekState = useEngineStore.getState();
+    console.log('[SheetSeek] seek handler fired', {
+      clientX: event.clientX,
+      clientY: event.clientY,
+      fingeringMode: seekState.fingeringMode,
+    });
+
     if (event.button !== 0) {
       return;
     }
@@ -340,31 +348,42 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       containerRef.current,
     );
 
+    console.log('[SheetSeek] resolveStepIndexFromPointer returned', stepIndex);
+
     if (stepIndex === null) {
+      console.log('[SheetSeek] branch: no match (stepIndex null)');
       return;
     }
 
     const state = useEngineStore.getState();
     if (stepIndex === state.currentStepIndex) {
-      return;
-    }
-
-    if (state.fingeringMode === 'program') {
+      console.log('[SheetSeek] branch: no-op: same step', stepIndex);
       return;
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
 
     if (state.fingeringMode === 'edit') {
+      console.log('[SheetSeek] branch: edit mode setStepIndex', stepIndex);
       state.actions.setStepIndex(stepIndex);
       return;
     }
 
+    if (state.fingeringMode === 'program') {
+      console.log('[SheetSeek] branch: program mode setStepIndex', stepIndex);
+      state.actions.setStepIndex(stepIndex);
+      fingeringProgramEngine.resetStepAssignments();
+      fingeringProgramEngine.syncAssignedToStore();
+      return;
+    }
+
     if (state.isPlaybackActive) {
+      console.log('[SheetSeek] branch: practice/playback seek (playback)', stepIndex);
       playbackEngine.seekToStep(stepIndex);
       return;
     }
 
+    console.log('[SheetSeek] branch: practice/playback seek (practice)', stepIndex);
     practiceEngine.seekToStep(stepIndex);
   };
 

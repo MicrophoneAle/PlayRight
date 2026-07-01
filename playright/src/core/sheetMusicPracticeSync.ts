@@ -771,6 +771,12 @@ export function buildPracticeVisualIndex(
     );
   }
 
+  const emptyStepCount = stepGraphicalNotes.filter((notes) => notes.length === 0).length;
+  console.log('[SheetSeek] buildPracticeVisualIndex', {
+    totalSteps: script.length,
+    emptyStepGraphicalNotes: emptyStepCount,
+  });
+
   osmd.cursor.reset();
   return { stepCursorOffsets, stepGraphicalNotes, stepMeasureNumbers };
 }
@@ -1235,8 +1241,11 @@ export function resolveStepIndexFromPointer(
     container,
   );
   if (elementMatch !== null) {
+    console.log('[SheetSeek] resolveStepFromElementsAtPoint matched', elementMatch);
     return elementMatch;
   }
+
+  console.log('[SheetSeek] resolveStepFromElementsAtPoint: no match, trying bounding-box fallback');
 
   let matchedStep: number | null = null;
   let matchedArea = Infinity;
@@ -1277,12 +1286,23 @@ export function resolveStepIndexFromPointer(
   }
 
   if (matchedStep !== null) {
+    console.log('[SheetSeek] bounding-box fallback matchedStep', matchedStep);
     return matchedStep;
   }
 
   if (nearestStep !== null && nearestDistance <= NOTE_HIT_MAX_DISTANCE_PX) {
+    console.log('[SheetSeek] bounding-box fallback nearestStep', {
+      nearestStep,
+      nearestDistance,
+    });
     return nearestStep;
   }
+
+  console.log('[SheetSeek] bounding-box fallback: no match', {
+    nearestStep,
+    nearestDistance,
+    maxDistance: NOTE_HIT_MAX_DISTANCE_PX,
+  });
 
   return null;
 }
