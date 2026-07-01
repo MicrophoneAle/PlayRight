@@ -245,6 +245,8 @@ interface EngineState {
   selectedFingeringNote: SelectedFingeringNote | null;
   /** Keys `${hand}:${midi}` assigned in the current program step (transient UI). */
   programAssignedKeys: string[];
+  /** Score-order note index to (re)assign after a sheet click-jump; null = normal capture. */
+  programRefingerNoteIndex: number | null;
   scopeStartMidi: number;
   scopeTranspose: number;
   shiftMode: ShiftMode;
@@ -313,6 +315,7 @@ interface EngineState {
     setFingeringMode: (mode: FingeringMode) => void;
     setSelectedFingeringNote: (note: SelectedFingeringNote | null) => void;
     setProgramAssignedKeys: (keys: string[]) => void;
+    setProgramRefingerNoteIndex: (index: number | null) => void;
     setScopeStart: (midi: number | ((prev: number) => number)) => void;
     nudgeScope: (direction: 'up' | 'down') => void;
     setShiftMode: (mode: ShiftMode) => void;
@@ -350,6 +353,7 @@ export const useEngineStore = create<EngineState>((set) => {
   fingeringMode: 'off',
   selectedFingeringNote: null,
   programAssignedKeys: [],
+  programRefingerNoteIndex: null,
   scopeStartMidi: 60,
   scopeTranspose: 0,
   shiftMode: 'semitone',
@@ -610,6 +614,9 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     setProgramAssignedKeys: (keys) => {
       set({ programAssignedKeys: keys });
+    },
+    setProgramRefingerNoteIndex: (index) => {
+      set({ programRefingerNoteIndex: index });
     },
     setScopeStart: (midi) => {
       set((state) => ({

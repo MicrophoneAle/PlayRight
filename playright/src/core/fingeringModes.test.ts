@@ -33,7 +33,7 @@ import {
   programTargetNote,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
-import { fingeringKey, manualHandOverrideKey, type Finger } from '../types/index.ts';
+import { fingeringKey, manualHandOverrideKey, type Finger, type ManualFingeringMap } from '../types/index.ts';
 import type { PlaybackScript } from '../types/index.ts';
 import * as scoreLibrary from './scoreLibrary.ts';
 
@@ -63,6 +63,7 @@ function resetStore(): void {
     manualHandOverrides: {},
     selectedFingeringNote: null,
     programAssignedKeys: [],
+    programRefingerNoteIndex: null,
     autoFingering: true,
     handSpan: 1,
   });
@@ -471,9 +472,12 @@ describe('FingeringProgramEngine', () => {
       { scoreId: 'chase-fixture' },
       scoreTiming,
     );
-    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: jumpIndex, engineMode: 'two-hand' });
+    useEngineStore.setState({ fingeringMode: 'program', engineMode: 'two-hand' });
     engine.start();
-    engine.resyncCurrentStep();
+    engine.seekToStep(jumpIndex);
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(jumpIndex);
+    expect(useEngineStore.getState().programRefingerNoteIndex).toBe(0);
 
     const stepBefore = useEngineStore.getState().script![jumpIndex];
 
@@ -482,7 +486,8 @@ describe('FingeringProgramEngine', () => {
       engine.handleFingerPress({ hand: note.hand, finger: finger as Finger });
     }
 
-    expect(useEngineStore.getState().currentStepIndex).toBe(jumpIndex + 1);
+    expect(useEngineStore.getState().currentStepIndex).toBe(jumpIndex);
+    expect(useEngineStore.getState().programRefingerNoteIndex).toBeNull();
   });
 
   it('preserves step index until every note in the step is assigned', () => {
@@ -515,6 +520,80 @@ describe('FingeringProgramEngine', () => {
     useEngineStore.getState().actions.setStepIndex(1);
 
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
+  });
+
+  it('seekToStep lands on a complete step for refingering instead of skipping forward', () => {
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const step1 = script[1];
+    const prefilled: ManualFingeringMap = {};
+    for (const note of step1.notes) {
+      prefilled[fingeringKey(step1.onset, note.hand, note.midi)] = 1 as Finger;
+    }
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-seek', manualFingerings: prefilled },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 3, engineMode: 'two-hand' });
+    engine.ensureStoreSubscription();
+
+    engine.seekToStep(1);
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().programRefingerNoteIndex).toBe(0);
+  });
+
+  it('refinger mode overwrites an existing fingering on a clicked complete step', async () => {
+    const persistSpy = vi
+      .spyOn(scoreLibrary, 'updateScoreManualFingerings')
+      .mockResolvedValue({ ok: true });
+
+    const CHASE_XML = readFileSync(
+      new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
+    const step1 = script[1];
+    const prefilled: ManualFingeringMap = {};
+    for (const note of step1.notes) {
+      prefilled[fingeringKey(step1.onset, note.hand, note.midi)] = 1 as Finger;
+    }
+
+    useEngineStore.getState().actions.loadScript(
+      script,
+      CHASE_XML,
+      'chase',
+      { scoreId: 'chase-refinger', manualFingerings: prefilled },
+      scoreTiming,
+    );
+    useEngineStore.setState({ fingeringMode: 'program', engineMode: 'two-hand' });
+    engine.start();
+    engine.seekToStep(1);
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 }, 'clerk-user-abc');
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().manualFingerings[fingeringKey(step1.onset, 'R', step1.notes[0].midi)]).toBe(2);
+    expect(useEngineStore.getState().programRefingerNoteIndex).toBe(1);
+
+    await vi.waitFor(() => {
+      expect(persistSpy).toHaveBeenCalledWith(
+        'chase-refinger',
+        'clerk-user-abc',
+        expect.objectContaining({
+          [fingeringKey(step1.onset, 'R', step1.notes[0].midi)]: 2,
+        }),
+      );
+    });
+
+    persistSpy.mockRestore();
   });
 
   it('highlights every note in the current program step', () => {

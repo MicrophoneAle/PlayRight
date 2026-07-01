@@ -210,6 +210,7 @@ export function PianoKeyboard() {
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const totalSteps = useEngineStore((state) => state.totalSteps);
   const manualFingerings = useEngineStore((state) => state.manualFingerings);
+  const programRefingerNoteIndex = useEngineStore((state) => state.programRefingerNoteIndex);
   const setManualFinger = useEngineStore((state) => state.actions.setManualFinger);
   const clearManualFinger = useEngineStore(
     (state) => state.actions.clearManualFinger,
@@ -269,8 +270,13 @@ export function PianoKeyboard() {
       return new Set<number>();
     }
 
+    if (programRefingerNoteIndex !== null) {
+      const note = script[currentStepIndex].notes[programRefingerNoteIndex];
+      return note ? new Set([note.midi]) : new Set();
+    }
+
     return programTargetMidis(script[currentStepIndex], programAssignedSet);
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+  }, [isProgramMode, script, currentStepIndex, programAssignedSet, programRefingerNoteIndex]);
 
   const twoHandExpectedMidis = useMemo(() => {
     if (!isTwoHand) {
@@ -336,8 +342,13 @@ export function PianoKeyboard() {
       return null;
     }
 
-    return programNextUnassignedNote(script[currentStepIndex], programAssignedSet);
-  }, [isProgramMode, script, currentStepIndex, programAssignedSet]);
+    const step = script[currentStepIndex];
+    if (programRefingerNoteIndex !== null) {
+      return step.notes[programRefingerNoteIndex] ?? null;
+    }
+
+    return programNextUnassignedNote(step, programAssignedSet);
+  }, [isProgramMode, script, currentStepIndex, programAssignedSet, programRefingerNoteIndex]);
 
   const programTargetByHand = useMemo(() => {
     if (!programNextNote) {

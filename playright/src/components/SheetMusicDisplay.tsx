@@ -14,6 +14,7 @@ import {
 import type { GraphicalNote } from "opensheetmusicdisplay";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
+import { fingeringProgramEngine } from "../core/FingeringProgramEngine.ts";
 import { getDisplayEngineMode, getDisplayNotesForStep, programStepExpectedMidis } from "../core/practiceSteps.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
@@ -342,13 +343,17 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
   };
 
-  const resolveSheetStepAtPointer = (clientX: number, clientY: number) =>
+  const resolveSheetStepAtPointer = (
+    clientX: number,
+    clientY: number,
+    allowBoundingBoxFallback = true,
+  ) =>
     resolveStepIndexFromPointer(
       visualIndexRef.current,
       clientX,
       clientY,
       containerRef.current,
-      { allowBoundingBoxFallback: true },
+      { allowBoundingBoxFallback },
     );
 
   const handleSheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -356,14 +361,15 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    if (useEngineStore.getState().fingeringMode === 'program') {
-      return;
-    }
-
+    const isProgram = useEngineStore.getState().fingeringMode === 'program';
     sheetPointerStartRef.current = {
       x: event.clientX,
       y: event.clientY,
-      noteStepIndex: resolveSheetStepAtPointer(event.clientX, event.clientY),
+      noteStepIndex: resolveSheetStepAtPointer(
+        event.clientX,
+        event.clientY,
+        !isProgram,
+      ),
     };
   };
 
@@ -373,11 +379,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   const handleSheetPointerSeek = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
-      return;
-    }
-
-    if (useEngineStore.getState().fingeringMode === 'program') {
-      clearSheetPointerStart();
       return;
     }
 
@@ -393,15 +394,33 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    const stepIndex =
-      resolveSheetStepAtPointer(event.clientX, event.clientY) ??
-      start.noteStepIndex;
+    const state = useEngineStore.getState();
+    const isProgram = state.fingeringMode === 'program';
+    const upStepIndex = resolveSheetStepAtPointer(
+      event.clientX,
+      event.clientY,
+      !isProgram,
+    );
+
+    if (isProgram) {
+      if (start.noteStepIndex === null || upStepIndex === null) {
+        return;
+      }
+      if (upStepIndex !== start.noteStepIndex) {
+        return;
+      }
+
+      scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+      fingeringProgramEngine.seekToStep(upStepIndex);
+      return;
+    }
+
+    const stepIndex = upStepIndex ?? start.noteStepIndex;
 
     if (stepIndex === null) {
       return;
     }
 
-    const state = useEngineStore.getState();
     if (stepIndex === state.currentStepIndex) {
       return;
     }

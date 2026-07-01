@@ -123,12 +123,13 @@ describe('program advance sequencing (chase)', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
-  it('advances from an already-complete step after resync lands on the next incomplete step', () => {
+  it('start skips prefilled complete steps to the first incomplete step', () => {
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
-    const step1 = script[1];
     const prefilled: ManualFingeringMap = {};
-    for (const note of step1.notes) {
-      prefilled[fingeringKey(step1.onset, note.hand, note.midi)] = 1 as Finger;
+    for (const step of script.slice(0, 2)) {
+      for (const note of step.notes) {
+        prefilled[fingeringKey(step.onset, note.hand, note.midi)] = 1 as Finger;
+      }
     }
 
     useEngineStore.getState().actions.loadScript(
@@ -139,12 +140,8 @@ describe('program advance sequencing (chase)', () => {
       scoreTiming,
     );
     useEngineStore.getState().actions.setFingeringMode('program');
-    useEngineStore.setState({ currentStepIndex: 1 });
     engine.ensureStoreSubscription();
-    engine.resyncCurrentStep();
 
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
-    expect(useEngineStore.getState().currentStepIndex).toBe(3);
   });
 });
