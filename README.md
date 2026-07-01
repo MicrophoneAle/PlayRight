@@ -7,7 +7,7 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Sheet music practice** — Renders scores with [OpenSheetMusicDisplay](https://opensheetmusicdisplay.org); highlights the current note(s) in green
 - **One-hand mode** — Practice left or right hand separately with an LH/RH toggle; computer keys map to a movable slice of the piano
 - **Two-hand mode** — Press finger keys (`Q`–`R`, `V`, `N`, `I`–`P`, `[`) to match predicted or score-provided fingerings; click keys on the virtual piano to override fingerings
-- **Program mode** — Step through the score and assign fingerings in score order; all notes in the current step highlight green on the sheet and keyboard, with an amber ring on the next note to assign; advances automatically when every note in the step is set; fingerings persist to the score library
+- **Program mode** — Step through the score and assign fingerings in score order; all notes in the current step highlight green on the sheet and keyboard, with an amber ring on the next note to assign; advances automatically when every note in the step is set; click a note on the staff to jump back and re-finger a step; fingerings autosave to the score library when signed in
 - **17-note core scope** — The playable window spans 17 semitones; the on-screen keyboard shows a 22-semitone display window (Shift through `]`) including low and high extension keys when needed
 - **Smart scope mapping** — Extension keys (`Shift`, Caps Lock, Tab, `Q`, `'`, `]`) are assigned contextually so labels stay aligned as you shift the window
 - **Scope shifting** — Arrow keys or `1`/`2` move the window; `↑`/`3` cycles shift distance (semitone, octave, or full 22-semitone range)
@@ -27,8 +27,9 @@ Enable **Program** in Settings (under Fingering mode):
 - **Full-step highlights** — Every note in the current step is green on the sheet music and virtual keyboard.
 - **Next-note hint** — The keyboard shows an amber ring on the next note to assign; the status bar shows LH/RH progress, the next pitch, and the upcoming step number.
 - **Chord steps** — Steps with multiple notes (e.g. LH chord + RH melody) require a finger press for each note before advancing.
-- **Stable step index** — The program engine owns step progression; clicking the score does not seek while in program mode. Already-fingered steps from saved library data are skipped forward to the first incomplete step.
-- **Persistence** — Assignments are stored as manual fingerings and sync to Supabase when signed in.
+- **Sheet click-jump** — Click a note on the staff (deliberate click only; scroll/drag does not jump) to move the program step to that beat and re-finger its notes in score order. After the last note in that step is reassigned, the program advances to the next step automatically.
+- **Stable step index** — The program engine owns step progression; external code cannot change the step index in program mode. On session start, already-fingered steps from saved library data are skipped forward to the first incomplete step.
+- **Persistence** — Assignments are stored as manual fingerings in the `scores.manual_fingerings` JSON column and sync to Supabase when signed in (requires Clerk + Supabase + `manual_fingerings.sql`).
 
 ### Play mode behavior
 
@@ -182,8 +183,8 @@ playright/
 | Module | Role |
 |--------|------|
 | `PracticeEngine.ts` | Step progression, chords, pause/stop, one-hand notes and two-hand finger input |
-| `FingeringProgramEngine.ts` | Program-mode finger capture, score-order assignment, step advance, and highlight sync |
-| `programStepGuard.ts` | Prevents external step seeks while program mode is active |
+| `FingeringProgramEngine.ts` | Program-mode finger capture, sheet click-jump (`seekToStep`), refinger overwrite, step advance, and highlight sync |
+| `programStepGuard.ts` | Allows only the program engine to change step index while program mode is active |
 | `PlaybackEngine.ts` | Play mode transport scheduling, per-note press/release tracking, auto-end and replay |
 | `playbackTiming.ts` | Musical timing helpers (onsets, durations, articulation gap, piece end) |
 | `playingMidiPressTracker.ts` | Tracks overlapping presses by unique id (same pitch repeated consecutively) |
@@ -205,7 +206,7 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 - [ ] Additional practice modes and scoring
 - [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
 - [x] Play mode with tempo control, seek, replay, and sheet/keyboard duration sync
-- [x] Program mode with stable step progression, full-step highlights, and persisted fingerings
+- [x] Program mode with stable step progression, full-step highlights, sheet click-jump refingering, Supabase autosave, and auto-advance after re-finger
 
 ## Checkpoints
 
@@ -213,7 +214,8 @@ Annotated git tags mark stable milestones:
 
 | Tag | Description |
 |-----|-------------|
-| `checkpoint-program-mode` | Program mode: score-order fingering, full-step green highlights, engine-owned step index, no sheet seek loop |
+| `checkpoint-program-refinger` | Program mode complete: sheet green highlights, click-jump re-finger with auto-advance, Supabase fingering persistence |
+| `checkpoint-program-mode` | Program mode: score-order fingering, full-step green highlights, engine-owned step index |
 | `checkpoint-play-mode` | Play mode with tempo, seek, and duration-aligned highlights |
 | `checkpoint-2026-06-19` | Earlier stable build |
 
