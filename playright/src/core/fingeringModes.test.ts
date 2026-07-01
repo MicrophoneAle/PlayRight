@@ -359,7 +359,6 @@ describe('FingeringProgramEngine', () => {
     );
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const stepIndex = 1;
-    const step = script[stepIndex];
     const scoreTimingBefore = scoreTiming;
 
     useEngineStore.getState().actions.loadScript(
