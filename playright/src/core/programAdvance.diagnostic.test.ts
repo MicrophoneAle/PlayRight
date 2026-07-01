@@ -15,7 +15,7 @@ import {
   programAssignmentProgress,
 } from './practiceSteps.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
-import { fingeringKey } from '../types/index.ts';
+import { fingeringKey, type Finger, type ManualFingeringMap } from '../types/index.ts';
 
 const CHASE_XML = readFileSync(
   new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
@@ -107,9 +107,9 @@ describe('program advance diagnostics (chase)', () => {
   it('auto-skips step 2 when every note already has saved fingerings', () => {
     const { script, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const step1 = script[1];
-    const prefilled: Record<string, number> = {};
+    const prefilled: ManualFingeringMap = {};
     for (const note of step1.notes) {
-      prefilled[fingeringKey(step1.onset, note.hand, note.midi)] = 1;
+      prefilled[fingeringKey(step1.onset, note.hand, note.midi)] = 1 as Finger;
     }
 
     useEngineStore.getState().actions.loadScript(
