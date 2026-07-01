@@ -1,4 +1,4 @@
-import type { Finger, ManualFingeringMap } from '../types/index.ts';
+import type { ManualFingeringMap } from '../types/index.ts';
 import { fingeringKey, isFinger } from '../types/index.ts';
 import { getSupabase } from './supabaseClient.ts';
 

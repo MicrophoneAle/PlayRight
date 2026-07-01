@@ -161,7 +161,7 @@ describe('program-mode chord targeting', () => {
       ],
     };
     const manualFingerings: ManualFingeringMap = {
-      [fingeringKey(0, 'R', 76)]: 4,
+      [fingeringKey(0, 'R', 76)]: 4 as Finger,
     };
 
     expect(programAssignmentProgress(lhChordRhSingle, manualFingerings)).toEqual({
@@ -169,7 +169,7 @@ describe('program-mode chord targeting', () => {
       assignedCounts: { L: 0, R: 1 },
     });
 
-    manualFingerings[fingeringKey(0, 'L', 49)] = { finger: 2, physicalHand: 'R' };
+    manualFingerings[fingeringKey(0, 'L', 49)] = { finger: 2, physicalHand: 'R' as const };
     expect(programAssignmentProgress(lhChordRhSingle, manualFingerings)).toEqual({
       needed: { L: 1, R: 2 },
       assignedCounts: { L: 0, R: 2 },
@@ -318,7 +318,7 @@ describe('FingeringProgramEngine', () => {
       },
     ];
     const manualFingerings: ManualFingeringMap = {
-      [fingeringKey(0, 'L', 48)]: { finger: 2, physicalHand: 'R' },
+      [fingeringKey(0, 'L', 48)]: { finger: 2 as Finger, physicalHand: 'R' as const },
     };
 
     const prepared = prepareScriptWithFingering(

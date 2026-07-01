@@ -352,17 +352,6 @@ export function PianoKeyboard() {
     return programCurrentNote(step, manualFingerings);
   }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
 
-  const programTargetByHand = useMemo(() => {
-    if (!programNextNote) {
-      return { L: null as ScriptNote | null, R: null as ScriptNote | null };
-    }
-
-    return {
-      L: programNextNote,
-      R: programNextNote,
-    };
-  }, [programNextNote]);
-
   const programProgress = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
       return null;
