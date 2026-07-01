@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useAuth } from '@clerk/react';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { fingeringProgramEngine } from './core/FingeringProgramEngine.ts';
@@ -11,6 +12,9 @@ import { useEngineStore } from './store/useEngineStore.ts';
 
 function App() {
   const initializedRef = useRef(false);
+  const { userId } = useAuth();
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
   usePracticeKeyboardShortcuts();
 
   useEffect(() => {
@@ -32,7 +36,7 @@ function App() {
     const routeFingerPress = (mapping: Parameters<NonNullable<typeof practiceEngine.handleFingerPress>>[0]) => {
       const { fingeringMode } = useEngineStore.getState();
       if (fingeringMode === 'program') {
-        fingeringProgramEngine.handleFingerPress(mapping);
+        fingeringProgramEngine.handleFingerPress(mapping, userIdRef.current);
         return;
       }
       practiceEngine.handleFingerPress(mapping);

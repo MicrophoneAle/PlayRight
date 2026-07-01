@@ -35,6 +35,7 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { fingeringKey, manualHandOverrideKey, type Finger } from '../types/index.ts';
 import type { PlaybackScript } from '../types/index.ts';
+import * as scoreLibrary from './scoreLibrary.ts';
 
 const FINGERING_MODE_STORAGE_KEY = 'playright-fingering-mode';
 
@@ -191,6 +192,53 @@ describe('FingeringProgramEngine', () => {
     expect(state.manualFingerings[fingeringKey(0, 'L', 48)]).toBe(5);
     expect(state.manualFingerings[fingeringKey(0, 'R', 60)]).toBe(2);
     expect(state.currentStepIndex).toBe(1);
+  });
+
+  it('persists program fingerings to the score library when userId is provided', async () => {
+    const persistSpy = vi
+      .spyOn(scoreLibrary, 'updateScoreManualFingerings')
+      .mockResolvedValue({ ok: true });
+
+    loadMinimalFixture();
+    useEngineStore.setState({
+      fingeringMode: 'program',
+      scoreId: 'saved-score-id',
+    });
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 }, 'clerk-user-abc');
+
+    await vi.waitFor(() => {
+      expect(persistSpy).toHaveBeenCalledWith(
+        'saved-score-id',
+        'clerk-user-abc',
+        expect.objectContaining({
+          [fingeringKey(0, 'R', 60)]: 2,
+        }),
+      );
+    });
+
+    persistSpy.mockRestore();
+  });
+
+  it('does not call score library persist without userId', async () => {
+    const persistSpy = vi
+      .spyOn(scoreLibrary, 'updateScoreManualFingerings')
+      .mockResolvedValue({ ok: true });
+
+    loadMinimalFixture();
+    useEngineStore.setState({
+      fingeringMode: 'program',
+      scoreId: 'saved-score-id',
+    });
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(persistSpy).not.toHaveBeenCalled();
+
+    persistSpy.mockRestore();
   });
 
   it('requires all chord notes before advancing and keeps each finger', () => {
