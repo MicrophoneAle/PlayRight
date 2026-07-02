@@ -9,7 +9,7 @@ import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
-import type { FingeringMode, Hand, ManualFingeringMap, ManualHandOverrideMap, PlaybackScript } from '../types/index.ts';
+import type { FingeringMode, Hand, ManualFingeringMap, ManualHandOverrideMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
@@ -68,6 +68,7 @@ export function Lid() {
     script: PlaybackScript,
     manualFingerings: ManualFingeringMap = {},
     manualHandOverrides: ManualHandOverrideMap = {},
+    scoreTiming?: ScoreTiming | null,
   ) => {
     const state = useEngineStore.getState();
     return prepareScriptWithFingering(
@@ -77,6 +78,7 @@ export function Lid() {
       state.handSpan,
       state.overrideScoreFingerings,
       manualHandOverrides,
+      scoreTiming,
     );
   };
 
@@ -390,7 +392,7 @@ export function Lid() {
         const text = await readMusicXmlFromFile(file);
         const { script, scoreTiming, warnings } = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
-        const loadedScript = await prepareScriptForLoad(script);
+        const loadedScript = await prepareScriptForLoad(script, {}, {}, scoreTiming);
         let scoreId: string | null = null;
 
         if (userId) {
@@ -433,7 +435,12 @@ export function Lid() {
 
     try {
       const { script, scoreTiming, warnings } = parseMusicXmlToScript(saved.raw_xml);
-      const loadedScript = await prepareScriptForLoad(script, saved.manual_fingerings);
+      const loadedScript = await prepareScriptForLoad(
+        script,
+        saved.manual_fingerings,
+        undefined,
+        scoreTiming,
+      );
       loadScript(loadedScript, saved.raw_xml, saved.title, {
         scoreId: saved.id,
         manualFingerings: saved.manual_fingerings,

@@ -161,6 +161,7 @@ async function reprocessScriptFromRaw(
     handSpan,
     overrideScoreFingerings,
     manualHandOverrides,
+    scoreTiming,
   );
 
   return { script, scoreTiming };
@@ -676,6 +677,7 @@ export const useEngineStore = create<EngineState>((set) => {
               enabled,
               state.handSpan,
               state.overrideScoreFingerings,
+              state.scoreTiming?.divisionsPerQuarter,
             )
           : null;
 
@@ -693,6 +695,7 @@ export const useEngineStore = create<EngineState>((set) => {
               state.autoFingering,
               handSpan,
               state.overrideScoreFingerings,
+              state.scoreTiming?.divisionsPerQuarter,
             )
           : null;
 
@@ -732,6 +735,7 @@ export const useEngineStore = create<EngineState>((set) => {
                 state.autoFingering,
                 state.handSpan,
                 overrideScoreFingerings,
+                state.scoreTiming?.divisionsPerQuarter,
               )
             : null;
 

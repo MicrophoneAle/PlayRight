@@ -4,6 +4,7 @@
   ManualFingeringMap,
   ManualHandOverrideMap,
   PlaybackScript,
+  ScoreTiming,
   ScriptNote,
 } from '../types/index.ts';
 import {
@@ -19,6 +20,7 @@ export interface NoteEvent {
   authoredFinger: Finger | null;
   /** MusicXML division onset of this note's step (from StepOrder.onset). */
   onset: number;
+  durationDivisions?: number;
 }
 
 export function extractHandTimelines(
@@ -38,6 +40,7 @@ export function extractHandTimelines(
         midi: note.midi,
         authoredFinger,
         onset: step.onset,
+        durationDivisions: note.durationDivisions,
       });
     }
   });
@@ -499,12 +502,13 @@ export async function fingerPhrase(
   spanScale = 1,
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
+  divisionsPerQuarter?: number,
 ): Promise<Finger[]> {
   if (notes.length === 0) {
     return [];
   }
 
-  const mlCosts = await getMLFingerCosts(notes);
+  const mlCosts = await getMLFingerCosts(notes, hand, { divisionsPerQuarter });
 
   const dp: Partial<Record<Finger, DpCell>>[] = [];
 
@@ -862,6 +866,7 @@ export async function fingerPhraseWithChords(
   spanScale = 1,
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
+  divisionsPerQuarter?: number,
 ): Promise<(Finger | null)[]> {
   if (phrase.length === 0) {
     return [];
@@ -892,6 +897,7 @@ export async function fingerPhraseWithChords(
       midi: representative.midi,
       authoredFinger: chordFingers[representativeIndex],
       onset: representative.onset,
+      durationDivisions: representative.durationDivisions,
     });
   }
 
@@ -902,6 +908,7 @@ export async function fingerPhraseWithChords(
     spanScale,
     startHome,
     repeatFinger,
+    divisionsPerQuarter,
   );
 
   representatives.forEach((representative, index) => {
@@ -936,6 +943,7 @@ async function predictFingersForHand(
   script: PlaybackScript,
   hand: Hand,
   spanScale: number,
+  divisionsPerQuarter?: number,
 ): Promise<(Finger | null)[]> {
   const timeline = extractHandTimelines(script)[hand];
   const phrases = segmentIntoPhrases(timeline);
@@ -953,6 +961,7 @@ async function predictFingersForHand(
       spanScale,
       startHome,
       repeatFinger,
+      divisionsPerQuarter,
     );
 
     phrase.forEach((note, index) => {
@@ -972,6 +981,7 @@ export interface PredictFingeringOptions {
   spanScale?: number;
   /** When true, score-authored fingerings are replaced by prediction; manual always wins. */
   overrideScore?: boolean;
+  divisionsPerQuarter?: number;
 }
 
 export async function predictFingering(
@@ -980,9 +990,10 @@ export async function predictFingering(
 ): Promise<PlaybackScript> {
   const spanScale = options.spanScale ?? 1;
   const overrideScore = options.overrideScore ?? false;
+  const divisionsPerQuarter = options.divisionsPerQuarter;
   const [leftFingers, rightFingers] = await Promise.all([
-    predictFingersForHand(script, 'L', spanScale),
-    predictFingersForHand(script, 'R', spanScale),
+    predictFingersForHand(script, 'L', spanScale, divisionsPerQuarter),
+    predictFingersForHand(script, 'R', spanScale, divisionsPerQuarter),
   ]);
   const fingersByHand: Record<Hand, (Finger | null)[]> = {
     L: leftFingers,
@@ -1127,9 +1138,10 @@ export async function applyFingeringSettings(
   autoFingering: boolean,
   spanScale: number,
   overrideScore = false,
+  divisionsPerQuarter?: number,
 ): Promise<PlaybackScript> {
   return autoFingering
-    ? predictFingering(script, { spanScale, overrideScore })
+    ? predictFingering(script, { spanScale, overrideScore, divisionsPerQuarter })
     : stripPredictedFingers(script);
 }
 
@@ -1140,9 +1152,16 @@ export async function prepareScriptWithFingering(
   spanScale: number,
   overrideScore = false,
   manualHandOverrides: ManualHandOverrideMap = {},
+  scoreTiming?: ScoreTiming | null,
 ): Promise<PlaybackScript> {
   const withHands = applyManualHandOverrides(script, manualHandOverrides);
   const withManual = applyManualFingerings(withHands, manualFingerings);
 
-  return applyFingeringSettings(withManual, autoFingering, spanScale, overrideScore);
+  return applyFingeringSettings(
+    withManual,
+    autoFingering,
+    spanScale,
+    overrideScore,
+    scoreTiming?.divisionsPerQuarter,
+  );
 }

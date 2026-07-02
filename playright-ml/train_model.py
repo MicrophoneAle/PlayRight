@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 import numpy as np
 import torch
@@ -41,7 +42,11 @@ class PianoFingeringDataset(Dataset):
         
         # Save the processed features as a numpy array
         self.features = df.values
-        self.input_size = self.features.shape[1] 
+        self.input_size = self.features.shape[1]
+        self.feature_names = df.columns.tolist()
+        self.numeric_cols = numeric_cols
+        self.scaler_mean = scaler.mean_.tolist()
+        self.scaler_scale = scaler.scale_.tolist()
         
         print(f"Preprocessing complete! Model will accept {self.input_size} input features.")
 
@@ -159,6 +164,17 @@ def train_model():
     )
     
     print("Export complete! You can now move 'fingering_model.onnx' to your Vite public/ folder.")
+
+    feature_meta = {
+        "feature_names": dataset.feature_names,
+        "numeric_cols": dataset.numeric_cols,
+        "scaler_mean": dataset.scaler_mean,
+        "scaler_scale": dataset.scaler_scale,
+        "input_size": dataset.input_size,
+    }
+    with open("../playright/public/fingering_model_features.json", "w", encoding="utf-8") as meta_file:
+        json.dump(feature_meta, meta_file, indent=2)
+    print("Wrote playright/public/fingering_model_features.json")
 
 if __name__ == "__main__":
     train_model()
