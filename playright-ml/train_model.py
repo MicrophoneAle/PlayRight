@@ -135,26 +135,27 @@ def train_model():
     # 5. EXPORT TO ONNX
     # ==========================================
     print("Exporting model to ONNX format...")
-    
+    model.eval()
+
     # Create a dummy input tensor that matches the shape of our sequences.
     # Shape: [batch_size=1, sequence_length=16, num_features]
     dummy_input = torch.randn(1, 16, dataset.input_size)
-    
-    # Export the model
+
+    # dynamo=False uses the legacy ONNX exporter (stable with dynamic_axes + LSTM).
     torch.onnx.export(
-        model, 
-        dummy_input, 
+        model,
+        dummy_input,
         "fingering_model.onnx",
         export_params=True,
-        opset_version=11,          # Standard, stable ONNX opset
-        do_constant_folding=True,  # Optimizes the graph for inference
+        opset_version=18,
+        do_constant_folding=True,
         input_names=['note_sequence'],
         output_names=['finger_logits'],
-        # Dynamic axes allow the browser to pass in phrases longer or shorter than 16 notes
         dynamic_axes={
             'note_sequence': {0: 'batch_size', 1: 'sequence_length'},
-            'finger_logits': {0: 'batch_size', 1: 'sequence_length'}
-        }
+            'finger_logits': {0: 'batch_size', 1: 'sequence_length'},
+        },
+        dynamo=False,
     )
     
     print("Export complete! You can now move 'fingering_model.onnx' to your Vite public/ folder.")
