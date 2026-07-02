@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/react';
 import { initFingeringModel } from './core/aiFingeringInference.ts';
+import {
+  resetSessionOnPageHide,
+  restoreSessionAfterPageShow,
+} from './core/sessionLifecycle.ts';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { fingeringProgramEngine } from './core/FingeringProgramEngine.ts';
@@ -28,6 +32,23 @@ function App() {
         );
       }
     })();
+
+    const handlePageHide = () => {
+      resetSessionOnPageHide();
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      void restoreSessionAfterPageShow(event.persisted);
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+      resetSessionOnPageHide();
+    };
   }, []);
 
   useEffect(() => {

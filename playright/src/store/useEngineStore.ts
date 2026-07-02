@@ -111,6 +111,11 @@ function syncPlaybackTempoFactor(factor: number): void {
 }
 
 function stopPlaybackSession(): void {
+  const state = useEngineStore.getState();
+  if (!state.isPlaybackActive && !state.isPlaybackPaused) {
+    return;
+  }
+
   void import('../core/PlaybackEngine.ts').then(({ playbackEngine }) => {
     playbackEngine.stop();
   });
@@ -379,6 +384,11 @@ export const useEngineStore = create<EngineState>((set) => {
   playingPlaybackNotes: [],
   actions: {
     loadScript: (script, rawXml, title, library, scoreTiming) => {
+      stopPlaybackSession();
+      if (useEngineStore.getState().fingeringMode === 'program') {
+        stopFingeringProgramSession();
+      }
+
       set({
         script,
         rawXml,
