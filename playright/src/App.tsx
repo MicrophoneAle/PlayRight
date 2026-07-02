@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/react';
+import { initFingeringModel } from './core/aiFingeringInference.ts';
 import { AudioEngine } from './core/AudioEngine.ts';
 import { InputManager } from './core/InputManager.ts';
 import { fingeringProgramEngine } from './core/FingeringProgramEngine.ts';
@@ -16,6 +17,18 @@ function App() {
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
   usePracticeKeyboardShortcuts();
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        await initFingeringModel();
+      } catch {
+        console.warn(
+          'AI Fingering Model failed to load, falling back to rule-based engine',
+        );
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (initializedRef.current) {

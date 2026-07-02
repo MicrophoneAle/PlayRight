@@ -1,9 +1,14 @@
 {
   "dependencies": {
     "fast-xml-parser": "^5.9.0",
+    "onnxruntime-web": "^1.27.0",
     "opensheetmusicdisplay": "^2.0.0",
     "tone": "^15.1.22",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
+  },
+  "allowScripts": {
+    "gl@9.0.0-rc.10": true,
+    "protobufjs@7.6.4": true
   }
 }

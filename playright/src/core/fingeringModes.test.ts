@@ -75,10 +75,10 @@ function resetStore(): void {
   });
 }
 
-function loadMinimalFixture(): PlaybackScript {
+async function loadMinimalFixture(): Promise<PlaybackScript> {
   const { script, scoreTiming } = parseMusicXmlToScript(MINIMAL_MUSICXML);
   const state = useEngineStore.getState();
-  const prepared = prepareScriptWithFingering(
+  const prepared = await prepareScriptWithFingering(
     script,
     {},
     state.autoFingering,
@@ -95,7 +95,7 @@ function loadMinimalFixture(): PlaybackScript {
   return prepared;
 }
 
-describe('program-mode chord targeting', () => {
+describe('program-mode chord targeting', async () => {
   const chordStep: PlaybackScript[number] = {
     order: 0,
     onset: 480,
@@ -106,7 +106,7 @@ describe('program-mode chord targeting', () => {
     ],
   };
 
-  it('binds the lowest unassigned pitch on the pressed hand', () => {
+  it('binds the lowest unassigned pitch on the pressed hand', async () => {
     const assigned = new Set<string>();
 
     expect(programTargetNote(chordStep, 'R', assigned)?.midi).toBe(64);
@@ -118,7 +118,7 @@ describe('program-mode chord targeting', () => {
     expect(programTargetNote(chordStep, 'R', assigned)).toBeNull();
   });
 
-  it('requires every note in the step before the step is complete', () => {
+  it('requires every note in the step before the step is complete', async () => {
     const manualFingerings: ManualFingeringMap = {};
     expect(isProgramStepComplete(chordStep, manualFingerings)).toBe(false);
 
@@ -129,7 +129,7 @@ describe('program-mode chord targeting', () => {
     expect(isProgramStepComplete(chordStep, manualFingerings)).toBe(true);
   });
 
-  it('selects the next unassigned note in ascending MIDI order', () => {
+  it('selects the next unassigned note in ascending MIDI order', async () => {
     const step: PlaybackScript[number] = {
       order: 0,
       onset: 0,
@@ -149,7 +149,7 @@ describe('program-mode chord targeting', () => {
     expect(programCurrentNote(step, manualFingerings)?.midi).toBe(64);
   });
 
-  it('reports per-hand assignment progress by physical playing hand', () => {
+  it('reports per-hand assignment progress by physical playing hand', async () => {
     const lhChordRhSingle: PlaybackScript[number] = {
       order: 0,
       onset: 0,
@@ -176,7 +176,7 @@ describe('program-mode chord targeting', () => {
     });
   });
 
-  it('matches practice finger presses by playingHand', () => {
+  it('matches practice finger presses by playingHand', async () => {
     const step: PlaybackScript[number] = {
       order: 0,
       onset: 0,
@@ -198,11 +198,11 @@ describe('program-mode chord targeting', () => {
   });
 });
 
-describe('FingeringProgramEngine', () => {
+describe('FingeringProgramEngine', async () => {
   let engine: FingeringProgramEngine;
   let audio: AudioEngine;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetStore();
     engine = new FingeringProgramEngine();
     audio = createMockAudio();
@@ -214,8 +214,8 @@ describe('FingeringProgramEngine', () => {
     vi.unstubAllGlobals();
   });
 
-  it('records RH finger on step note and advances like two-hand mode', () => {
-    loadMinimalFixture();
+  it('records RH finger on step note and advances like two-hand mode', async () => {
+    await loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program' });
     engine.start();
 
@@ -230,7 +230,7 @@ describe('FingeringProgramEngine', () => {
     expect(state.currentStepIndex).toBe(1);
   });
 
-  it('records RH crossover on bass note and counts physical RH in progress', () => {
+  it('records RH crossover on bass note and counts physical RH in progress', async () => {
     const lhBassRhTreble: PlaybackScript = [
       {
         order: 0,
@@ -308,7 +308,7 @@ describe('FingeringProgramEngine', () => {
     persistSpy.mockRestore();
   });
 
-  it('recalls crossover from persisted manual fingerings into playingHand', () => {
+  it('recalls crossover from persisted manual fingerings into playingHand', async () => {
     const lhBassRhTreble: PlaybackScript = [
       {
         order: 0,
@@ -321,7 +321,7 @@ describe('FingeringProgramEngine', () => {
       [fingeringKey(0, 'L', 48)]: { finger: 2 as Finger, physicalHand: 'R' as const },
     };
 
-    const prepared = prepareScriptWithFingering(
+    const prepared = await prepareScriptWithFingering(
       lhBassRhTreble,
       manualFingerings,
       false,
@@ -341,7 +341,7 @@ describe('FingeringProgramEngine', () => {
       .spyOn(scoreLibrary, 'updateScoreManualFingerings')
       .mockResolvedValue({ ok: true });
 
-    loadMinimalFixture();
+    await loadMinimalFixture();
     useEngineStore.setState({
       fingeringMode: 'program',
       scoreId: 'saved-score-id',
@@ -368,7 +368,7 @@ describe('FingeringProgramEngine', () => {
       .spyOn(scoreLibrary, 'updateScoreManualFingerings')
       .mockResolvedValue({ ok: true });
 
-    loadMinimalFixture();
+    await loadMinimalFixture();
     useEngineStore.setState({
       fingeringMode: 'program',
       scoreId: 'saved-score-id',
@@ -383,8 +383,8 @@ describe('FingeringProgramEngine', () => {
     persistSpy.mockRestore();
   });
 
-  it('requires all chord notes before advancing and keeps each finger', () => {
-    loadMinimalFixture();
+  it('requires all chord notes before advancing and keeps each finger', async () => {
+    await loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 1 });
     engine.start();
 
@@ -398,7 +398,7 @@ describe('FingeringProgramEngine', () => {
     expect(state.currentStepIndex).toBe(2);
   });
 
-  it('advances when LH chord and RH single note each receive a finger press', () => {
+  it('advances when LH chord and RH single note each receive a finger press', async () => {
     const lhChordRhSingle: PlaybackScript = [
       {
         order: 0,
@@ -442,7 +442,7 @@ describe('FingeringProgramEngine', () => {
     expect(state.currentStepIndex).toBe(1);
   });
 
-  it('survives script reprocess while programming a LH chord step', () => {
+  it('survives script reprocess while programming a LH chord step', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -478,7 +478,7 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex + 1);
   });
 
-  it('uses suspend instead of stop when entering program mode', () => {
+  it('uses suspend instead of stop when entering program mode', async () => {
     const storage = new Map<string, string>();
     const localStorageMock = {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -498,7 +498,7 @@ describe('FingeringProgramEngine', () => {
     vi.mocked(practiceEngine.stop).mockClear();
     vi.mocked(practiceEngine.suspendForFingeringMode).mockClear();
 
-    loadMinimalFixture();
+    await loadMinimalFixture();
     useEngineStore.setState({
       engineMode: 'two-hand',
       isPracticeActive: true,
@@ -516,8 +516,8 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
-  it('does not reset step index when start runs after the user has advanced', () => {
-    loadMinimalFixture();
+  it('does not reset step index when start runs after the user has advanced', async () => {
+    await loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 0, engineMode: 'two-hand' });
     engine.ensureStoreSubscription();
 
@@ -529,7 +529,7 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
-  it('does not restart program when program mode is selected again', () => {
+  it('does not restart program when program mode is selected again', async () => {
     const storage = new Map<string, string>();
     const localStorageMock = {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -546,7 +546,7 @@ describe('FingeringProgramEngine', () => {
     vi.stubGlobal('localStorage', localStorageMock);
     vi.stubGlobal('window', { localStorage: localStorageMock });
 
-    loadMinimalFixture();
+    await loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 2, engineMode: 'two-hand' });
 
     useEngineStore.getState().actions.setFingeringMode('program');
@@ -554,7 +554,7 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
-  it('advances chase step 2 (1 RH + 2 LH) only after all three presses', () => {
+  it('advances chase step 2 (1 RH + 2 LH) only after all three presses', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -598,7 +598,7 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex + 1);
   });
 
-  it('advances forward after sheet jump to a mid-piece step', () => {
+  it('advances forward after sheet jump to a mid-piece step', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -632,7 +632,7 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().programRefingerNoteIndex).toBeNull();
   });
 
-  it('preserves step index until every note in the step is assigned', () => {
+  it('preserves step index until every note in the step is assigned', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -655,8 +655,8 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(stepIndex);
   });
 
-  it('blocks external step seeks while in program mode', () => {
-    loadMinimalFixture();
+  it('blocks external step seeks while in program mode', async () => {
+    await loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program', currentStepIndex: 2, engineMode: 'two-hand' });
 
     useEngineStore.getState().actions.setStepIndex(1);
@@ -664,7 +664,7 @@ describe('FingeringProgramEngine', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
   });
 
-  it('seekToStep lands on a complete step for refingering instead of skipping forward', () => {
+  it('seekToStep lands on a complete step for refingering instead of skipping forward', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -802,7 +802,7 @@ describe('FingeringProgramEngine', () => {
     persistSpy.mockRestore();
   });
 
-  it('highlights every note in the current program step', () => {
+  it('highlights every note in the current program step', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -824,7 +824,7 @@ describe('FingeringProgramEngine', () => {
     );
   });
 
-  it('resolves full two-hand step notes for program sheet highlighting', () => {
+  it('resolves full two-hand step notes for program sheet highlighting', async () => {
     const CHASE_XML = readFileSync(
       new URL('../assets/chase-setsuna-yuki.musicxml', import.meta.url),
       'utf8',
@@ -843,8 +843,8 @@ describe('FingeringProgramEngine', () => {
     expect(new Set(expectedMidis)).toEqual(new Set(step.notes.map((n) => n.midi)));
   });
 
-  it('leaves unprogrammed notes on predicted fingers without a completion gate', () => {
-    loadMinimalFixture();
+  it('leaves unprogrammed notes on predicted fingers without a completion gate', async () => {
+    await loadMinimalFixture();
     useEngineStore.setState({ fingeringMode: 'program' });
     engine.start();
 
@@ -859,8 +859,8 @@ describe('FingeringProgramEngine', () => {
   });
 });
 
-describe('applyManualHandOverrides', () => {
-  it('updates note hand before manual fingering is applied', () => {
+describe('applyManualHandOverrides', async () => {
+  it('updates note hand before manual fingering is applied', async () => {
     const script: PlaybackScript = [
       {
         order: 0,
@@ -873,7 +873,7 @@ describe('applyManualHandOverrides', () => {
     const withHands = applyManualHandOverrides(script, {
       [manualHandOverrideKey(0, 48)]: 'R',
     });
-    const prepared = prepareScriptWithFingering(
+    const prepared = await prepareScriptWithFingering(
       withHands,
       { [fingeringKey(0, 'R', 48)]: 2 as Finger },
       false,
@@ -887,10 +887,10 @@ describe('applyManualHandOverrides', () => {
   });
 });
 
-describe('useEngineStore fingering mode', () => {
+describe('useEngineStore fingering mode', async () => {
   const storage = new Map<string, string>();
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetStore();
     storage.clear();
     const localStorageMock = {
@@ -907,7 +907,7 @@ describe('useEngineStore fingering mode', () => {
     };
     vi.stubGlobal('localStorage', localStorageMock);
     vi.stubGlobal('window', { localStorage: localStorageMock });
-    loadMinimalFixture();
+    await loadMinimalFixture();
   });
 
   afterEach(() => {
@@ -950,7 +950,7 @@ describe('useEngineStore fingering mode', () => {
     expect(state.isPracticeActive).toBe(false);
   });
 
-  it('exits program mode when switching to one-hand practice', () => {
+  it('exits program mode when switching to one-hand practice', async () => {
     useEngineStore.getState().actions.setEngineMode('two-hand');
     useEngineStore.getState().actions.setFingeringMode('program');
 

@@ -64,7 +64,7 @@ export function Lid() {
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const totalSteps = useEngineStore((state) => state.totalSteps);
 
-  const prepareScriptForLoad = (
+  const prepareScriptForLoad = async (
     script: PlaybackScript,
     manualFingerings: ManualFingeringMap = {},
     manualHandOverrides: ManualHandOverrideMap = {},
@@ -390,7 +390,7 @@ export function Lid() {
         const text = await readMusicXmlFromFile(file);
         const { script, scoreTiming, warnings } = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
-        const loadedScript = prepareScriptForLoad(script);
+        const loadedScript = await prepareScriptForLoad(script);
         let scoreId: string | null = null;
 
         if (userId) {
@@ -433,7 +433,7 @@ export function Lid() {
 
     try {
       const { script, scoreTiming, warnings } = parseMusicXmlToScript(saved.raw_xml);
-      const loadedScript = prepareScriptForLoad(script, saved.manual_fingerings);
+      const loadedScript = await prepareScriptForLoad(script, saved.manual_fingerings);
       loadScript(loadedScript, saved.raw_xml, saved.title, {
         scoreId: saved.id,
         manualFingerings: saved.manual_fingerings,

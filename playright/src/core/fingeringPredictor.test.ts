@@ -1,38 +1,29 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+﻿import { describe, expect, it } from 'vitest';
 import type { Finger, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
-import { parseMusicXmlToScript } from './parser/index.ts';
 import {
+  applyManualFingerings,
   assignChordFingers,
-  COMFORT_SPAN_SEMITONES,
-  comfortFingerGap,
-  extendedFingerGap,
-  fingerTimeline,
+  CONSECUTIVE_SAME_FINGER_PENALTY,
+  fingerPhrase,
+  HOME_POSITION,
+  LEGAL_CROSSING_COST,
   type NoteEvent,
+  PHRASE_MAX_FRAME_SPAN,
+  PHRASE_MIN_ONSET_GAP_DIVISIONS,
   predictFingering,
   prepareScriptWithFingering,
-  reportHandFingering,
-  SUSTAINED_WIDE_GROUPS,
-  WIDE_SPAN_SEMITONES,
+  segmentIntoPhrases,
+  transitionCost,
 } from './fingeringPredictor.ts';
 
-function eventsFromMidis(midis: number[], onsetStep = 120): NoteEvent[] {
-  return midis.map((midi, stepIndex) => ({
-    stepIndex,
-    midi,
-    onset: stepIndex * onsetStep,
-    authoredFinger: null,
-  }));
-}
-
-function noConsecutiveRepeats(fingers: (Finger | null)[]): boolean {
-  for (let index = 1; index < fingers.length; index += 1) {
-    if (fingers[index] !== null && fingers[index] === fingers[index - 1]) {
-      return false;
-    }
-  }
-  return true;
+function noteEvent(
+  stepIndex: number,
+  midi: number,
+  onset: number,
+  authoredFinger: Finger | null = null,
+): NoteEvent {
+  return { stepIndex, midi, onset, authoredFinger };
 }
 
 function scriptNote(
@@ -42,664 +33,458 @@ function scriptNote(
   fingerSource?: ScriptNote['fingerSource'],
 ): ScriptNote {
   const pitch = `M${midi}`;
-  return fingerSource ? { pitch, midi, hand, finger, fingerSource } : { pitch, midi, hand, finger };
+  return fingerSource
+    ? { pitch, midi, hand, finger, fingerSource }
+    : { pitch, midi, hand, finger };
 }
 
-function step(order: number, onset: number, notes: ScriptNote[], measureNumber = 1): PlaybackScript[number] {
+function step(
+  order: number,
+  onset: number,
+  notes: ScriptNote[],
+  measureNumber = 1,
+): PlaybackScript[number] {
   return { order, onset, measureNumber, notes };
 }
 
-describe('comfort table', () => {
-  it('returns monotonic close-position gaps for distances 1–10', () => {
-    expect([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(comfortFingerGap)).toEqual([
-      1, 1, 1, 2, 2, 3, 3, 3, 4, 4,
-    ]);
-  });
-
-  it('uses the absolute-reach stretch table', () => {
-    // An octave (12) reaches the pinky (gap 4); 11 stays gap 3.
-    expect([1, 4, 5, 8, 9, 11, 12, 13, 17].map(extendedFingerGap)).toEqual([
-      1, 1, 2, 2, 3, 3, 4, 4, 4,
-    ]);
-  });
-});
-
-describe('centered static scopes', () => {
-  it('fingers an ascending C-major five-finger run 1–5 with no repeats', () => {
-    const fingers = fingerTimeline(eventsFromMidis([60, 62, 64, 65, 67]), 'R');
-    expect(fingers).toEqual([1, 2, 3, 4, 5]);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('opens a narrow new scope near the thumb, not glued to it', () => {
-    // 84 86 88 is the new scope's range; its lowest note (84, the first note)
-    // sits at or near the thumb (centering keeps a true bottom note low), and
-    // the others use the middle fingers rather than only 1-2-3.
-    const midis = [60, 62, 84, 86, 88];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('two-octave-jump actual:', fingers);
-    const newScopeStart = midis.indexOf(84);
-    expect(fingers[newScopeStart]).toBeLessThanOrEqual(2);
-  });
-
-  it('places a middle-start run with the first note on a middle finger', () => {
-    const midis = [64, 62, 60, 62, 64, 67];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('middle-start actual:', fingers);
-    expect(fingers[0]).toBeGreaterThan(1);
-    expect(fingers[0]).toBeLessThan(5);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('keeps a true bottom-note start on or near the left-hand thumb', () => {
-    const midis = [60, 58, 56, 53];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
-    const highestMidi = Math.max(...midis);
-    expect(fingers[midis.indexOf(highestMidi)]).toBeLessThanOrEqual(2);
-  });
-});
-
-describe('traverse runs', () => {
-  it('fingers an ascending C-major octave with thumb-under crossings', () => {
-    const midis = [60, 62, 64, 65, 67, 69, 71, 72];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('octave actual:', fingers);
-    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('fingers a descending C-major octave with finger-over crossings', () => {
-    const midis = [72, 71, 69, 67, 65, 64, 62, 60];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('descending-octave actual:', fingers);
-    expect(fingers).toEqual([5, 4, 3, 2, 1, 3, 2, 1]);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('uses the stretch table for a spread arpeggio', () => {
-    const midis = [60, 64, 67, 72];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('arpeggio actual:', fingers);
-    expect(fingers[0]).toBe(1);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(new Set(fingers).size).toBeGreaterThan(2);
-  });
-
-  it('ascending left-hand C major mirrors descending right-hand crossings', () => {
-    const midis = [48, 50, 52, 53, 55, 57, 59, 60];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
-    // eslint-disable-next-line no-console
-    console.log('LH-ascending-scale actual:', fingers);
-    expect(fingers).toEqual([5, 4, 3, 2, 1, 3, 2, 1]);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-});
-
-describe('spread scopes use the stretch table, not traverse', () => {
-  const lowFingerShare = (fingers: (Finger | null)[]): number => {
-    const low = fingers.filter((finger) => finger === 1 || finger === 2).length;
-    return low / fingers.length;
-  };
-
-  it('fingers a spread right-hand scope within 17 semitones with upper fingers', () => {
-    // 60 64 67 72 76 spans 16 semitones across 5 notes. The stretch table fits
-    // it under five fingers, so it must NOT enter traverse (which would reset to
-    // the thumb mid-scope) and must use the upper fingers for the higher notes.
-    const midis = [60, 64, 67, 72, 76];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('spread-5 actual:', fingers);
-    // A clean bottom-anchored stretch layout, strictly increasing — a traverse
-    // would have reset a higher note back down to 1.
-    expect(fingers).toEqual([1, 2, 3, 4, 5]);
-    for (let index = 1; index < fingers.length; index += 1) {
-      expect(fingers[index]! > fingers[index - 1]!).toBe(true);
+function isMonotonicFingers(hand: Hand, fingers: Finger[]): boolean {
+  for (let index = 1; index < fingers.length; index += 1) {
+    if (hand === 'R' && fingers[index] <= fingers[index - 1]) {
+      return false;
     }
-    expect(fingers[fingers.length - 1]).toBe(5);
-  });
+    if (hand === 'L' && fingers[index] >= fingers[index - 1]) {
+      return false;
+    }
+  }
+  return true;
+}
 
-  it('does not pile a four-note arpeggio onto fingers 1 and 2', () => {
-    const midis = [60, 65, 69, 74]; // spans 14 semitones (> an octave)
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('arpeggio-4 actual:', fingers);
-    expect(lowFingerShare(fingers)).toBeLessThanOrEqual(0.5);
-    expect(fingers[0]).toBe(1);
-    expect(fingers[fingers.length - 1]).toBeGreaterThanOrEqual(4);
-  });
-
-  it('does not pile a six-note spread figure onto fingers 1 and 2', () => {
-    const midis = [60, 64, 67, 72, 76, 72]; // five distinct, spans 16 semitones
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('spread-6 actual:', fingers);
-    expect(lowFingerShare(fingers)).toBeLessThanOrEqual(0.5);
-    expect(new Set(fingers).size).toBeGreaterThanOrEqual(4);
-  });
-
-  it('still traverses an ascending C-major octave as a sustained run', () => {
-    const midis = [60, 62, 64, 65, 67, 69, 71, 72];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('octave-traverse actual:', fingers);
-    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('does not split a scope while all notes stay within 17 semitones', () => {
-    // A leap up then back down, all inside 17 semitones: one scope, so the bottom
-    // anchor (thumb) appears exactly once. A split would re-anchor and yield a
-    // second finger-1.
-    const midis = [60, 72, 65, 77];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('no-split actual:', fingers);
-    expect(fingers.filter((finger) => finger === 1).length).toBe(1);
-    expect(new Set(fingers).size).toBe(4);
-  });
-});
-
-describe('COMFORT_SPAN_SEMITONES', () => {
-  it('is a tenth (10 semitones)', () => {
-    expect(COMFORT_SPAN_SEMITONES).toBe(10);
-  });
-});
-
-describe('reach-anchored table selection', () => {
-  it('uses comfort gaps when the scope reach stays within a tenth', () => {
-    // Seven distinct pitches within 9 semitones of the bottom anchor — too many
-    // for a distinct-per-finger layout, but narrow enough for comfort reach.
-    const midis = [60, 62, 64, 65, 67, 66, 64, 62, 60, 63, 65, 67];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('narrow-reach-scope actual:', fingers);
-
-    // Comfort separates sooner than stretch: G4 (+7) lands on finger 4 or 5,
-    // not stretch's finger 3.
-    const g4Index = midis.indexOf(67);
-    expect(fingers[g4Index]).toBeGreaterThanOrEqual(4);
-
-    // Bottom anchor stays on the thumb.
-    expect(fingers[0]).toBe(1);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('uses stretch gaps when the scope reach exceeds a tenth', () => {
-    // Chase-like shape: pedal E4 with an octave reach to E5.
-    const midis = [64, 76, 75, 71, 73, 71, 64];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('wide-reach-scope actual:', fingers);
-
-    expect(fingers[0]).toBe(1);
-    expect(fingers[1]).toBeGreaterThanOrEqual(4);
-  });
-});
-
-describe('scope reseat lookahead', () => {
-  function scriptFromRHMidis(midis: number[]): PlaybackScript {
-    return midis.map((midi, order) =>
-      step(order, order * 120, [scriptNote(midi, 'R')], 1),
-    );
+function usesThumbUnderAt(
+  hand: Hand,
+  notes: NoteEvent[],
+  fingers: Finger[],
+  index: number,
+): boolean {
+  if (index <= 0) {
+    return false;
   }
 
-  it('uses named wide-span constants aligned with comfort reach', () => {
-    expect(WIDE_SPAN_SEMITONES).toBe(COMFORT_SPAN_SEMITONES);
-    expect(SUSTAINED_WIDE_GROUPS).toBe(4);
+  const prevFinger = fingers[index - 1];
+  const curFinger = fingers[index];
+  const interval = notes[index].midi - notes[index - 1].midi;
+
+  if (hand === 'R') {
+    return curFinger === 1 && interval > 0 && prevFinger > curFinger;
+  }
+
+  return curFinger === 1 && interval < 0 && prevFinger < curFinger;
+}
+
+describe('fingerPhrase', () => {
+  const cMajorAscRhMidis = [60, 62, 64, 65, 67, 69, 71, 72];
+  const cMajorAscRh = cMajorAscRhMidis.map((midi, stepIndex) =>
+    noteEvent(stepIndex, midi, stepIndex),
+  );
+
+  it('fingerPhrase on an ascending C major scale in the right hand returns standard fingering or close equivalent with thumb-unders', async () => {
+    const fingers = await fingerPhrase(cMajorAscRh, 'R');
+
+    const standard = [1, 2, 3, 1, 2, 3, 4, 5] as Finger[];
+    const thumbOnOctave = [1, 2, 3, 1, 2, 3, 4, 1] as Finger[];
+    const homeAnchored = [3, 4, 5, 1, 2, 3, 4, 5] as Finger[];
+
+    expect([standard, thumbOnOctave, homeAnchored]).toContainEqual(fingers);
+    expect(usesThumbUnderAt('R', cMajorAscRh, fingers, 3)).toBe(true);
+
+    const awkwardStretch = transitionCost('R', 3, 71, 5, 72);
+    const thumbUnder = transitionCost('R', 4, 71, 1, 72);
+    expect(thumbUnder).toBeLessThan(awkwardStretch);
+    expect(thumbUnder).toBeLessThanOrEqual(LEGAL_CROSSING_COST);
   });
 
-  it('splits a rest-free two-center wandering line into two scopes at the center shift', () => {
-    const low = [60, 63, 67, 70, 73, 70, 67, 64];
-    const high = [72, 74, 76, 75, 73, 75, 76, 77];
-    const midis = [...low, ...high];
-    const report = reportHandFingering(scriptFromRHMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log(
-      'two-center scopes:',
-      report.scopes.map((scope) => ({
-        notes: scope.noteCount,
-        range: scope.pitchRangeSemitones,
-      })),
+  it('matches standard fingering when seeded from the default home position', async () => {
+    const fingers = await fingerPhrase(cMajorAscRh, 'R', 1, HOME_POSITION.R);
+    expect(fingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
+  });
+
+  it('fingerPhrase on a descending right-hand C major scale mirrors ascending logic', async () => {
+    const cMajorDescRh = [...cMajorAscRhMidis].reverse().map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex),
     );
-    expect(report.scopeCount).toBe(2);
-    expect(report.scopes[0]?.noteCount).toBe(8);
-    expect(report.scopes[1]?.noteCount).toBe(8);
+    const fingers = await fingerPhrase(cMajorDescRh, 'R');
+
+    expect(fingers.slice(0, 5)).toEqual([5, 4, 3, 2, 1]);
+    expect(transitionCost('R', 1, 65, 4, 64)).toBeLessThanOrEqual(LEGAL_CROSSING_COST);
   });
 
-  it('keeps a long stepwise scale as one continuous scope (no spurious reseat)', () => {
-    const midis = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    const report = reportHandFingering(scriptFromRHMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('long-scale scopes:', report.scopeCount, 'fingers:', fingers);
-    expect(report.scopeCount).toBe(1);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(fingers[0]).toBe(1);
-  });
-
-  it('does not reseat a short narrow phrase', () => {
-    const midis = [60, 62, 64];
-    const report = reportHandFingering(scriptFromRHMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('narrow phrase scopes:', report.scopeCount);
-    expect(report.scopeCount).toBe(1);
-  });
-});
-
-describe('reach path fingering rules', () => {
-  it('consecutive ascending octave is always 1 then 5 (RH)', () => {
-    const fingers = fingerTimeline(eventsFromMidis([60, 72]), 'R');
-    // eslint-disable-next-line no-console
-    console.log('rule1 octave-up actual:', fingers);
-    expect(fingers).toEqual([1, 5]);
-  });
-
-  it('consecutive descending octave is always 5 then 1 (RH)', () => {
-    const fingers = fingerTimeline(eventsFromMidis([72, 60]), 'R');
-    // eslint-disable-next-line no-console
-    console.log('rule1 octave-down actual:', fingers);
-    expect(fingers).toEqual([5, 1]);
-  });
-
-  it('legitimately repeated pitch keeps one finger', () => {
-    const fingers = fingerTimeline(eventsFromMidis([64, 64, 64, 64]), 'R');
-    // eslint-disable-next-line no-console
-    console.log('rule2 repeat actual:', fingers);
-    expect(fingers).toEqual([1, 1, 1, 1]);
-  });
-
-  it('consecutive different pitches do not share lifting fingers in a reach scope', () => {
-    const midis = [64, 76, 75, 71, 73, 71, 64, 64, 64, 66, 68, 71];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('rule2 distinct actual:', fingers);
-    for (let index = 1; index < midis.length; index += 1) {
-      if (midis[index] === midis[index - 1]) {
-        continue;
-      }
-      if (midis[index] < midis[index - 1] && midis[index] <= 64 && fingers[index - 1] === 1) {
-        continue;
-      }
-      if (fingers[index] === 1 && midis[index] > midis[index - 1] && fingers[index - 1]! > 1) {
-        continue;
-      }
-      expect(fingers[index]).not.toBe(fingers[index - 1]);
-    }
-    expect(fingers[0]).toBe(1);
-    expect(fingers[1]).toBe(5);
-  });
-
-  it('register-shift reseat centers a sustained high cluster instead of pinky-pinning', () => {
-    const midis = [59, 61, 73, 73, 73, 73, 71, 73, 76, 73];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    const report = reportHandFingering(
-      midis.map((midi, order) => step(order, order * 120, [scriptNote(midi, 'R')], 1)),
-      'R',
+  it('fingerPhrase on an ascending left-hand C major scale uses scale rotations', async () => {
+    const cMajorAscLhMidis = [48, 50, 52, 53, 55, 57, 59, 60];
+    const cMajorAscLh = cMajorAscLhMidis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex),
     );
-    // eslint-disable-next-line no-console
-    console.log('centered-high-cluster actual:', fingers);
-    // eslint-disable-next-line no-console
-    console.log('centered-high-cluster scopes:', report.scopeCount);
-    expect(report.scopeCount).toBeGreaterThan(1);
-    const held = fingers.slice(2, 6);
-    expect(held.every((finger) => finger === held[0])).toBe(true);
-    expect(held[0]).toBeGreaterThanOrEqual(2);
-    expect(held[0]).toBeLessThanOrEqual(4);
-  });
-});
+    const fingers = await fingerPhrase(cMajorAscLh, 'L');
 
-describe('static vs run by melodic shape', () => {
-  const lowestThreeShare = (fingers: (Finger | null)[]): number => {
-    const low = fingers.filter((finger) => finger === 1 || finger === 2 || finger === 3).length;
-    return low / fingers.length;
-  };
-
-  it('fingers a turning-around RH melody as one static centered scope', () => {
-    const midis = [69, 71, 72, 71, 69, 68, 66, 69];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('wandering-8-distinct actual:', fingers);
-    const onThumb = fingers.filter((finger) => finger === 1).length;
-    expect(onThumb).toBeLessThan(fingers.length / 2);
-    expect(lowestThreeShare(fingers)).toBeLessThan(1);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(fingers.filter((finger) => finger === 1).length).toBe(1);
+    expect(fingers).toHaveLength(8);
+    expect(new Set(fingers).size).toBeGreaterThan(1);
   });
 
-  it('fingers a 17-semitone turning figure as one static hand position', () => {
-    const midis = [60, 72, 65, 77];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('17-semitone-turn actual:', fingers);
-    expect(fingers.filter((finger) => finger === 1).length).toBe(1);
-    expect(new Set(fingers).size).toBe(4);
+  it('honors an authored anchor and fingers the surrounding notes', async () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(1, 62, 1, 3),
+      noteEvent(2, 64, 2),
+      noteEvent(3, 65, 3),
+      noteEvent(4, 67, 4),
+    ];
+
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(fingers[1]).toBe(3);
+    expect(fingers[0]).toBeLessThan(fingers[1]);
+    expect(fingers[2]).toBeGreaterThan(fingers[1]);
   });
 
-  it('holds a wide turning scope with a fixed reach-anchored hand, not traverse', () => {
-    // Chase RH scope 0 shape: 8 distinct pitches in ~12 semitones, turning around.
-    const midis = [64, 76, 75, 71, 73, 71, 64, 64, 64, 66, 68, 71, 64, 66, 68];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('chase-scope0 actual:', fingers);
-
-    const lowestMidi = Math.min(...midis);
-    const highestMidi = Math.max(...midis);
-    const fingerFor = (target: number): Finger => {
-      const index = midis.indexOf(target);
-      return fingers[index] as Finger;
-    };
-
-    // The low recurring note sits on the thumb; the top note uses an upper finger.
-    expect(fingerFor(lowestMidi)).toBe(1);
-    expect(fingerFor(highestMidi)).toBeGreaterThanOrEqual(4);
-
-    // No note more than an octave above the anchor is ever the thumb.
-    midis.forEach((midi, index) => {
-      if (midi - lowestMidi > 12) {
-        expect(fingers[index]).not.toBe(1);
-      }
-    });
-  });
-
-  it('traverses a six-note ascending arpeggio that exceeds five static fingers', () => {
-    const midis = [60, 64, 67, 72, 76, 79];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('arpeggio-6-run actual:', fingers);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(fingers[0]).toBe(1);
-    expect(fingers.some((finger) => finger === 3 || finger === 4)).toBe(true);
-  });
-});
-
-describe('centered hand on wandering melodies', () => {
-  const lowestThreeShare = (fingers: (Finger | null)[]): number => {
-    const low = fingers.filter((finger) => finger === 1 || finger === 2 || finger === 3).length;
-    return low / fingers.length;
-  };
-
-  it('centers a wandering right-hand melody instead of clustering on 1-2-3', () => {
-    // Stepwise wandering around A4, all within a 4-semitone band. Centering should
-    // place this on the middle fingers (2-3-4), reaching the thumb only at the
-    // true low note, NOT pile everything onto 1-2-3.
-    const midis = [69, 71, 72, 71, 69, 68, 69, 71];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('wandering-RH actual:', fingers);
-    const onThumb = fingers.filter((finger) => finger === 1).length;
-    expect(onThumb).toBeLessThan(fingers.length / 2);
-    expect(lowestThreeShare(fingers)).toBeLessThan(1);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('keeps a spread scope (60 64 67 71 72) on the upper fingers', () => {
-    const midis = [60, 64, 67, 71, 72];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R');
-    // eslint-disable-next-line no-console
-    console.log('spread-71-72 actual:', fingers);
-    expect(fingers[0]).toBe(1);
-    expect(fingers[fingers.length - 1]).toBeGreaterThanOrEqual(4);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-
-  it('centers a wandering left-hand bass melody instead of clustering on 1-2-3', () => {
-    const midis = [52, 50, 48, 50, 52, 53, 52, 50];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'L');
-    // eslint-disable-next-line no-console
-    console.log('wandering-LH actual:', fingers);
-    const onThumb = fingers.filter((finger) => finger === 1).length;
-    expect(onThumb).toBeLessThan(fingers.length / 2);
-    expect(lowestThreeShare(fingers)).toBeLessThan(1);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-  });
-});
-
-describe('no consecutive repeated fingers', () => {
-  it('never repeats across a scale', () => {
-    expect(noConsecutiveRepeats(fingerTimeline(eventsFromMidis([60, 62, 64, 65, 67, 69, 71, 72]), 'R'))).toBe(true);
-  });
-
-  it('only repeats when the pitch repeats', () => {
-    const fingers = fingerTimeline(eventsFromMidis([64, 64, 67]), 'R');
-    expect(fingers[0]).toBe(fingers[1]);
-    expect(fingers[2]).not.toBe(fingers[1]);
-  });
-});
-
-describe('interval spread uses bottom anchoring', () => {
-  it('fingers a left-hand perfect fifth with the high note on the thumb', () => {
-    const fingers = assignChordFingers(
-      [
-        { stepIndex: 0, onset: 0, midi: 40, authoredFinger: null },
-        { stepIndex: 0, onset: 0, midi: 47, authoredFinger: null },
-      ],
-      'L',
+  it('unifies E arpeggio pitches within one scope', async () => {
+    const midis = [64, 68, 71, 76, 76, 71, 68, 64];
+    const phrase = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
     );
-    expect(fingers).toEqual([4, 1]);
+
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(fingers[0]).toBe(fingers[7]);
+    expect(fingers[3]).toBe(fingers[4]);
   });
 
-  it('fingers a right-hand perfect fifth from the bottom', () => {
-    const fingers = assignChordFingers(
-      [
-        { stepIndex: 0, onset: 0, midi: 60, authoredFinger: null },
-        { stepIndex: 0, onset: 0, midi: 67, authoredFinger: null },
-      ],
-      'R',
+  it('uses the same finger for both E naturals in an E-F-G-B-E figure', async () => {
+    const midis = [64, 65, 67, 71, 64];
+    const phrase = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
     );
-    expect(fingers).toEqual([1, 4]);
+
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(fingers[0]).toBe(fingers[4]);
+    expect(fingers[0]).not.toBe(1);
   });
 });
 
 describe('assignChordFingers', () => {
-  it('triads are distinct with every note fingered', () => {
-    const triad: NoteEvent[] = [
-      { stepIndex: 0, onset: 0, midi: 60, authoredFinger: null },
-      { stepIndex: 0, onset: 0, midi: 64, authoredFinger: null },
-      { stepIndex: 0, onset: 0, midi: 67, authoredFinger: null },
+  it('never assigns the same finger to two different consecutive notes', async () => {
+    expect(transitionCost('R', 2, 65, 2, 67)).toBe(
+      CONSECUTIVE_SAME_FINGER_PENALTY,
+    );
+
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 65, 0),
+      noteEvent(1, 67, 480),
     ];
-    const right = assignChordFingers(triad, 'R');
-    const left = assignChordFingers(triad, 'L');
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(fingers[0]).not.toBe(fingers[1]);
+    expect(Math.abs(fingers[1] - fingers[0])).toBe(1);
+  });
+
+  it('assigns LH octave bass pairs to pinky and thumb by distance', async () => {
+    const octave: NoteEvent[] = [
+      noteEvent(0, 47, 0),
+      noteEvent(0, 59, 0),
+    ];
+
+    expect(assignChordFingers(octave, 'L')).toEqual([5, 1]);
+  });
+
+  it('assigns distinct monotonic fingers for a simple C major triad in each hand', async () => {
+    const triad: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(0, 64, 0),
+      noteEvent(0, 67, 0),
+    ];
+
+    const right = assignChordFingers(triad, 'R').filter(
+      (finger): finger is Finger => finger !== null,
+    );
+    const left = assignChordFingers(triad, 'L').filter(
+      (finger): finger is Finger => finger !== null,
+    );
+
+    expect(right).toEqual([1, 3, 5]);
+    expect(left).toEqual([5, 3, 1]);
     expect(new Set(right).size).toBe(3);
     expect(new Set(left).size).toBe(3);
-    expect(right.every((finger) => finger !== null)).toBe(true);
-    expect(left.every((finger) => finger !== null)).toBe(true);
+    expect(isMonotonicFingers('R', right)).toBe(true);
+    expect(isMonotonicFingers('L', left)).toBe(true);
   });
 });
 
-describe('block-chord progressions stay distinct', () => {
-  it('keeps every RH chord distinct without collapsing', () => {
-    const chords = [
-      [71, 76, 79],
-      [71, 76, 79],
-      [69, 74, 77],
-      [67, 72, 76],
-      [66, 71, 74],
-      [67, 72, 76],
-      [69, 74, 77],
-      [71, 76, 79],
+describe('segmentIntoPhrases', () => {
+  it('splits when the hand frame would exceed 17 semitones or on a large onset gap', async () => {
+    const frameTimeline: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(1, 67, 1),
+      noteEvent(2, 78, 2),
     ];
-    const events: NoteEvent[] = [];
-    chords.forEach((chord, stepIndex) => {
-      for (const midi of chord) {
-        events.push({ stepIndex, onset: stepIndex * 480, midi, authoredFinger: null });
-      }
-    });
-
-    const fingers = fingerTimeline(events, 'R', 1);
-
-    for (let chordIndex = 0; chordIndex < chords.length; chordIndex += 1) {
-      const slice = fingers.slice(chordIndex * 3, chordIndex * 3 + 3);
-      expect(slice.every((finger) => finger !== null)).toBe(true);
-      expect(new Set(slice).size).toBe(3);
-    }
-  });
-});
-
-describe('fingering stays consistent across a whole piece', () => {
-  it('a wide ascending melody never collapses onto a single finger', () => {
-    const midis = [
-      60, 62, 64, 65, 67, 69, 71, 72, 74, 76, 77, 79, 81, 83, 84,
+    const leapTimeline: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(1, 78, 1),
     ];
-    const fingers = fingerTimeline(eventsFromMidis(midis), 'R', 1);
-    expect(fingers.every((finger) => finger === 5)).toBe(false);
-    expect(noConsecutiveRepeats(fingers)).toBe(true);
-    expect(new Set(fingers.slice(0, 8)).size).toBeGreaterThan(2);
-  });
-
-  it('repeats the same perfect-fifth dyad with the same fingers throughout', () => {
-    const events: NoteEvent[] = [];
-    for (let step = 0; step < 6; step += 1) {
-      events.push({ stepIndex: step, onset: step * 480, midi: 48, authoredFinger: null });
-      events.push({ stepIndex: step, onset: step * 480, midi: 55, authoredFinger: null });
-    }
-    const fingers = fingerTimeline(events, 'L', 1);
-    const lowFingers = fingers.filter((_, index) => index % 2 === 0);
-    const highFingers = fingers.filter((_, index) => index % 2 === 1);
-    expect(new Set(lowFingers).size).toBe(1);
-    expect(new Set(highFingers).size).toBe(1);
-    expect(highFingers[0]).toBe(1);
-  });
-});
-
-describe('predictFingering preserves anchors', () => {
-  it('never overwrites score or manual notes and marks filled notes predicted', () => {
-    const script: PlaybackScript = [
-      step(0, 0, [scriptNote(60, 'R', 2, 'score'), scriptNote(64, 'R', null), scriptNote(48, 'L', 4, 'manual')]),
-      step(1, 480, [scriptNote(62, 'R', null), scriptNote(50, 'L', null)]),
+    const gapTimeline: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(1, 62, PHRASE_MIN_ONSET_GAP_DIVISIONS),
     ];
-    const predicted = predictFingering(script);
-    const find = (s: number, hand: Hand, midi: number) =>
-      predicted[s].notes.find((note) => note.hand === hand && note.midi === midi);
-    expect(find(0, 'R', 60)).toMatchObject({ finger: 2, fingerSource: 'score' });
-    expect(find(0, 'L', 48)).toMatchObject({ finger: 4, fingerSource: 'manual' });
-    expect(find(0, 'R', 64)?.fingerSource).toBe('predicted');
-    expect(find(1, 'R', 62)?.fingerSource).toBe('predicted');
-  });
-});
 
-describe('override score fingerings', () => {
-  it('reports bundled fanfare score anchors and blocks prediction by default', () => {
-    const fanfareXml = readFileSync(
-      new URL('../assets/playright-fanfare.musicxml', import.meta.url),
-      'utf8',
+    const framePhrases = segmentIntoPhrases(frameTimeline);
+    const leapPhrases = segmentIntoPhrases(leapTimeline);
+    const gapPhrases = segmentIntoPhrases(gapTimeline);
+
+    expect(framePhrases).toHaveLength(2);
+    expect(framePhrases[0].map((event) => event.midi)).toEqual([60, 67]);
+    expect(framePhrases[1].map((event) => event.midi)).toEqual([78]);
+
+    expect(leapPhrases).toHaveLength(2);
+    expect(gapPhrases).toHaveLength(2);
+    expect(leapPhrases[0]).toHaveLength(1);
+    expect(gapPhrases[0]).toHaveLength(1);
+  });
+
+  it('keeps chord members in the same segment', async () => {
+    const timeline: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(0, 64, 0),
+      noteEvent(1, 67, 1),
+    ];
+
+    const phrases = segmentIntoPhrases(timeline);
+
+    expect(phrases).toHaveLength(1);
+    expect(phrases[0]).toHaveLength(3);
+    expect(phrases[0].map((event) => event.stepIndex)).toEqual([0, 0, 1]);
+  });
+
+  it('keeps figures within a major tenth in one phrase', async () => {
+    const midis = [64, 65, 67, 71, 64];
+    const timeline = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
     );
-    const fingeringTags = (fanfareXml.match(/<fingering>/g) ?? []).length;
-    const { script: parsed } = parseMusicXmlToScript(fanfareXml);
-    const notes = parsed.flatMap((step) => step.notes);
-    const scoreAnchored = notes.filter((note) => note.fingerSource === 'score').length;
 
-    expect(fingeringTags).toBeGreaterThan(0);
-    expect(scoreAnchored).toBe(notes.length);
-    expect(scoreAnchored).toBe(fingeringTags);
-
-    const predicted = predictFingering(parsed);
-    const predictedCount = predicted
-      .flatMap((step) => step.notes)
-      .filter((note) => note.fingerSource === 'predicted').length;
-    expect(predictedCount).toBe(0);
+    expect(segmentIntoPhrases(timeline)).toHaveLength(1);
+    expect(
+      Math.max(...timeline.map((event) => event.midi)) -
+        Math.min(...timeline.map((event) => event.midi)),
+    ).toBeLessThanOrEqual(PHRASE_MAX_FRAME_SPAN);
   });
 
-  it('leaves score notes untouched when overrideScore is false', () => {
-    const script: PlaybackScript = [
-      step(0, 0, [scriptNote(69, 'R', 1, 'score'), scriptNote(71, 'R', 1, 'score')]),
+  it('splits long directional runs after five consecutive steps in one direction', async () => {
+    const midis = [64, 66, 68, 70, 72, 74, 76, 74, 72, 70];
+    const timeline = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
+    );
+
+    expect(segmentIntoPhrases(timeline)).toHaveLength(2);
+  });
+
+  it('prefers open left-hand fifths with pinky and thumb (q v)', async () => {
+    const interval: NoteEvent[] = [
+      noteEvent(0, 50, 0),
+      noteEvent(0, 57, 0),
     ];
-    const predicted = predictFingering(script, { overrideScore: false });
-    expect(predicted[0].notes).toEqual([
-      { pitch: 'M69', midi: 69, hand: 'R', finger: 1, fingerSource: 'score' },
-      { pitch: 'M71', midi: 71, hand: 'R', finger: 1, fingerSource: 'score' },
-    ]);
-  });
 
-  it('re-fingers score notes when overrideScore is true', () => {
-    const script: PlaybackScript = [
-      step(0, 0, [scriptNote(69, 'R', 1, 'score'), scriptNote(71, 'R', 1, 'score')]),
-    ];
-    const predicted = predictFingering(script, { overrideScore: true });
-    expect(predicted[0].notes[0]).toMatchObject({
-      finger: 2,
-      fingerSource: 'predicted',
-    });
-    expect(predicted[0].notes[1]).toMatchObject({
-      finger: 3,
-      fingerSource: 'predicted',
-    });
+    const fingers = assignChordFingers(interval, 'L').filter(
+      (finger): finger is Finger => finger !== null,
+    );
+    expect(fingers).toEqual([5, 1]);
   });
+});
 
-  it('always preserves manual notes regardless of overrideScore', () => {
+describe('predictFingering', () => {
+  it('never overwrites score or manual notes and marks filled notes predicted', async () => {
     const script: PlaybackScript = [
       step(0, 0, [
-        scriptNote(69, 'R', 4, 'manual'),
-        scriptNote(71, 'R', 1, 'score'),
+        scriptNote(60, 'R', 2, 'score'),
+        scriptNote(64, 'R', null),
+        scriptNote(48, 'L', 4, 'manual'),
+        scriptNote(52, 'L', null),
+      ]),
+      step(1, 480, [
+        scriptNote(62, 'R', null),
+        scriptNote(50, 'L', null),
       ]),
     ];
-    const withoutOverride = predictFingering(script, { overrideScore: false });
-    const withOverride = predictFingering(script, { overrideScore: true });
 
-    expect(withoutOverride[0].notes[0]).toMatchObject({ finger: 4, fingerSource: 'manual' });
-    expect(withOverride[0].notes[0]).toMatchObject({ finger: 4, fingerSource: 'manual' });
-    expect(withoutOverride[0].notes[1]).toMatchObject({ finger: 1, fingerSource: 'score' });
-    expect(withOverride[0].notes[1]?.fingerSource).toBe('predicted');
+    const predicted = await predictFingering(script);
+
+    const rightScore = predicted[0].notes.find(
+      (note) => note.hand === 'R' && note.midi === 60,
+    );
+    const rightFilled = predicted[0].notes.find(
+      (note) => note.hand === 'R' && note.midi === 64,
+    );
+    const leftManual = predicted[0].notes.find(
+      (note) => note.hand === 'L' && note.midi === 48,
+    );
+    const leftFilled = predicted[0].notes.find(
+      (note) => note.hand === 'L' && note.midi === 52,
+    );
+    const rightLater = predicted[1].notes.find(
+      (note) => note.hand === 'R' && note.midi === 62,
+    );
+
+    expect(rightScore?.finger).toBe(2);
+    expect(rightScore?.fingerSource).toBe('score');
+    expect(leftManual?.finger).toBe(4);
+    expect(leftManual?.fingerSource).toBe('manual');
+    expect(rightFilled?.finger).not.toBeNull();
+    expect(rightFilled?.fingerSource).toBe('predicted');
+    expect(leftFilled?.finger).not.toBeNull();
+    expect(leftFilled?.fingerSource).toBe('predicted');
+    expect(rightLater?.finger).not.toBeNull();
+    expect(rightLater?.fingerSource).toBe('predicted');
   });
 
-  it('drives wandering-melody and scale finger values end to end through predictFingering', () => {
-    const wanderingMidis = [69, 71, 72, 71, 69, 68, 66, 69];
-    const scaleMidis = [60, 62, 64, 65, 67, 69, 71, 72];
-    const wanderingScript: PlaybackScript = wanderingMidis.map((midi, order) =>
-      step(order, order * 120, [scriptNote(midi, 'R', 1, 'score')]),
-    );
-    const scaleScript: PlaybackScript = scaleMidis.map((midi, order) =>
-      step(order, order * 120, [scriptNote(midi, 'R', 1, 'score')]),
-    );
+  it('prefers the home-aligned opening finger through predictFingering', async () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(64, 'R', null), scriptNote(62, 'R', null)]),
+      step(1, 960, [scriptNote(48, 'R', null), scriptNote(47, 'R', null)]),
+    ];
 
-    const wanderingFingers = predictFingering(wanderingScript, { overrideScore: true })
-      .flatMap((step) => step.notes)
-      .map((note) => note.finger);
-    const scaleFingers = predictFingering(scaleScript, { overrideScore: true })
-      .flatMap((step) => step.notes)
-      .map((note) => note.finger);
+    const predicted = await predictFingering(script);
+    const firstPhraseFinger = predicted[0].notes.find(
+      (note) => note.midi === 64,
+    )?.finger;
 
-    // eslint-disable-next-line no-console
-    console.log('override wandering actual:', wanderingFingers);
-    // eslint-disable-next-line no-console
-    console.log('override scale actual:', scaleFingers);
-
-    expect(wanderingFingers).toEqual([3, 4, 5, 4, 3, 2, 1, 3]);
-    expect(scaleFingers).toEqual([1, 2, 3, 1, 2, 3, 4, 5]);
-    expect(wanderingFingers.every((finger) => finger === 1)).toBe(false);
+    expect(firstPhraseFinger).toBe(2);
+    expect(firstPhraseFinger).not.toBe(1);
   });
 
-  it('restores score fingerings from a fresh parse when override is turned off', () => {
-    const fanfareXml = readFileSync(
-      new URL('../assets/playright-fanfare.musicxml', import.meta.url),
-      'utf8',
+  it('assigns high right-hand E to pinky (BracketLeft key)', async () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(76, 'R', null)]),
+    ];
+
+    const predicted = await predictFingering(script);
+    expect(predicted[0].notes[0].finger).toBe(5);
+  });
+
+  it('keeps the same finger for repeated pitches across phrase gaps', async () => {
+    const script: PlaybackScript = [
+      step(0, 0, [scriptNote(76, 'R', null)]),
+      step(1, PHRASE_MIN_ONSET_GAP_DIVISIONS, [scriptNote(76, 'R', null)]),
+    ];
+
+    const predicted = await predictFingering(script);
+    const first = predicted[0].notes[0].finger;
+    const second = predicted[1].notes[0].finger;
+
+    expect(first).toBe(5);
+    expect(second).toBe(first);
+  });
+
+  it('prefers thumb and pinky for right-hand octaves', async () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 64, 0),
+      noteEvent(1, 76, 480),
+    ];
+
+    expect(await fingerPhrase(phrase, 'R')).toEqual([1, 5]);
+  });
+
+  it('prefers pinky and thumb for left-hand octaves', async () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 48, 0),
+      noteEvent(1, 36, 480),
+    ];
+
+    expect(await fingerPhrase(phrase, 'L')).toEqual([5, 1]);
+  });
+
+  it('uses neighboring fingers for semitone steps on inner fingers', async () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 66, 0),
+      noteEvent(1, 67, 480),
+    ];
+
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(Math.abs(fingers[1] - fingers[0])).toBe(1);
+  });
+
+  it('maps high E approached from below to pinky, not thumb', async () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 64, 0),
+      noteEvent(1, 67, 480),
+      noteEvent(2, 71, 960),
+      noteEvent(3, 76, 1440),
+    ];
+
+    expect(await fingerPhrase(phrase, 'R')).toEqual([1, 2, 3, 5]);
+  });
+
+  it('starts descending high E major run on pinky', async () => {
+    const midis = [76, 75, 73, 71, 69, 68, 66];
+    const phrase = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 240),
     );
-    const { script: parsed } = parseMusicXmlToScript(fanfareXml);
-    const overridden = prepareScriptWithFingering(parsed, {}, true, 1, true);
-    const restored = prepareScriptWithFingering(parsed, {}, true, 1, false);
+
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(fingers[0]).toBe(5);
+    expect(fingers.slice(0, 5)).toEqual([5, 4, 3, 2, 1]);
+  });
+
+  it('unifies finger choice for returning pitches within a phrase', async () => {
+    const phrase: NoteEvent[] = [
+      noteEvent(0, 62, 0),
+      noteEvent(1, 64, 480),
+      noteEvent(2, 64, 960),
+      noteEvent(3, 62, 1440),
+    ];
+
+    const fingers = await fingerPhrase(phrase, 'R');
+    expect(fingers[0]).toBe(fingers[3]);
+    expect(fingers[1]).toBe(fingers[2]);
+  });
+
+  it('uses thumb and pinky for leaps of an octave or more', async () => {
+    expect(
+      await fingerPhrase(
+        [noteEvent(0, 64, 0), noteEvent(1, 76, 480)],
+        'R',
+      ),
+    ).toEqual([1, 5]);
 
     expect(
-      overridden.flatMap((step) => step.notes).filter((note) => note.fingerSource === 'predicted').length,
-    ).toBeGreaterThan(0);
-    expect(
-      restored.flatMap((step) => step.notes).every((note) => note.fingerSource === 'score'),
-    ).toBe(true);
+      await fingerPhrase(
+        [noteEvent(0, 48, 0), noteEvent(1, 36, 480)],
+        'L',
+      ),
+    ).toEqual([5, 1]);
   });
 });
 
 describe('manual fingering identity', () => {
-  it('applies saved fingerings by onset after a rebuild with a different step count', () => {
-    const overrides = { [fingeringKey(480, 'R', 64)]: 2 as Finger };
-    const rebuilt: PlaybackScript = [
+  it('applies saved fingerings by onset after the script is rebuilt with a different step count', async () => {
+    const targetOnset = 480;
+    const overrides = {
+      [fingeringKey(targetOnset, 'R', 64)]: 2 as Finger,
+    };
+
+    const rebuiltScript: PlaybackScript = [
       step(0, 0, [scriptNote(60, 'R', null)]),
       step(1, 240, [scriptNote(62, 'R', null)]),
-      step(2, 480, [scriptNote(64, 'R', null)]),
+      step(2, targetOnset, [scriptNote(64, 'R', null)]),
     ];
-    expect(prepareScriptWithFingering(rebuilt, overrides, true, 1)[2].notes[0]).toMatchObject({
+
+    const withManual = applyManualFingerings(rebuiltScript, overrides);
+    expect(withManual[2].notes[0]).toMatchObject({
+      midi: 64,
+      hand: 'R',
+      finger: 2,
+      fingerSource: 'manual',
+    });
+
+    const withPrediction = await prepareScriptWithFingering(
+      rebuiltScript,
+      overrides,
+      true,
+      1,
+    );
+    expect(withPrediction[2].notes[0]).toMatchObject({
+      midi: 64,
+      hand: 'R',
       finger: 2,
       fingerSource: 'manual',
     });

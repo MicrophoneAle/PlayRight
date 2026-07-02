@@ -117,14 +117,18 @@ describe('useEngineStore settings and mode', () => {
     expect(useEngineStore.getState().engineMode).toBe('one-hand');
   });
 
-  it('persists autoFingering and recomputes the script without resetting practice state', () => {
+  it('persists autoFingering and recomputes the script without resetting practice state', async () => {
     const before = useEngineStore.getState();
 
     useEngineStore.getState().actions.setAutoFingering(false);
 
-    const after = useEngineStore.getState();
     expect(storage.get(AUTO_FINGERING_STORAGE_KEY)).toBe('false');
-    expect(after.autoFingering).toBe(false);
+
+    await vi.waitFor(() => {
+      expect(useEngineStore.getState().autoFingering).toBe(false);
+    });
+
+    const after = useEngineStore.getState();
     expect(after.script).not.toBe(before.script);
     expect(after.currentStepIndex).toBe(1);
     expect(after.isPracticeActive).toBe(true);
@@ -138,14 +142,18 @@ describe('useEngineStore settings and mode', () => {
     ).toBe('score');
   });
 
-  it('persists handSpan and recomputes the script without resetting practice state', () => {
+  it('persists handSpan and recomputes the script without resetting practice state', async () => {
     const before = useEngineStore.getState();
 
     useEngineStore.getState().actions.setHandSpan(1.15);
 
-    const after = useEngineStore.getState();
     expect(storage.get(HAND_SPAN_STORAGE_KEY)).toBe('1.15');
-    expect(after.handSpan).toBe(1.15);
+
+    await vi.waitFor(() => {
+      expect(useEngineStore.getState().handSpan).toBe(1.15);
+    });
+
+    const after = useEngineStore.getState();
     expect(HAND_SPAN_PRESETS).toContain(after.handSpan);
     expect(after.script).not.toBe(before.script);
     expect(after.currentStepIndex).toBe(1);
