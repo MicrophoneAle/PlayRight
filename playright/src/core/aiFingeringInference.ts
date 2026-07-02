@@ -19,7 +19,9 @@ function enqueueInference<T>(run: () => Promise<T>): Promise<T> {
   return result;
 }
 
-export async function initFingeringModel(): Promise<void> {
+export async function initFingeringModel(
+  modelUrl = '/fingering_model.onnx',
+): Promise<void> {
   if (session) {
     return;
   }
@@ -30,7 +32,7 @@ export async function initFingeringModel(): Promise<void> {
 
   initPromise = (async () => {
     try {
-      session = await ort.InferenceSession.create('/fingering_model.onnx');
+      session = await ort.InferenceSession.create(modelUrl);
       console.log('ONNX Model loaded successfully!');
     } finally {
       initPromise = null;
