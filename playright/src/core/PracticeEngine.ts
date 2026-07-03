@@ -1,5 +1,9 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import {
+  buildFermataPlaybackContext,
+  stepHasPlaybackFermataHold,
+} from './playbackTiming.ts';
+import {
   getExpectedNoteForFinger,
   getPracticeNotes,
   stepHasPracticeNotes,
@@ -311,22 +315,36 @@ export class PracticeEngine {
   }
 
   private releaseFermataNotesForStep(stepIndex: number): void {
-    const { script } = useEngineStore.getState();
+    const { script, scoreTiming } = useEngineStore.getState();
     const engine = this.audioEngine;
-    if (!script || !engine || stepIndex < 0 || stepIndex >= script.length) {
+    if (
+      !script ||
+      !scoreTiming ||
+      !engine ||
+      stepIndex < 0 ||
+      stepIndex >= script.length
+    ) {
       return;
     }
 
-    const fermataMidis = new Set(
-      script[stepIndex].notes
-        .filter((note) => note.hasFermata)
-        .map((note) => note.midi),
+    const { divisionsPerQuarter } = scoreTiming;
+    if (!stepHasPlaybackFermataHold(script, stepIndex, divisionsPerQuarter)) {
+      return;
+    }
+
+    const fermataContext = buildFermataPlaybackContext(
+      script,
+      divisionsPerQuarter,
     );
-    if (fermataMidis.size === 0) {
-      return;
-    }
+    const releaseAllStepNotes = fermataContext.carryForwardSteps.has(stepIndex);
+    const midisToRelease = releaseAllStepNotes
+      ? script[stepIndex].notes.map((note) => note.midi)
+      : script[stepIndex].notes
+          .filter((note) => note.hasFermata)
+          .map((note) => note.midi);
 
-    for (const midi of fermataMidis) {
+    const uniqueMidis = [...new Set(midisToRelease)];
+    for (const midi of uniqueMidis) {
       if (!this.soundingMidis.has(midi)) {
         continue;
       }

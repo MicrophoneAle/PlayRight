@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildConsecutiveSameNoteKeySet,
+  buildFermataPlaybackContext,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
@@ -457,10 +458,12 @@ export class PlaybackEngine {
     const { divisionsPerQuarter } = scoreTiming;
     const ppq = this.transportPpq();
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
     const fermataOffsets = buildPlaybackFermataOffsetsByStep(
       script,
       divisionsPerQuarter,
       finalNoteKeys,
+      fermataContext,
     );
     const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
       script,
@@ -472,6 +475,7 @@ export class PlaybackEngine {
       divisionsPerQuarter,
       finalNoteKeys,
       consecutiveSameNoteKeys,
+      fermataContext,
     );
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
@@ -510,6 +514,7 @@ export class PlaybackEngine {
           divisionsPerQuarter,
           finalNoteKeys,
           consecutiveSameNoteKeys,
+          fermataContext,
         );
         const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
         const pressId = this.playingPressTracker.allocatePressId();

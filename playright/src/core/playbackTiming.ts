@@ -72,6 +72,119 @@ function basePlaybackDurationQuarterNotes(
   return Math.max(writtenQuarterNotes - gap, minPlayDuration);
 }
 
+export interface FermataPlaybackContext {
+  /** Fermata hold applies to every note in these steps (prior step had fermata + abuts). */
+  carryForwardSteps: Set<number>;
+  /** Score fermata on this step is expressed on the abutting next step instead. */
+  delegateToNextStep: Set<number>;
+}
+
+const FERMATA_ONSET_EPSILON_DIVISIONS = 1e-3;
+
+function stepWrittenEndOnsetDivisions(
+  step: PlaybackScript[number],
+  divisionsPerQuarter: number,
+): number {
+  let endOnset = step.onset;
+
+  for (const note of step.notes) {
+    const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+    endOnset = Math.max(endOnset, step.onset + durationDivisions);
+  }
+
+  return endOnset;
+}
+
+/**
+ * When a fermata marks a pickup into an immediately following sustained sonority
+ * (common in engraved scores), carry the hold onto the abutting next step.
+ */
+export function buildFermataPlaybackContext(
+  script: PlaybackScript,
+  divisionsPerQuarter: number,
+): FermataPlaybackContext {
+  const carryForwardSteps = new Set<number>();
+  const delegateToNextStep = new Set<number>();
+
+  for (let stepIndex = 0; stepIndex < script.length - 1; stepIndex += 1) {
+    const step = script[stepIndex];
+    if (!step.notes.some((note) => note.hasFermata)) {
+      continue;
+    }
+
+    const nextStep = script[stepIndex + 1];
+    const stepEndOnset = stepWrittenEndOnsetDivisions(step, divisionsPerQuarter);
+
+    if (Math.abs(nextStep.onset - stepEndOnset) > FERMATA_ONSET_EPSILON_DIVISIONS) {
+      continue;
+    }
+
+    carryForwardSteps.add(stepIndex + 1);
+    delegateToNextStep.add(stepIndex);
+  }
+
+  return { carryForwardSteps, delegateToNextStep };
+}
+
+export function effectiveNoteHasFermata(
+  stepIndex: number,
+  note: ScriptNote,
+  context: FermataPlaybackContext,
+): boolean {
+  if (context.delegateToNextStep.has(stepIndex) && note.hasFermata) {
+    return false;
+  }
+
+  return (note.hasFermata ?? false) || context.carryForwardSteps.has(stepIndex);
+}
+
+export function stepHasPlaybackFermataHold(
+  script: PlaybackScript,
+  stepIndex: number,
+  divisionsPerQuarter: number,
+): boolean {
+  const context = buildFermataPlaybackContext(script, divisionsPerQuarter);
+  const step = script[stepIndex];
+
+  return step.notes.some((note) => effectiveNoteHasFermata(stepIndex, note, context));
+}
+
+function maxFermataExtensionForNotes(
+  script: PlaybackScript,
+  stepIndex: number,
+  divisionsPerQuarter: number,
+  finalNoteKeys: Set<string>,
+  treatAllNotesAsFermata: boolean,
+): number {
+  const step = script[stepIndex];
+  let stepExtension = 0;
+
+  for (const note of step.notes) {
+    if (!treatAllNotesAsFermata && !note.hasFermata) {
+      continue;
+    }
+
+    const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+    const writtenQuarters = noteDurationQuarterNotes(
+      durationDivisions,
+      divisionsPerQuarter,
+    );
+    const isFinalNote = finalNoteKeys.has(
+      playbackNoteKey(stepIndex, note.hand, note.midi),
+    );
+    stepExtension = Math.max(
+      stepExtension,
+      fermataExtensionDeltaQuarterNotes(
+        writtenQuarters,
+        note.tiedToNext ?? false,
+        { isFinalNote },
+      ),
+    );
+  }
+
+  return stepExtension;
+}
+
 /** Extra play-mode hold added by a fermata over the non-fermata playback duration. */
 export function fermataExtensionDeltaQuarterNotes(
   writtenQuarterNotes: number,
@@ -96,6 +209,17 @@ export function buildPlaybackFermataOffsetsByStep(
   script: PlaybackScript,
   divisionsPerQuarter: number,
   finalNoteKeys: Set<string> = buildFinalNoteKeySet(script, divisionsPerQuarter),
+  fermataContext: FermataPlaybackContext = buildFermataPlaybackContext(
+    script,
+    divisionsPerQuarter,
+  ),
+  stepDurations: number[] = buildStepPlaybackDurationQuarterNotesByStep(
+    script,
+    divisionsPerQuarter,
+    finalNoteKeys,
+    buildConsecutiveSameNoteKeySet(script, divisionsPerQuarter),
+    fermataContext,
+  ),
 ): number[] {
   const offsets: number[] = [];
   let runningOffset = 0;
@@ -103,33 +227,61 @@ export function buildPlaybackFermataOffsetsByStep(
   for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
     offsets.push(runningOffset);
 
-    const step = script[stepIndex];
     let stepExtension = 0;
 
-    for (const note of step.notes) {
-      if (!note.hasFermata) {
-        continue;
-      }
-
-      const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-      const writtenQuarters = noteDurationQuarterNotes(
-        durationDivisions,
+    if (fermataContext.delegateToNextStep.has(stepIndex)) {
+      stepExtension = maxFermataExtensionForNotes(
+        script,
+        stepIndex + 1,
         divisionsPerQuarter,
+        finalNoteKeys,
+        true,
       );
-      const isFinalNote = finalNoteKeys.has(
-        playbackNoteKey(stepIndex, note.hand, note.midi),
-      );
-      stepExtension = Math.max(
-        stepExtension,
-        fermataExtensionDeltaQuarterNotes(
-          writtenQuarters,
-          note.tiedToNext ?? false,
-          { isFinalNote },
-        ),
-      );
+    } else {
+      for (const note of script[stepIndex].notes) {
+        if (!note.hasFermata) {
+          continue;
+        }
+
+        const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
+        const writtenQuarters = noteDurationQuarterNotes(
+          durationDivisions,
+          divisionsPerQuarter,
+        );
+        const isFinalNote = finalNoteKeys.has(
+          playbackNoteKey(stepIndex, note.hand, note.midi),
+        );
+        stepExtension = Math.max(
+          stepExtension,
+          fermataExtensionDeltaQuarterNotes(
+            writtenQuarters,
+            note.tiedToNext ?? false,
+            { isFinalNote },
+          ),
+        );
+      }
     }
 
     runningOffset += stepExtension;
+
+    const stepHasFermataHold = script[stepIndex].notes.some((note) =>
+      effectiveNoteHasFermata(stepIndex, note, fermataContext),
+    );
+    if (stepHasFermataHold && stepIndex + 1 < script.length) {
+      const attackQuarters =
+        stepOnsetQuarterNotes(script[stepIndex].onset, divisionsPerQuarter) +
+        runningOffset -
+        stepExtension;
+      const releaseQuarters = attackQuarters + stepDurations[stepIndex];
+      const nextWrittenAttack = stepOnsetQuarterNotes(
+        script[stepIndex + 1].onset,
+        divisionsPerQuarter,
+      );
+      runningOffset = Math.max(
+        runningOffset,
+        releaseQuarters - nextWrittenAttack,
+      );
+    }
   }
 
   return offsets;
@@ -454,10 +606,11 @@ export function notePlaybackDurationOptions(
   note: ScriptNote,
   finalNoteKeys: Set<string>,
   consecutiveSameNoteKeys: Set<string>,
+  fermataContext: FermataPlaybackContext,
 ): PlaybackDurationOptions {
   return {
     isFinalNote: finalNoteKeys.has(playbackNoteKey(stepIndex, note.hand, note.midi)),
-    hasFermata: note.hasFermata ?? false,
+    hasFermata: effectiveNoteHasFermata(stepIndex, note, fermataContext),
     followedByConsecutiveSameNote: consecutiveSameNoteKeys.has(
       playbackNoteKey(stepIndex, note.hand, note.midi),
     ),
@@ -482,8 +635,14 @@ export function notePlaybackDurationQuarterNotes(
 }
 
 /** Keep fermata chord tones held through the extended fermata release. */
-export function shouldUnifyStepPlaybackDuration(step: PlaybackScript[number]): boolean {
-  return step.notes.some((note) => note.hasFermata);
+export function shouldUnifyStepPlaybackDuration(
+  step: PlaybackScript[number],
+  stepIndex: number,
+  fermataContext: FermataPlaybackContext,
+): boolean {
+  return step.notes.some((note) =>
+    effectiveNoteHasFermata(stepIndex, note, fermataContext),
+  );
 }
 
 export function buildStepPlaybackDurationQuarterNotesByStep(
@@ -491,6 +650,10 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
   divisionsPerQuarter: number,
   finalNoteKeys: Set<string>,
   consecutiveSameNoteKeys: Set<string>,
+  fermataContext: FermataPlaybackContext = buildFermataPlaybackContext(
+    script,
+    divisionsPerQuarter,
+  ),
 ): number[] {
   return script.map((step, stepIndex) => {
     let maxDuration = 0;
@@ -504,6 +667,7 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
           note,
           finalNoteKeys,
           consecutiveSameNoteKeys,
+          fermataContext,
         ),
       );
       maxDuration = Math.max(maxDuration, noteDuration);
@@ -521,10 +685,14 @@ export function resolveNotePlaybackDurationQuarterNotes(
   divisionsPerQuarter: number,
   finalNoteKeys: Set<string>,
   consecutiveSameNoteKeys: Set<string>,
+  fermataContext: FermataPlaybackContext = buildFermataPlaybackContext(
+    script,
+    divisionsPerQuarter,
+  ),
 ): number {
   const step = script[stepIndex];
 
-  if (shouldUnifyStepPlaybackDuration(step)) {
+  if (shouldUnifyStepPlaybackDuration(step, stepIndex, fermataContext)) {
     return stepDurations[stepIndex];
   }
 
@@ -536,6 +704,7 @@ export function resolveNotePlaybackDurationQuarterNotes(
       note,
       finalNoteKeys,
       consecutiveSameNoteKeys,
+      fermataContext,
     ),
   );
 }
@@ -546,10 +715,12 @@ export function pieceEndQuarterNotes(
   divisionsPerQuarter: number,
 ): number {
   const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+  const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
   const fermataOffsets = buildPlaybackFermataOffsetsByStep(
     script,
     divisionsPerQuarter,
     finalNoteKeys,
+    fermataContext,
   );
   const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
     script,
@@ -561,6 +732,7 @@ export function pieceEndQuarterNotes(
     divisionsPerQuarter,
     finalNoteKeys,
     consecutiveSameNoteKeys,
+    fermataContext,
   );
   let endQuarters = 0;
 
@@ -581,6 +753,7 @@ export function pieceEndQuarterNotes(
         divisionsPerQuarter,
         finalNoteKeys,
         consecutiveSameNoteKeys,
+        fermataContext,
       );
       endQuarters = Math.max(
         endQuarters,

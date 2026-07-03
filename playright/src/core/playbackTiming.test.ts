@@ -4,6 +4,7 @@ import {
   buildConsecutiveSameNoteKeySet,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  buildFermataPlaybackContext,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
   isRepeatedPlaybackAttack,
@@ -438,10 +439,12 @@ describe('playbackTiming', () => {
     ];
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
     const fermataOffsets = buildPlaybackFermataOffsetsByStep(
       script,
       divisionsPerQuarter,
       finalNoteKeys,
+      fermataContext,
     );
     const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
       script,
@@ -453,6 +456,7 @@ describe('playbackTiming', () => {
       divisionsPerQuarter,
       finalNoteKeys,
       consecutiveSameNoteKeys,
+      fermataContext,
     );
 
     const fermataHold = playbackDurationQuarterNotes(4, false, {
@@ -491,6 +495,7 @@ describe('playbackTiming', () => {
     ];
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
     const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
       script,
       divisionsPerQuarter,
@@ -500,11 +505,12 @@ describe('playbackTiming', () => {
       divisionsPerQuarter,
       finalNoteKeys,
       consecutiveSameNoteKeys,
+      fermataContext,
     );
 
     const shortHold = playbackDurationQuarterNotes(0.5);
 
-    expect(shouldUnifyStepPlaybackDuration(script[0])).toBe(false);
+    expect(shouldUnifyStepPlaybackDuration(script[0], 0, fermataContext)).toBe(false);
     expect(stepDurations[0]).toBeCloseTo(1, 5);
     expect(
       resolveNotePlaybackDurationQuarterNotes(
@@ -515,6 +521,7 @@ describe('playbackTiming', () => {
         divisionsPerQuarter,
         finalNoteKeys,
         consecutiveSameNoteKeys,
+        fermataContext,
       ),
     ).toBeCloseTo(shortHold, 5);
   });
