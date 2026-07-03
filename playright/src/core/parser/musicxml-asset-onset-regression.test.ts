@@ -67,16 +67,22 @@ function xmlDivisionTotal(elements: NormalizedElement[], canon: number): number 
       );
     } else if (element.type === 'forward') {
       cursor += canonicalDuration(element.duration, element.divisionsAtNote, canon);
-    } else if (!element.isGrace && !element.isChord) {
-      let advance = canonicalDuration(element.duration, element.divisionsAtNote, canon);
-      if (advance === 0 && element.isRest && element.isMeasureRest) {
-        advance = canonicalDuration(
-          (element.timeBeats * element.divisionsAtNote * 4) / element.timeBeatType,
+    } else if (element.type === 'note') {
+      if (!element.isGrace && !element.isChord) {
+        let advance = canonicalDuration(
+          element.duration,
           element.divisionsAtNote,
           canon,
         );
+        if (advance === 0 && element.isRest && element.isMeasureRest) {
+          advance = canonicalDuration(
+            (element.timeBeats * element.divisionsAtNote * 4) / element.timeBeatType,
+            element.divisionsAtNote,
+            canon,
+          );
+        }
+        cursor += advance;
       }
-      cursor += advance;
     }
   }
   return cursor;

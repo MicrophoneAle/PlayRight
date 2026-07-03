@@ -505,7 +505,7 @@ export async function fingerPhrase(
   spanScale = 1,
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
-  divisionsPerQuarter?: number,
+  _divisionsPerQuarter?: number,
   mlCostWeight = ML_COST_WEIGHT,
 ): Promise<Finger[]> {
   if (notes.length === 0) {
