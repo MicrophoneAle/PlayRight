@@ -40,7 +40,7 @@ export const PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO = 0.2;
 export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
 
 /** Play-mode multiplier applied to a fermata note's held duration. */
-export const PLAYBACK_FERMATA_HOLD_FACTOR = 1.75;
+export const PLAYBACK_FERMATA_HOLD_FACTOR = 2;
 
 export interface PlaybackDurationOptions {
   /** Play through the full written length (no pre-release gap). */
@@ -51,15 +51,25 @@ export interface PlaybackDurationOptions {
   followedByConsecutiveSameNote?: boolean;
 }
 
-function applyFermataHoldFactor(
-  playedQuarterNotes: number,
-  hasFermata: boolean | undefined,
+function basePlaybackDurationQuarterNotes(
+  writtenQuarterNotes: number,
+  tiedToNext: boolean,
+  options: Pick<
+    PlaybackDurationOptions,
+    'isFinalNote' | 'followedByConsecutiveSameNote'
+  >,
 ): number {
-  if (!hasFermata || playedQuarterNotes <= 0) {
-    return playedQuarterNotes;
+  if (tiedToNext || writtenQuarterNotes <= 0) {
+    return writtenQuarterNotes;
   }
 
-  return playedQuarterNotes * PLAYBACK_FERMATA_HOLD_FACTOR;
+  if (options.isFinalNote) {
+    return writtenQuarterNotes;
+  }
+
+  const gap = articulationGapQuarterNotes(writtenQuarterNotes, options);
+  const minPlayDuration = writtenQuarterNotes * 0.25;
+  return Math.max(writtenQuarterNotes - gap, minPlayDuration);
 }
 
 /** Extra play-mode hold added by a fermata over the non-fermata playback duration. */
@@ -168,18 +178,17 @@ export function playbackDurationQuarterNotes(
   tiedToNext = false,
   options: PlaybackDurationOptions = {},
 ): number {
-  if (tiedToNext || writtenQuarterNotes <= 0) {
-    return applyFermataHoldFactor(writtenQuarterNotes, options.hasFermata);
+  const baseDuration = basePlaybackDurationQuarterNotes(
+    writtenQuarterNotes,
+    tiedToNext,
+    options,
+  );
+
+  if (!options.hasFermata || baseDuration <= 0) {
+    return baseDuration;
   }
 
-  if (options.isFinalNote) {
-    return applyFermataHoldFactor(writtenQuarterNotes, options.hasFermata);
-  }
-
-  const gap = articulationGapQuarterNotes(writtenQuarterNotes, options);
-  const minPlayDuration = writtenQuarterNotes * 0.25;
-  const playedQuarterNotes = Math.max(writtenQuarterNotes - gap, minPlayDuration);
-  return applyFermataHoldFactor(playedQuarterNotes, options.hasFermata);
+  return baseDuration * PLAYBACK_FERMATA_HOLD_FACTOR;
 }
 
 /** Release onset for a note, leaving a short gap before the next attack at the written duration. */

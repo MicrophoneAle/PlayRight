@@ -227,6 +227,7 @@ export class PlaybackEngine {
     );
 
     this.clearScheduledEvents();
+    this.audioEngine?.releaseAll();
     getTransport().ticks = quartersToTicks(onsetQuarters, this.transportPpq());
     this.hasFinishedPiece = false;
     actions.setStepIndex(stepIndex);
@@ -360,6 +361,20 @@ export class PlaybackEngine {
 
   /** Fallback when an absolute release event was skipped during transport catch-up. */
   private releasePriorStepNotes(currentStepIndex: number): void {
+    const priorNotes = this.playingPressTracker
+      .activeNotes()
+      .filter((note) => note.stepIndex < currentStepIndex);
+
+    if (priorNotes.length > 0) {
+      const releasedMidis = new Set<number>();
+      for (const note of priorNotes) {
+        if (!releasedMidis.has(note.midi)) {
+          this.audioEngine?.noteOff(note.midi);
+          releasedMidis.add(note.midi);
+        }
+      }
+    }
+
     const changed = this.playingPressTracker.releaseMatching(
       (note) => note.stepIndex < currentStepIndex,
     );

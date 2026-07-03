@@ -307,6 +307,7 @@ describe('PlaybackEngine playback visuals', () => {
       warm: async () => {},
       init: async () => {},
       scheduleAttackRelease,
+      releaseAll: vi.fn(),
     } as never);
 
     await engine.play();

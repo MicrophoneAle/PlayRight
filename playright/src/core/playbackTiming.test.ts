@@ -377,7 +377,7 @@ describe('playbackTiming', () => {
     expect(end).toBeCloseTo(17, 5);
   });
 
-  it('extends fermata playback duration in play mode without changing practice timing', () => {
+  it('extends fermata playback duration to exactly 2x the regular played length', () => {
     const writtenQuarters = 4;
     const divisionsPerQuarter = 480;
 
@@ -397,6 +397,7 @@ describe('playbackTiming', () => {
       normalPlayback * PLAYBACK_FERMATA_HOLD_FACTOR,
       5,
     );
+    expect(fermataPlayback).toBeCloseTo(normalPlayback * 2, 5);
     expect(playbackReleaseOnsetQuarterNotes(0, writtenQuarters, false, {
       hasFermata: true,
     })).toBeCloseTo(fermataPlayback, 5);

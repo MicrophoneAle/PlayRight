@@ -310,6 +310,38 @@ export class PracticeEngine {
     return true;
   }
 
+  private releaseFermataNotesForStep(stepIndex: number): void {
+    const { script } = useEngineStore.getState();
+    const engine = this.audioEngine;
+    if (!script || !engine || stepIndex < 0 || stepIndex >= script.length) {
+      return;
+    }
+
+    const fermataMidis = new Set(
+      script[stepIndex].notes
+        .filter((note) => note.hasFermata)
+        .map((note) => note.midi),
+    );
+    if (fermataMidis.size === 0) {
+      return;
+    }
+
+    for (const midi of fermataMidis) {
+      if (!this.soundingMidis.has(midi)) {
+        continue;
+      }
+
+      engine.noteOff(midi);
+      this.soundingMidis.delete(midi);
+
+      for (const [fingerKey, activeMidi] of this.activeFingerSounds) {
+        if (activeMidi === midi) {
+          this.activeFingerSounds.delete(fingerKey);
+        }
+      }
+    }
+  }
+
   private releaseAllSoundingNotes(): void {
     const engine = this.audioEngine;
     if (!engine) {
@@ -437,6 +469,7 @@ export class PracticeEngine {
       return;
     }
 
+    this.releaseAllSoundingNotes();
     actions.setStepIndex(stepIndex);
     this.loadCurrentStep({
       alignScope: useEngineStore.getState().isPracticeActive,
@@ -487,6 +520,7 @@ export class PracticeEngine {
     const { script, currentStepIndex, actions } = useEngineStore.getState();
     const nextIndex = currentStepIndex + 1;
 
+    this.releaseFermataNotesForStep(currentStepIndex);
     actions.setStepIndex(nextIndex);
 
     if (!script || nextIndex >= script.length) {
