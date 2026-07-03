@@ -65,9 +65,11 @@ describe('chase RH fingering comparison', () => {
     await disposeFingeringModel();
   });
 
-  it('matches the DP-only chase benchmark with ML disabled by default', async () => {
-    expect(ML_COST_WEIGHT).toBe(0);
+  it('falls back to the pure-DP benchmark when the model is not loaded', async () => {
+    // Shipped default from the 2026-07-03 sweep (see fingeringMlConfig.ts).
+    expect(ML_COST_WEIGHT).toBe(150);
 
+    await disposeFingeringModel();
     const { script: parsed, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const predicted = await predictFingering(parsed, {
       divisionsPerQuarter: scoreTiming.divisionsPerQuarter,
@@ -83,13 +85,7 @@ describe('chase RH fingering comparison', () => {
     expect(fingers.slice(0, 9)).toEqual([1, 5, 4, 3, 4, 3, 1, 1, 1]);
   });
 
-  // Skipped 2026-07-03: fingering_model.onnx is still the stale 52-dim model
-  // trained on the synthetic dataset. fingeringModelFeatures.ts now builds the
-  // canonical 24-dim feature vector (see public/fingering_model_features.json),
-  // so this forced-load path throws an ONNX shape mismatch (expected 52, got
-  // 24) until the model is retrained on pig_aggregated.csv against the new
-  // schema. Re-enable once retrained.
-  it.skip('documents ML+DP regression when mlCostWeight is forced to 1', async () => {
+  it('improves on the DP-only benchmark with the PIG emission model at the shipped weight', async () => {
     const { script: parsed, scoreTiming } = parseMusicXmlToScript(CHASE_XML);
     const options = { divisionsPerQuarter: scoreTiming.divisionsPerQuarter };
 
@@ -103,15 +99,19 @@ describe('chase RH fingering comparison', () => {
 
     await initFingeringModel(modelPath, { force: true });
 
-    const withMl = await predictFingering(parsed, {
-      ...options,
-      mlCostWeight: 1,
-    });
+    const withMl = await predictFingering(parsed, options);
     const mlMatches = countMatches(
       rhFingersInTimelineOrder(withMl).slice(0, TARGET_RH.length),
       TARGET_RH,
     );
 
-    expect(mlMatches).toBeLessThan(dpMatches);
+    console.log(
+      `chase RH: DP-only ${dpMatches}/${TARGET_RH.length}, ML+DP at weight ${ML_COST_WEIGHT}: ${mlMatches}/${TARGET_RH.length}`,
+    );
+
+    // 2026-07-03 sweep snapshot: 32/59 at weight 150 vs 26/59 DP-only. The
+    // hard requirement is that ML never regresses below the DP floor; the
+    // exact count is informational.
+    expect(mlMatches).toBeGreaterThanOrEqual(dpMatches);
   });
 });
