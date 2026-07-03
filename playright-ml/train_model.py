@@ -1,129 +1,200 @@
+"""
+Trains the per-note fingering EMISSION model on pig_aggregated.csv
+(PIG dataset, Nakamura et al. 2020, academic use only).
+
+Architecture decision: this is NOT a sequence model. The model is a pointwise
+classifier P(finger | canonical 24-dim note features); at inference PlayRight
+converts its logits to per-note negative log-likelihood emission costs
+(getMLFingerCosts) that feed the existing Viterbi DP, which owns transitions
+and hand constraints. The MLP applies to the last tensor dim, so the exported
+ONNX keeps the exact interface aiFingeringInference.ts already speaks:
+note_sequence [batch, seq, 24] -> finger_logits [batch, seq, 5].
+
+Split: PIG standard - test = pieces 1-30 (the multi-annotator evaluation set,
+4-6 annotators each), train = pieces 31-150. Whole pieces only; no piece
+appears on both sides.
+"""
+
 import json
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 
-from feature_spec import FEATURE_NAMES, build_feature_matrix_from_pig_aggregated
+from feature_spec import FEATURE_NAMES, FEATURE_COUNT, build_feature_matrix_from_pig_aggregated
 
-# ==========================================
-# 1. DATA PREPARATION
-# ==========================================
+TEST_PIECE_MAX_ID = 30
 
-class PianoFingeringDataset(Dataset):
-    def __init__(self, csv_file, seq_length=16):
-        self.seq_length = seq_length
-        print("Loading and preprocessing dataset...")
-        df = pd.read_csv(csv_file)
+# Feature column layout constants (see feature_spec.py / the JSON contract).
+PREV_FINGER_OFFSET = 17
+PREV_FINGER_CLASSES = 6
 
-        # Subtract 1 so fingers 1-5 become classes 0-4 (PyTorch requires 0-indexed classes)
-        self.labels = df['finger'].values - 1
+# At inference PlayRight rarely has an authored previous finger, so prev_finger
+# is usually the 0 sentinel. Randomly collapsing prev_finger to the sentinel
+# during training teaches the model both conditions.
+PREV_FINGER_DROPOUT_P = 0.3
 
-        # Canonical feature vector shared with fingeringModelFeatures.ts - see
-        # feature_spec.py and public/fingering_model_features.json.
-        self.features = build_feature_matrix_from_pig_aggregated(df)
-        self.input_size = self.features.shape[1]
-        self.feature_names = list(FEATURE_NAMES)
+SEED = 20260703
 
-        print(f"Preprocessing complete! Model will accept {self.input_size} input features.")
 
-    def __len__(self):
-        return len(self.features) - self.seq_length
+def zero_prev_finger(features: np.ndarray) -> np.ndarray:
+    out = features.copy()
+    out[:, PREV_FINGER_OFFSET : PREV_FINGER_OFFSET + PREV_FINGER_CLASSES] = 0
+    out[:, PREV_FINGER_OFFSET] = 1
+    return out
 
-    def __getitem__(self, idx):
-        x = self.features[idx : idx + self.seq_length]
-        y = self.labels[idx : idx + self.seq_length]
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.long)
 
-# ==========================================
-# 2. THE NEURAL NETWORK ARCHITECTURE
-# ==========================================
+class PerNoteEmissionMLP(nn.Module):
+    """Pointwise classifier: works on [batch, features] and [batch, seq, features]."""
 
-class FingeringLSTM(nn.Module):
-    def __init__(self, input_features, hidden_size=64, num_layers=2, num_classes=5):
-        super(FingeringLSTM, self).__init__()
-        
-        self.lstm = nn.LSTM(
-            input_size=input_features, 
-            hidden_size=hidden_size, 
-            num_layers=num_layers, 
-            batch_first=True, 
-            bidirectional=True
+    def __init__(self, input_features, hidden_size=128, num_classes=5):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_features, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, num_classes),
         )
-        self.fc = nn.Linear(hidden_size * 2, num_classes)
 
     def forward(self, x):
-        lstm_out, _ = self.lstm(x)
-        logits = self.fc(lstm_out)
-        return logits
+        return self.net(x)
 
-# ==========================================
-# 3. THE TRAINING & EXPORT LOOP
-# ==========================================
 
-def train_model():
-    # 1. Load Data
-    dataset = PianoFingeringDataset('pig_aggregated.csv', seq_length=16)
-    
-    # 2. Split Data
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    
-    # 3. Initialize Model
-    model = FingeringLSTM(input_features=dataset.input_size)
+def load_data():
+    print("Loading and preprocessing dataset...")
+    df = pd.read_csv("pig_aggregated.csv")
+    features = build_feature_matrix_from_pig_aggregated(df)
+    labels = df["finger"].to_numpy() - 1  # fingers 1-5 -> classes 0-4
+    is_test = (df["piece_id"] <= TEST_PIECE_MAX_ID).to_numpy()
+    print(
+        f"{len(df)} rows, {FEATURE_COUNT} features | "
+        f"train rows {(~is_test).sum()} (pieces {TEST_PIECE_MAX_ID + 1}-150) | "
+        f"test rows {is_test.sum()} (pieces 1-{TEST_PIECE_MAX_ID})"
+    )
+    return df, features, labels, is_test
+
+
+def train(model, features, labels, epochs=20, batch_size=512):
+    rng = np.random.default_rng(SEED)
+    dataset = TensorDataset(
+        torch.tensor(features, dtype=torch.float32),
+        torch.tensor(labels, dtype=torch.long),
+    )
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    
-    epochs = 15
-    
-    # 4. Train
-    print("Starting training...")
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
     for epoch in range(epochs):
         model.train()
-        total_loss = 0
-        correct_predictions = 0
-        total_predictions = 0
-        
-        for batch_features, batch_labels in train_loader:
+        total_loss, correct, total = 0.0, 0, 0
+        for batch_features, batch_labels in loader:
+            # prev_finger sentinel augmentation (see PREV_FINGER_DROPOUT_P).
+            drop = torch.tensor(
+                rng.random(len(batch_features)) < PREV_FINGER_DROPOUT_P
+            )
+            if drop.any():
+                block = slice(PREV_FINGER_OFFSET, PREV_FINGER_OFFSET + PREV_FINGER_CLASSES)
+                batch_features[drop, block] = 0
+                batch_features[drop, PREV_FINGER_OFFSET] = 1
+
             optimizer.zero_grad()
-            
-            outputs = model(batch_features)
-            
-            # Reshape for loss calculation
-            outputs_flat = outputs.view(-1, 5)
-            labels_flat = batch_labels.view(-1)
-            
-            loss = criterion(outputs_flat, labels_flat)
+            logits = model(batch_features)
+            loss = criterion(logits, batch_labels)
             loss.backward()
             optimizer.step()
-            
+
             total_loss += loss.item()
-            
-            # Calculate accuracy for monitoring
-            _, predicted = torch.max(outputs_flat, 1)
-            correct_predictions += (predicted == labels_flat).sum().item()
-            total_predictions += labels_flat.size(0)
-            
-        accuracy = (correct_predictions / total_predictions) * 100
-        print(f"Epoch {epoch+1}/{epochs} | Loss: {total_loss/len(train_loader):.4f} | Accuracy: {accuracy:.2f}%")
+            correct += (logits.argmax(dim=1) == batch_labels).sum().item()
+            total += len(batch_labels)
+        print(
+            f"Epoch {epoch + 1}/{epochs} | loss {total_loss / len(loader):.4f} "
+            f"| train acc {100 * correct / total:.2f}%"
+        )
 
-    print("\nTraining complete! Proceeding to export.")
 
-    # ==========================================
-    # 5. EXPORT TO ONNX
-    # ==========================================
-    print("Exporting model to ONNX format...")
+@torch.no_grad()
+def predict(model, features):
     model.eval()
+    logits = model(torch.tensor(features, dtype=torch.float32))
+    return logits.argmax(dim=1).numpy()
 
-    # Create a dummy input tensor that matches the shape of our sequences.
-    # Shape: [batch_size=1, sequence_length=16, num_features]
-    dummy_input = torch.randn(1, 16, dataset.input_size)
 
-    # dynamo=False uses the legacy ONNX exporter (stable with dynamic_axes + LSTM).
+def evaluate(model, df, features, labels, is_test):
+    test_df = df[is_test].reset_index(drop=True)
+    test_features = features[is_test]
+    test_labels = labels[is_test]
+
+    print("\n=== Test metrics (pieces 1-%d, held out whole) ===" % TEST_PIECE_MAX_ID)
+
+    preds = predict(model, test_features)
+    preds_nf = predict(model, zero_prev_finger(test_features))
+
+    for hand in ["R", "L"]:
+        mask = (test_df["hand"] == hand).to_numpy()
+        acc = 100 * (preds[mask] == test_labels[mask]).mean()
+        acc_nf = 100 * (preds_nf[mask] == test_labels[mask]).mean()
+        print(
+            f"hand {hand}: per-note accuracy {acc:.2f}% "
+            f"(with annotator prev_finger) | {acc_nf:.2f}% (prev_finger sentinel, inference condition)"
+        )
+    acc_all = 100 * (preds == test_labels).mean()
+    acc_all_nf = 100 * (preds_nf == test_labels).mean()
+    print(f"overall : {acc_all:.2f}% | {acc_all_nf:.2f}% (sentinel)")
+
+    # Match-against-any-annotator: only piece-hand groups where every
+    # annotator's midi sequence is identical (annotators sometimes assign
+    # notes to different hands, so per-hand sequences do not always align by
+    # seq_pos; the CSV has no onset column to realign on). Predictions use the
+    # first annotator's feature rows with prev_finger at sentinel, so they are
+    # annotator-independent.
+    matched, compared, groups_used, groups_total = 0, 0, 0, 0
+    for (_pid, hand), group in test_df.groupby(["piece_id", "hand"]):
+        groups_total += 1
+        annotators = {
+            ann: sub.sort_values("seq_pos") for ann, sub in group.groupby("annotator")
+        }
+        midi_seqs = [sub["midi"].tolist() for sub in annotators.values()]
+        if any(seq != midi_seqs[0] for seq in midi_seqs[1:]):
+            continue
+        groups_used += 1
+
+        first = next(iter(annotators.values()))
+        row_positions = test_df.index.get_indexer(first.index)
+        group_preds = predict(model, zero_prev_finger(test_features[row_positions]))
+
+        finger_sets = np.stack(
+            [sub["finger"].to_numpy() - 1 for sub in annotators.values()], axis=1
+        )
+        matched += (group_preds[:, None] == finger_sets).any(axis=1).sum()
+        compared += len(group_preds)
+
+    print(
+        f"match-against-any-annotator: {100 * matched / compared:.2f}% "
+        f"({matched}/{compared} notes; {groups_used}/{groups_total} piece-hand groups aligned)"
+    )
+
+    print("\nConfusion matrix (rows = annotator finger, cols = predicted, teacher-forced):")
+    matrix = np.zeros((5, 5), dtype=int)
+    for actual, predicted in zip(test_labels, preds):
+        matrix[actual][predicted] += 1
+    header = "        " + "".join(f"pred {f + 1:<4}" for f in range(5))
+    print(header)
+    for finger in range(5):
+        row = "".join(f"{matrix[finger][col]:<9}" for col in range(5))
+        print(f"true {finger + 1}: {row}")
+
+
+def export_onnx(model):
+    print("\nExporting model to ONNX format...")
+    model.eval()
+    dummy_input = torch.randn(1, 16, FEATURE_COUNT)
+
+    # Same export config that already loads in onnxruntime-web (see git history
+    # of this file): legacy exporter, opset 18, dynamic batch/sequence axes.
     torch.onnx.export(
         model,
         dummy_input,
@@ -131,16 +202,15 @@ def train_model():
         export_params=True,
         opset_version=18,
         do_constant_folding=True,
-        input_names=['note_sequence'],
-        output_names=['finger_logits'],
+        input_names=["note_sequence"],
+        output_names=["finger_logits"],
         dynamic_axes={
-            'note_sequence': {0: 'batch_size', 1: 'sequence_length'},
-            'finger_logits': {0: 'batch_size', 1: 'sequence_length'},
+            "note_sequence": {0: "batch_size", 1: "sequence_length"},
+            "finger_logits": {0: "batch_size", 1: "sequence_length"},
         },
         dynamo=False,
     )
-    
-    print("Export complete! You can now move 'fingering_model.onnx' to your Vite public/ folder.")
+    print("Wrote fingering_model.onnx (playright-ml/). Not copied to playright/public/ yet.")
 
     # Contract shared with playright/src/core/fingeringModelFeatures.ts - keep
     # this in sync with feature_spec.py; do not add data-fit scaler stats here,
@@ -160,18 +230,32 @@ def train_model():
             "audio/similarity features - PlayRight has no audio signal at "
             "inference time."
         ),
-        "input_size": dataset.input_size,
+        "input_size": FEATURE_COUNT,
         "midi_normalization": "(midi - 60) / 24",
         "prev_interval_formula": "current.midi - previous.midi in the flat per-hand note sequence, 0 if no previous note",
         "next_interval_formula": "next.midi - current.midi in the flat per-hand note sequence, 0 if no next note",
         "is_chord_formula": "count of notes sharing this note's stepIndex within the hand's timeline > 1",
         "prev_finger_formula": "authoredFinger of the previous note in the flat per-hand sequence, or 0 if none/unauthored",
         "hand_encoding": "0 = L, 1 = R",
-        "feature_names": dataset.feature_names,
+        "feature_names": list(FEATURE_NAMES),
     }
     with open("../playright/public/fingering_model_features.json", "w", encoding="utf-8") as meta_file:
         json.dump(feature_meta, meta_file, indent=2)
     print("Wrote playright/public/fingering_model_features.json")
+
+
+def train_model():
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+
+    df, features, labels, is_test = load_data()
+
+    model = PerNoteEmissionMLP(input_features=FEATURE_COUNT)
+    train(model, features[~is_test], labels[~is_test])
+
+    evaluate(model, df, features, labels, is_test)
+    export_onnx(model)
+
 
 if __name__ == "__main__":
     train_model()
