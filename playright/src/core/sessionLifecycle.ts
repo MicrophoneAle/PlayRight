@@ -2,6 +2,7 @@ import {
   disposeFingeringModel,
   initFingeringModel,
 } from './aiFingeringInference.ts';
+import { isMlFingeringEnabled } from './fingeringMlConfig.ts';
 import { fingeringProgramEngine } from './FingeringProgramEngine.ts';
 import { playbackEngine } from './PlaybackEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
@@ -40,6 +41,10 @@ export async function restoreSessionAfterPageShow(
 
   resetRuntimeSession();
   await disposeFingeringModel();
+
+  if (!isMlFingeringEnabled()) {
+    return;
+  }
 
   try {
     await initFingeringModel();

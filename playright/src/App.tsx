@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/react';
 import { initFingeringModel } from './core/aiFingeringInference.ts';
+import { ML_COST_WEIGHT } from './core/fingeringPredictor.ts';
 import {
   resetSessionOnPageHide,
   restoreSessionAfterPageShow,
@@ -23,6 +24,10 @@ function App() {
   usePracticeKeyboardShortcuts();
 
   useEffect(() => {
+    if (ML_COST_WEIGHT <= 0) {
+      return;
+    }
+
     void (async () => {
       try {
         await initFingeringModel();

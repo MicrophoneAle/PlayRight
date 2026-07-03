@@ -13,6 +13,9 @@ import {
   resolveManualAssignment,
 } from '../types/index.ts';
 import { getMLFingerCosts } from './aiFingeringInference.ts';
+import { ML_COST_WEIGHT } from './fingeringMlConfig.ts';
+
+export { ML_COST_WEIGHT } from './fingeringMlConfig.ts';
 
 export interface NoteEvent {
   stepIndex: number;
@@ -503,12 +506,16 @@ export async function fingerPhrase(
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
   divisionsPerQuarter?: number,
+  mlCostWeight = ML_COST_WEIGHT,
 ): Promise<Finger[]> {
   if (notes.length === 0) {
     return [];
   }
 
-  const mlCosts = await getMLFingerCosts(notes, hand, { divisionsPerQuarter });
+  const mlCosts =
+    mlCostWeight > 0
+      ? await getMLFingerCosts(notes, hand, { divisionsPerQuarter })
+      : [];
 
   const dp: Partial<Record<Finger, DpCell>>[] = [];
 
@@ -518,7 +525,10 @@ export async function fingerPhrase(
     const row: Partial<Record<Finger, DpCell>> = {};
 
     for (const finger of allowed) {
-      const aiCost = mlCosts.length > 0 ? mlCosts[index][finger - 1] : 0;
+      const aiCost =
+        mlCosts.length > 0
+          ? mlCosts[index][finger - 1] * mlCostWeight
+          : 0;
 
       const local = aiCost + noteFingerCost(hand, finger, note.midi);
 
@@ -867,6 +877,7 @@ export async function fingerPhraseWithChords(
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
   divisionsPerQuarter?: number,
+  mlCostWeight = ML_COST_WEIGHT,
 ): Promise<(Finger | null)[]> {
   if (phrase.length === 0) {
     return [];
@@ -909,6 +920,7 @@ export async function fingerPhraseWithChords(
     startHome,
     repeatFinger,
     divisionsPerQuarter,
+    mlCostWeight,
   );
 
   representatives.forEach((representative, index) => {
@@ -944,6 +956,7 @@ async function predictFingersForHand(
   hand: Hand,
   spanScale: number,
   divisionsPerQuarter?: number,
+  mlCostWeight = ML_COST_WEIGHT,
 ): Promise<(Finger | null)[]> {
   const timeline = extractHandTimelines(script)[hand];
   const phrases = segmentIntoPhrases(timeline);
@@ -962,6 +975,7 @@ async function predictFingersForHand(
       startHome,
       repeatFinger,
       divisionsPerQuarter,
+      mlCostWeight,
     );
 
     phrase.forEach((note, index) => {
@@ -982,6 +996,8 @@ export interface PredictFingeringOptions {
   /** When true, score-authored fingerings are replaced by prediction; manual always wins. */
   overrideScore?: boolean;
   divisionsPerQuarter?: number;
+  /** ONNX cost blend; 0 = pure DP. Defaults to {@link ML_COST_WEIGHT}. */
+  mlCostWeight?: number;
 }
 
 export async function predictFingering(
@@ -991,9 +1007,10 @@ export async function predictFingering(
   const spanScale = options.spanScale ?? 1;
   const overrideScore = options.overrideScore ?? false;
   const divisionsPerQuarter = options.divisionsPerQuarter;
+  const mlCostWeight = options.mlCostWeight ?? ML_COST_WEIGHT;
   const [leftFingers, rightFingers] = await Promise.all([
-    predictFingersForHand(script, 'L', spanScale, divisionsPerQuarter),
-    predictFingersForHand(script, 'R', spanScale, divisionsPerQuarter),
+    predictFingersForHand(script, 'L', spanScale, divisionsPerQuarter, mlCostWeight),
+    predictFingersForHand(script, 'R', spanScale, divisionsPerQuarter, mlCostWeight),
   ]);
   const fingersByHand: Record<Hand, (Finger | null)[]> = {
     L: leftFingers,

@@ -5,6 +5,7 @@ import {
   buildModelFeatureRow,
   FINGERING_FEATURE_COUNT,
 } from './fingeringModelFeatures.ts';
+import { isMlFingeringEnabled } from './fingeringMlConfig.ts';
 
 let session: ort.InferenceSession | null = null;
 let initPromise: Promise<void> | null = null;
@@ -21,7 +22,12 @@ function enqueueInference<T>(run: () => Promise<T>): Promise<T> {
 
 export async function initFingeringModel(
   modelUrl = '/fingering_model.onnx',
+  options: { force?: boolean } = {},
 ): Promise<void> {
+  if (!options.force && !isMlFingeringEnabled()) {
+    return;
+  }
+
   if (session) {
     return;
   }
