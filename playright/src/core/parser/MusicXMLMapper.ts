@@ -363,39 +363,24 @@ export class MusicXMLMapper {
       const isImplicitTieContinue =
         element.isTieStart && !element.isTieStop && openTies.has(tieKey);
 
-      if (isTieEnd) {
-        invalidateChordAnchor();
-        if (
-          mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, true)
-        ) {
-          currentTime += noteDuration;
-          continue;
-        }
+      if (isTieEnd || isTieMiddle || isImplicitTieContinue) {
+        mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, isTieEnd);
 
-        currentTime += noteDuration;
-        continue;
-      }
-
-      if (isTieMiddle || isImplicitTieContinue) {
-        if (
-          mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, false)
-        ) {
-          const segmentStart = currentTime;
-          currentTime += noteDuration;
-          const next = nextPlayableNote(elements, elementIndex);
-          if (canFollowWithChordTone(element, next)) {
-            chordAnchorEligible = true;
-            chordAnchorOnset = segmentStart;
-            chordAnchorVoiceKey = voiceStreamKey(element);
-            pendingTimeAdvance = noteDuration;
-          } else {
-            invalidateChordAnchor();
-          }
+        // Chord tie segments share the cursor advance of their anchor note.
+        if (effectiveIsChord) {
           continue;
         }
 
         invalidateChordAnchor();
-        currentTime += noteDuration;
+
+        if (canFollowWithChordTone(element, nextNote)) {
+          chordAnchorEligible = true;
+          chordAnchorOnset = currentTime;
+          chordAnchorVoiceKey = voiceKey;
+          pendingTimeAdvance = noteDuration;
+        } else {
+          currentTime += noteDuration;
+        }
         continue;
       }
 
