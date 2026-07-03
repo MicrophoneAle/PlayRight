@@ -1038,6 +1038,14 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     expect(script[0].notes[0]).toMatchObject({ pitch: 'D4', midi: 62 });
   });
 
+  it('warns with count and measure when grace notes are skipped', () => {
+    const { warnings } = parseMusicXmlToScript(GRACE_THEN_PITCHED);
+
+    expect(
+      warnings.some((warning) => /1 grace note.*measure\(s\) 1/i.test(warning)),
+    ).toBe(true);
+  });
+
   it('advances a full measure for measure rests without duration', () => {
     const { script } = parseMusicXmlToScript(MEASURE_REST_THEN_PITCHED);
 
