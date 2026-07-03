@@ -59,10 +59,6 @@ export async function disposeFingeringModel(): Promise<void> {
   }
 }
 
-export interface MLFingerCostOptions {
-  divisionsPerQuarter?: number;
-}
-
 /**
  * Returns a 2D array of costs.
  * result[noteIndex][finger - 1] = cost
@@ -70,7 +66,6 @@ export interface MLFingerCostOptions {
 export async function getMLFingerCosts(
   phraseNotes: NoteEvent[],
   hand: Hand,
-  options: MLFingerCostOptions = {},
 ): Promise<number[][]> {
   if (phraseNotes.length === 0) {
     return [];
@@ -92,7 +87,6 @@ export async function getMLFingerCosts(
       hand,
       index: i,
       phraseNotes,
-      divisionsPerQuarter: options.divisionsPerQuarter,
     });
     inputData.set(row, i * FINGERING_FEATURE_COUNT);
   }

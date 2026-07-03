@@ -513,9 +513,7 @@ export async function fingerPhrase(
   }
 
   const mlCosts =
-    mlCostWeight > 0
-      ? await getMLFingerCosts(notes, hand, { divisionsPerQuarter })
-      : [];
+    mlCostWeight > 0 ? await getMLFingerCosts(notes, hand) : [];
 
   const dp: Partial<Record<Finger, DpCell>>[] = [];
 

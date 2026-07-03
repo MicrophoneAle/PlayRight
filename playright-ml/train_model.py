@@ -4,7 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import StandardScaler
+
+from feature_spec import FEATURE_NAMES, build_feature_matrix_from_pig_aggregated
 
 # ==========================================
 # 1. DATA PREPARATION
@@ -15,39 +16,16 @@ class PianoFingeringDataset(Dataset):
         self.seq_length = seq_length
         print("Loading and preprocessing dataset...")
         df = pd.read_csv(csv_file)
-        
-        # 1. Separate Target Label
+
         # Subtract 1 so fingers 1-5 become classes 0-4 (PyTorch requires 0-indexed classes)
-        self.labels = df['Finger_Label'].values - 1
-        df = df.drop(columns=['Finger_Label'])
-        
-        # 2. Identify Column Types
-        categorical_cols = [
-            'Pitch_Class', 'Hand_Assignment', 'Note_Type', 'Interval_Type', 
-            'Note_Duration', 'Position_Shift', 'Estimated_Hand_Strain', 'Transition_Cost_Level'
-        ]
-        
-        numeric_cols = [
-            'Octave', 'Velocity_Level', 'Previous_Finger', 'Hand_Span_Requirement', 
-            'Sequence_Similarity_Score'
-        ] + [f'MFCC_{i}' for i in range(1, 14)]
-        
-        # 3. Scale Numeric Features
-        scaler = StandardScaler()
-        df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-        
-        # 4. One-Hot Encode Categorical Features
-        # This turns categorical text into binary columns (1s and 0s)
-        df = pd.get_dummies(df, columns=categorical_cols, dtype=float)
-        
-        # Save the processed features as a numpy array
-        self.features = df.values
+        self.labels = df['finger'].values - 1
+
+        # Canonical feature vector shared with fingeringModelFeatures.ts - see
+        # feature_spec.py and public/fingering_model_features.json.
+        self.features = build_feature_matrix_from_pig_aggregated(df)
         self.input_size = self.features.shape[1]
-        self.feature_names = df.columns.tolist()
-        self.numeric_cols = numeric_cols
-        self.scaler_mean = scaler.mean_.tolist()
-        self.scaler_scale = scaler.scale_.tolist()
-        
+        self.feature_names = list(FEATURE_NAMES)
+
         print(f"Preprocessing complete! Model will accept {self.input_size} input features.")
 
     def __len__(self):
@@ -86,8 +64,7 @@ class FingeringLSTM(nn.Module):
 
 def train_model():
     # 1. Load Data
-    # Ensure this matches your CSV filename exactly
-    dataset = PianoFingeringDataset('automated_piano_fingering_dataset.csv', seq_length=16) 
+    dataset = PianoFingeringDataset('pig_aggregated.csv', seq_length=16)
     
     # 2. Split Data
     train_size = int(0.8 * len(dataset))
@@ -165,12 +142,32 @@ def train_model():
     
     print("Export complete! You can now move 'fingering_model.onnx' to your Vite public/ folder.")
 
+    # Contract shared with playright/src/core/fingeringModelFeatures.ts - keep
+    # this in sync with feature_spec.py; do not add data-fit scaler stats here,
+    # normalization is a fixed formula so both sides derive it identically.
     feature_meta = {
-        "feature_names": dataset.feature_names,
-        "numeric_cols": dataset.numeric_cols,
-        "scaler_mean": dataset.scaler_mean,
-        "scaler_scale": dataset.scaler_scale,
+        "_comment": (
+            "Canonical feature contract shared by playright-ml/feature_spec.py "
+            "(Python trainer) and playright/src/core/fingeringModelFeatures.ts "
+            "(TS inference). Only quantities PlayRight can compute at inference "
+            "from a parsed MusicXML NoteEvent sequence: midi, is_chord (same "
+            "stepIndex as another note in the hand's timeline), prev_finger "
+            "(authored finger of the previous note in sequence, or 0 sentinel), "
+            "hand. pitch_class, is_black, prev_interval, next_interval are "
+            "derived from midi by the formulas below, not read from any "
+            "pre-aggregated column, so both implementations compute them "
+            "identically from the same primitives. No velocity, no MFCC, no "
+            "audio/similarity features - PlayRight has no audio signal at "
+            "inference time."
+        ),
         "input_size": dataset.input_size,
+        "midi_normalization": "(midi - 60) / 24",
+        "prev_interval_formula": "current.midi - previous.midi in the flat per-hand note sequence, 0 if no previous note",
+        "next_interval_formula": "next.midi - current.midi in the flat per-hand note sequence, 0 if no next note",
+        "is_chord_formula": "count of notes sharing this note's stepIndex within the hand's timeline > 1",
+        "prev_finger_formula": "authoredFinger of the previous note in the flat per-hand sequence, or 0 if none/unauthored",
+        "hand_encoding": "0 = L, 1 = R",
+        "feature_names": dataset.feature_names,
     }
     with open("../playright/public/fingering_model_features.json", "w", encoding="utf-8") as meta_file:
         json.dump(feature_meta, meta_file, indent=2)
