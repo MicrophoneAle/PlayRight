@@ -183,9 +183,23 @@ function ensureSheetTopClearance(container: HTMLElement): void {
   svg.style.marginTop = `${SHEET_TOP_CLEARANCE_PX - gap}px`;
 }
 
+/**
+ * Strip pedal markings from the display copy. OSMD can throw while calculating
+ * pedal brackets that span certain measure boundaries (calculateSinglePedal
+ * reading undefined staffEntries), which half-completes rendering and leaves
+ * everything after the crash without graphical notes. PlayRight does not use
+ * pedal markings functionally, so removing them here costs nothing and removes
+ * the crash at its source.
+ */
+function stripPedalDirections(xml: string): string {
+  return xml.replace(/<direction\b[^>]*>[\s\S]*?<\/direction>/g, (block) =>
+    block.includes('<pedal') ? '' : block,
+  );
+}
+
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
 function prepareMusicXmlForDisplay(xml: string): string {
-  return xml.replace(
+  return stripPedalDirections(xml).replace(
     /<technical>([\s\S]*?)<\/technical>/g,
     (block, inner) => {
       const fingeringPattern = /<fingering(\s[^>]*)?>([^<]*)<\/fingering>/g;
@@ -475,6 +489,19 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         return;
       }
 
+      // DIAGNOSTIC (temporary): re-rendering replaces OSMD's SVG/GraphicalNote
+      // tree. When rebuildIndex is false (the debounced resize path below), the
+      // visual index keeps referencing GraphicalNote objects tied to the OLD
+      // SVG - any later cursor/highlight call against those stale references
+      // is a candidate source of "Node cannot be found in the current page".
+      console.warn('[DIAG:safeRender]', {
+        rebuildIndex,
+        currentStepIndex: useEngineStore.getState().currentStepIndex,
+        isPlaybackActive: useEngineStore.getState().isPlaybackActive,
+        isPlaybackPaused: useEngineStore.getState().isPlaybackPaused,
+        visualIndexGeneration: visualIndexGenerationRef.current,
+      });
+
       try {
         applyCompactSheetLayout(osmd);
         osmd.render();
@@ -511,6 +538,16 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           const playbackRunning =
             state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
+          // DIAGNOSTIC (temporary): confirms whether a resize fires mid-playback
+          // right around the former stall point, and whether it takes the
+          // non-index-rebuilding debounced safeRender(false) path.
+          console.warn('[DIAG:resizeObserver]', {
+            playbackRunning,
+            currentStepIndex: state.currentStepIndex,
+            containerWidth: container.clientWidth,
+            containerHeight: container.clientHeight,
+          });
+
           if (playbackRunning) {
             syncPracticeVisuals();
             if (resizeDebounceId !== null) {
@@ -518,6 +555,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
             }
             resizeDebounceId = setTimeout(() => {
               resizeDebounceId = null;
+              console.warn('[DIAG:resizeObserver] debounced safeRender(false) firing', {
+                currentStepIndex: useEngineStore.getState().currentStepIndex,
+              });
               safeRender(false);
             }, 250);
             return;

@@ -10,6 +10,70 @@ import type { SheetScrollMode } from '../store/useEngineStore.ts';
 const HIGHLIGHT_COLOR = '#10b981';
 const DEFAULT_NOTE_COLOR = '#000000';
 
+/**
+ * DIAGNOSTIC (temporary): intercepts console.warn/error and any thrown error
+ * during `fn` to flag occurrences of OSMD's "Node cannot be found in the
+ * current page" message, tagging it with which call site produced it and
+ * what step/offset context was active at the time. Remove once the source is
+ * identified.
+ */
+let nodeNotFoundHitCount = 0;
+function withNodeNotFoundDiagnostics<T>(
+  label: string,
+  context: Record<string, unknown>,
+  fn: () => T,
+): T {
+  const originalWarn = console.warn;
+  const originalError = console.error;
+  const flagIfMatch = (args: unknown[]) => {
+    const text = args.map((arg) => String(arg)).join(' ');
+    if (text.includes('Node cannot be found')) {
+      nodeNotFoundHitCount += 1;
+      originalError(
+        '[DIAG:NodeNotFound]',
+        `hit #${nodeNotFoundHitCount}`,
+        'at',
+        label,
+        context,
+        'original args:',
+        args,
+        'stack:',
+        new Error().stack,
+      );
+    }
+  };
+
+  console.warn = (...args: unknown[]) => {
+    flagIfMatch(args);
+    originalWarn(...args);
+  };
+  console.error = (...args: unknown[]) => {
+    flagIfMatch(args);
+    originalError(...args);
+  };
+
+  try {
+    return fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Node cannot be found')) {
+      nodeNotFoundHitCount += 1;
+      originalError(
+        '[DIAG:NodeNotFound-thrown]',
+        `hit #${nodeNotFoundHitCount}`,
+        'at',
+        label,
+        context,
+        err,
+      );
+    }
+    throw err;
+  } finally {
+    console.warn = originalWarn;
+    console.error = originalError;
+  }
+}
+
 /** Color note engraving only — avoids fingerings (separate staff labels). */
 const NOTE_HIGHLIGHT_OPTIONS = {
   applyToNoteheads: true,
@@ -171,7 +235,13 @@ function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): Graph
     return [];
   }
 
-  return cursor.GNotesUnderCursor().filter(
+  const gNotes = withNodeNotFoundDiagnostics(
+    'attackGNotesUnderCursor:GNotesUnderCursor',
+    {},
+    () => cursor.GNotesUnderCursor(),
+  );
+
+  return gNotes.filter(
     (gNote) =>
       !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
   );
@@ -406,6 +476,17 @@ function resolveStepGraphicalNotes(
     return indexed;
   }
 
+  // DIAGNOSTIC (temporary): reaching here means the pre-built visual index had
+  // no graphical notes for this step - i.e. buildPracticeVisualIndex's
+  // sequential search never matched it. Logging every occurrence shows
+  // whether this is a one-off (single unmatched step) or every step from a
+  // point onward (a permanent search-state desync).
+  console.warn('[DIAG:emptyIndexedStep] falling back to runtime scan', {
+    stepIndex,
+    stepCursorOffset: visualIndex.stepCursorOffsets[stepIndex],
+    practiceNoteCount: practiceNotes.length,
+  });
+
   if (practiceNotes.length === 0) {
     return [];
   }
@@ -433,7 +514,11 @@ function resolveStepGraphicalNotes(
 
   for (let scanned = 0; scanned < maxScan; scanned += 1) {
     const attackGNotes = attackGNotesUnderCursor(cursor);
-    const allGNotes = cursor.GNotesUnderCursor();
+    const allGNotes = withNodeNotFoundDiagnostics(
+      'resolveStepGraphicalNotes:GNotesUnderCursor',
+      { stepIndex, startOffset, scanned },
+      () => cursor.GNotesUnderCursor(),
+    );
     const measureInfo = osmdMeasureInfoFromCursor(cursor);
     const snapshot: CursorSnapshot = {
       cursorIndex: startOffset + scanned,
@@ -505,7 +590,14 @@ function graphicalNoteFromSource(
 ): GraphicalNote | null {
   try {
     return osmd.EngravingRules.GNote(note);
-  } catch {
+  } catch (err) {
+    // DIAGNOSTIC (temporary): this catch previously swallowed the error
+    // silently - surface it in case it's the source of the "Node cannot be
+    // found" warning.
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Node cannot be found')) {
+      console.error('[DIAG:NodeNotFound-thrown] at graphicalNoteFromSource', err);
+    }
     return null;
   }
 }
@@ -689,7 +781,11 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
       continue;
     }
 
-    const gNotes = cursor.GNotesUnderCursor();
+    const gNotes = withNodeNotFoundDiagnostics(
+      'walkCursorSnapshots:GNotesUnderCursor',
+      { snapshotIndex: snapshots.length },
+      () => cursor.GNotesUnderCursor(),
+    );
     const attackGNotes = gNotes.filter(
       (gNote) =>
         !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
@@ -771,11 +867,28 @@ export function buildPracticeVisualIndex(
     );
   }
 
-  const emptyStepCount = stepGraphicalNotes.filter((notes) => notes.length === 0).length;
-  if (emptyStepCount > 0 && import.meta.env.DEV) {
-    console.debug('[SheetMusic] buildPracticeVisualIndex empty steps', {
+  const emptyStepIndices = stepGraphicalNotes
+    .map((notes, index) => (notes.length === 0 ? index : -1))
+    .filter((index) => index >= 0);
+  // DIAGNOSTIC (temporary): unconditional (was DEV-gated debug) + reports the
+  // actual empty step indices so we can see whether they're scattered
+  // (isolated match misses, harmless) or a contiguous run from some point to
+  // the end of the piece (a permanent search-state desync).
+  if (emptyStepIndices.length > 0) {
+    console.warn('[DIAG:buildPracticeVisualIndex] empty steps', {
       totalSteps: script.length,
-      emptyStepGraphicalNotes: emptyStepCount,
+      emptyStepCount: emptyStepIndices.length,
+      firstEmptyStepIndex: emptyStepIndices[0],
+      lastEmptyStepIndex: emptyStepIndices[emptyStepIndices.length - 1],
+      isContiguousToEnd:
+        emptyStepIndices[emptyStepIndices.length - 1] === script.length - 1 &&
+        emptyStepIndices.length ===
+          script.length - emptyStepIndices[0],
+      emptyStepIndicesSample: emptyStepIndices.slice(0, 20),
+    });
+  } else {
+    console.warn('[DIAG:buildPracticeVisualIndex] all steps mapped', {
+      totalSteps: script.length,
     });
   }
 
@@ -789,6 +902,7 @@ function moveCursorToOffset(
   lastOffsetRef: { current: number },
 ): void {
   const cursor = osmd.cursor;
+  const previousOffset = lastOffsetRef.current;
 
   if (lastOffsetRef.current < 0 || offset < lastOffsetRef.current) {
     cursor.reset();
@@ -802,18 +916,30 @@ function moveCursorToOffset(
   }
 
   lastOffsetRef.current = offset;
-  cursor.update();
+  withNodeNotFoundDiagnostics(
+    'moveCursorToOffset:cursor.update',
+    { offset, previousOffset },
+    () => cursor.update(),
+  );
 }
 
 function resetGraphicalNotes(notes: GraphicalNote[]): void {
-  for (const gNote of notes) {
-    gNote.setColor(DEFAULT_NOTE_COLOR, NOTE_HIGHLIGHT_OPTIONS);
+  for (const [index, gNote] of notes.entries()) {
+    withNodeNotFoundDiagnostics(
+      'resetGraphicalNotes:setColor',
+      { index, total: notes.length },
+      () => gNote.setColor(DEFAULT_NOTE_COLOR, NOTE_HIGHLIGHT_OPTIONS),
+    );
   }
 }
 
 function highlightGraphicalNotes(notes: GraphicalNote[]): void {
-  for (const gNote of notes) {
-    gNote.setColor(HIGHLIGHT_COLOR, NOTE_HIGHLIGHT_OPTIONS);
+  for (const [index, gNote] of notes.entries()) {
+    withNodeNotFoundDiagnostics(
+      'highlightGraphicalNotes:setColor',
+      { index, total: notes.length },
+      () => gNote.setColor(HIGHLIGHT_COLOR, NOTE_HIGHLIGHT_OPTIONS),
+    );
   }
 }
 
@@ -1491,18 +1617,33 @@ export function syncSheetMusicPlaybackVisuals(
     scrollMode,
   } = options;
 
+  // DIAGNOSTIC (temporary)
+  console.warn('[DIAG:syncSheetMusicPlaybackVisuals] enter', {
+    scrollStepIndex,
+    highlightedNotesCount: highlightedNotes.length,
+    activeNotesCount: activeNotes.length,
+  });
+
   resetGraphicalNotes(highlightedNotes);
 
   const cursor = osmd.cursor;
   if (!cursor || !visualIndex) {
     cursorOffsetRef.current = -1;
-    cursor?.hide();
+    withNodeNotFoundDiagnostics(
+      'syncSheetMusicPlaybackVisuals:cursor.hide(no-visualIndex)',
+      { scrollStepIndex },
+      () => cursor?.hide(),
+    );
     return [];
   }
 
   const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
   moveCursorToOffset(osmd, offset, cursorOffsetRef);
-  cursor.hide();
+  withNodeNotFoundDiagnostics(
+    'syncSheetMusicPlaybackVisuals:cursor.hide',
+    { scrollStepIndex, offset },
+    () => cursor.hide(),
+  );
 
   const seen = new Set<GraphicalNote>();
   const toHighlight: GraphicalNote[] = [];
@@ -1578,18 +1719,33 @@ export function syncSheetMusicPracticeVisuals(
     scrollMode,
   } = options;
 
+  // DIAGNOSTIC (temporary)
+  console.warn('[DIAG:syncSheetMusicPracticeVisuals] enter', {
+    stepIndex,
+    highlightedNotesCount: highlightedNotes.length,
+    expectedMidiNotesCount: expectedMidiNotes.length,
+  });
+
   resetGraphicalNotes(highlightedNotes);
 
   const cursor = osmd.cursor;
   if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
     cursorOffsetRef.current = -1;
-    cursor?.hide();
+    withNodeNotFoundDiagnostics(
+      'syncSheetMusicPracticeVisuals:cursor.hide(no-visualIndex)',
+      { stepIndex },
+      () => cursor?.hide(),
+    );
     return [];
   }
 
   const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
   moveCursorToOffset(osmd, offset, cursorOffsetRef);
-  cursor.hide();
+  withNodeNotFoundDiagnostics(
+    'syncSheetMusicPracticeVisuals:cursor.hide',
+    { stepIndex, offset },
+    () => cursor.hide(),
+  );
 
   const toHighlight = resolveStepGraphicalNotes(
     osmd,
@@ -1600,7 +1756,11 @@ export function syncSheetMusicPracticeVisuals(
   );
 
   if (toHighlight.length === 0) {
-    cursor.hide();
+    withNodeNotFoundDiagnostics(
+      'syncSheetMusicPracticeVisuals:cursor.hide(empty-toHighlight)',
+      { stepIndex },
+      () => cursor.hide(),
+    );
     return [];
   }
 
