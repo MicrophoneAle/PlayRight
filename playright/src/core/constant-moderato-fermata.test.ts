@@ -93,19 +93,34 @@ describe('constant moderato fermata playback', () => {
       fermataContext,
     );
     const wholeWithoutFermata = playbackDurationQuarterNotes(wholeWritten);
-    const longestWritten = Math.max(
+    // The unify reference is the step's SHORTEST written note (the R-hand
+    // arrival chord, 4 quarters), not its longest: the L-hand bass notes are
+    // written as 8 quarters purely because the parser pre-combines their tie
+    // across measures 8-9, and that already-extended length must not also be
+    // multiplied by the fermata factor (that was the double-counting bug).
+    const shortestWritten = Math.min(
       ...script[wholeChordStepIndex].notes.map((note) =>
         noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq),
       ),
     );
-    const longestWithFermata = playbackDurationQuarterNotes(
-      longestWritten,
-      script[wholeChordStepIndex].notes.some((note) => note.tiedToNext),
-      { hasFermata: true },
-    );
+    const shortestWithFermata = playbackDurationQuarterNotes(shortestWritten, false, {
+      hasFermata: true,
+    });
 
     expect(wholePlayed).toBeGreaterThan(wholeWithoutFermata * 1.9);
-    expect(stepDurations[wholeChordStepIndex]).toBeCloseTo(longestWithFermata, 1);
+    expect(stepDurations[wholeChordStepIndex]).toBeCloseTo(shortestWithFermata, 1);
+    // Regression guard for the double-counted-hold bug: the bass note's own
+    // (already tie-extended) written length must never drive the unified
+    // release - it would roughly double the hold versus the correct value.
+    const bassNoteWritten = Math.max(
+      ...script[wholeChordStepIndex].notes.map((note) =>
+        noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq),
+      ),
+    );
+    expect(bassNoteWritten).toBeGreaterThan(shortestWritten);
+    expect(stepDurations[wholeChordStepIndex]).toBeLessThan(
+      playbackDurationQuarterNotes(bassNoteWritten, false, { hasFermata: true }) * 0.9,
+    );
 
     const pickupAttack = scheduledPlaybackAttackQuarterNotes(
       script[pickupStepIndex].onset,
