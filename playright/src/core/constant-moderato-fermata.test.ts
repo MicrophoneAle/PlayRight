@@ -13,6 +13,7 @@ import {
   playbackDurationQuarterNotes,
   resolveNotePlaybackDurationQuarterNotes,
   scheduledPlaybackAttackQuarterNotes,
+  stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -129,6 +130,28 @@ describe('constant moderato fermata playback', () => {
     expect(chordAttack).toBeGreaterThanOrEqual(pickupRelease - 1e-9);
     expect(nextAttack).toBeGreaterThanOrEqual(chordRelease - 1e-9);
     expect(offsets[nextStepIndex]).toBeGreaterThan(offsets[wholeChordStepIndex]);
+
+    // Regression guard: the carried chord must attack at its own written
+    // onset (only the normal, sub-quarter articulation gap after the pickup
+    // releases) - not delayed by a bogus silent gap from double-counting the
+    // fermata extension as a pre-attack push (it previously pre-pushed the
+    // chord's own attack by ~7.95 quarters before also re-deriving the
+    // post-chord push from the chord's real release).
+    const writtenChordAttack = stepOnsetQuarterNotes(
+      script[wholeChordStepIndex].onset,
+      dpq,
+    );
+    expect(offsets[wholeChordStepIndex]).toBeCloseTo(0, 6);
+    expect(chordAttack).toBeCloseTo(writtenChordAttack, 6);
+    expect(chordAttack - pickupRelease).toBeLessThan(0.1);
+
+    // The post-chord push should reflect a single application of the excess
+    // hold (chord's extended release minus the next step's written onset),
+    // not that amount plus the extension already spent before the chord.
+    const expectedPostChordPush =
+      chordRelease -
+      stepOnsetQuarterNotes(script[nextStepIndex].onset, dpq);
+    expect(offsets[nextStepIndex]).toBeCloseTo(expectedPostChordPush, 6);
   });
 
   it('keeps the measure 9 half-note fermata on its own step', () => {

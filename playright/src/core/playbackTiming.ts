@@ -149,42 +149,6 @@ export function stepHasPlaybackFermataHold(
   return step.notes.some((note) => effectiveNoteHasFermata(stepIndex, note, context));
 }
 
-function maxFermataExtensionForNotes(
-  script: PlaybackScript,
-  stepIndex: number,
-  divisionsPerQuarter: number,
-  finalNoteKeys: Set<string>,
-  treatAllNotesAsFermata: boolean,
-): number {
-  const step = script[stepIndex];
-  let stepExtension = 0;
-
-  for (const note of step.notes) {
-    if (!treatAllNotesAsFermata && !note.hasFermata) {
-      continue;
-    }
-
-    const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-    const writtenQuarters = noteDurationQuarterNotes(
-      durationDivisions,
-      divisionsPerQuarter,
-    );
-    const isFinalNote = finalNoteKeys.has(
-      playbackNoteKey(stepIndex, note.hand, note.midi),
-    );
-    stepExtension = Math.max(
-      stepExtension,
-      fermataExtensionDeltaQuarterNotes(
-        writtenQuarters,
-        note.tiedToNext ?? false,
-        { isFinalNote },
-      ),
-    );
-  }
-
-  return stepExtension;
-}
-
 /** Extra play-mode hold added by a fermata over the non-fermata playback duration. */
 export function fermataExtensionDeltaQuarterNotes(
   writtenQuarterNotes: number,
@@ -229,15 +193,12 @@ export function buildPlaybackFermataOffsetsByStep(
 
     let stepExtension = 0;
 
-    if (fermataContext.delegateToNextStep.has(stepIndex)) {
-      stepExtension = maxFermataExtensionForNotes(
-        script,
-        stepIndex + 1,
-        divisionsPerQuarter,
-        finalNoteKeys,
-        true,
-      );
-    } else {
+    // Delegating steps (a fermata pickup abutting the next sonority) must not
+    // pre-push the carried step's attack time. The carried step's own
+    // stepHasFermataHold block below derives the correct post-hold push from
+    // its actual (on-time) attack and extended release, so pushing here too
+    // would double-count the extension as bogus silence before the attack.
+    if (!fermataContext.delegateToNextStep.has(stepIndex)) {
       for (const note of script[stepIndex].notes) {
         if (!note.hasFermata) {
           continue;
