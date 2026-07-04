@@ -39,6 +39,36 @@ export class PlaybackEngine {
   private isPaused = false;
   private hasFinishedPiece = false;
   private storeSubscriptionInitialized = false;
+  /** DIAGNOSTIC (temporary): 1s transport-state heartbeat while playing. */
+  private diagHeartbeatId: ReturnType<typeof setInterval> | null = null;
+
+  /** DIAGNOSTIC (temporary): start the 1s transport/context heartbeat. */
+  private diagStartHeartbeat(): void {
+    if (this.diagHeartbeatId !== null) {
+      return;
+    }
+
+    this.diagHeartbeatId = setInterval(() => {
+      if (!this.isPlaying) {
+        return;
+      }
+
+      try {
+        const transport = getTransport();
+        console.warn('[DIAG:transport] heartbeat', {
+          wallClock: new Date().toISOString(),
+          transportState: transport.state,
+          transportTicks: transport.ticks,
+          transportSeconds: Number(transport.seconds?.toFixed?.(3) ?? NaN),
+          audioContextState: Tone.getContext?.()?.state ?? 'unknown',
+          enginePaused: this.isPaused,
+          currentStepIndex: useEngineStore.getState().currentStepIndex,
+        });
+      } catch (err) {
+        console.warn('[DIAG:transport] heartbeat read failed', err);
+      }
+    }, 1000);
+  }
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -49,6 +79,15 @@ export class PlaybackEngine {
     this.storeSubscriptionInitialized = true;
 
     useEngineStore.subscribe((state, prevState) => {
+      // DIAGNOSTIC (temporary)
+      if (state.currentStepIndex !== prevState.currentStepIndex) {
+        console.warn('[DIAG:stepIndex] store change', {
+          from: prevState.currentStepIndex,
+          to: state.currentStepIndex,
+          wallClock: new Date().toISOString(),
+        });
+      }
+
       if (
         state.script !== prevState.script ||
         state.scoreTiming !== prevState.scoreTiming
@@ -119,6 +158,21 @@ export class PlaybackEngine {
     this.isPlaying = true;
     this.isPaused = false;
     transport.start();
+
+    // DIAGNOSTIC (temporary)
+    try {
+      console.warn('[DIAG:transport] playback started', {
+        wallClock: new Date().toISOString(),
+        startIndex,
+        transportState: transport.state,
+        transportTicks: transport.ticks,
+        audioContextState: Tone.getContext?.()?.state ?? 'unknown',
+        scheduledEventCount: this.scheduledEventIds.length,
+      });
+    } catch (err) {
+      console.warn('[DIAG:transport] start-state read failed', err);
+    }
+    this.diagStartHeartbeat();
   }
 
   pause(): void {
@@ -534,8 +588,22 @@ export class PlaybackEngine {
       }
 
       const stepEventId = transport.scheduleOnce((time) => {
+        // DIAGNOSTIC (temporary)
+        const diagIndexBefore = useEngineStore.getState().currentStepIndex;
+
         this.releasePriorStepNotes(stepIndex);
         this.applyStepVisual(stepIndex);
+
+        // DIAGNOSTIC (temporary)
+        console.warn('[DIAG:stepFire] step attack callback fired', {
+          stepIndex,
+          wallClock: new Date().toISOString(),
+          audioTime: Number(time.toFixed(3)),
+          transportTicks: transport.ticks,
+          storeIndexBefore: diagIndexBefore,
+          storeIndexAfter: useEngineStore.getState().currentStepIndex,
+          notesInStep: stepPresses.length,
+        });
 
         for (const { pressId, note, playedDuration } of stepPresses) {
           engine.scheduleAttackRelease(note.midi, playedDuration, time);

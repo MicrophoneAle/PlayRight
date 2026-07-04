@@ -325,17 +325,32 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexGenerationRef.current = generation;
     cursorOffsetRef.current = -1;
 
+    // DIAGNOSTIC (temporary)
+    console.warn('[DIAG:scheduleVisualIndexBuild] scheduled', { generation });
+
     requestAnimationFrame(() => {
       if (generation !== visualIndexGenerationRef.current) {
+        console.warn('[DIAG:scheduleVisualIndexBuild] rAF BAILED (generation superseded)', {
+          generation,
+          currentGeneration: visualIndexGenerationRef.current,
+        });
         return;
       }
 
       const osmd = osmdRef.current;
       const state = useEngineStore.getState();
       if (!osmd || !osmdReadyRef.current || !state.script) {
+        console.warn('[DIAG:scheduleVisualIndexBuild] rAF BAILED (osmd/script not ready)', {
+          generation,
+          hasOsmd: !!osmd,
+          osmdReady: osmdReadyRef.current,
+          hasScript: !!state.script,
+        });
         visualIndexRef.current = null;
         return;
       }
+
+      console.warn('[DIAG:scheduleVisualIndexBuild] rAF RUNNING build', { generation });
 
       try {
         visualIndexRef.current = buildPracticeVisualIndex(
@@ -346,9 +361,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         );
 
         if (generation !== visualIndexGenerationRef.current) {
+          console.warn('[DIAG:scheduleVisualIndexBuild] build DISCARDED (generation superseded post-build)', {
+            generation,
+            currentGeneration: visualIndexGenerationRef.current,
+          });
           return;
         }
 
+        console.warn('[DIAG:scheduleVisualIndexBuild] build COMPLETE, syncing visuals', { generation });
         syncPracticeVisuals();
       } catch (err) {
         console.error("[SheetMusicDisplay] Practice visual index build failed:", err);
@@ -489,6 +509,17 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         return;
       }
 
+      // DIAGNOSTIC (temporary)
+      {
+        const diagState = useEngineStore.getState();
+        console.warn('[DIAG:safeRender] enter', {
+          rebuildIndex,
+          isPlaybackActive: diagState.isPlaybackActive,
+          isPlaybackPaused: diagState.isPlaybackPaused,
+          currentStepIndex: diagState.currentStepIndex,
+        });
+      }
+
       try {
         applyCompactSheetLayout(osmd);
         osmd.render();
@@ -515,8 +546,16 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
         if (rebuildIndex || playbackRunning) {
+          console.warn('[DIAG:safeRender] branch -> scheduleVisualIndexBuild', {
+            rebuildIndex,
+            playbackRunning,
+          });
           scheduleVisualIndexBuild();
         } else {
+          console.warn('[DIAG:safeRender] branch -> syncPracticeVisuals (NO index rebuild)', {
+            rebuildIndex,
+            playbackRunning,
+          });
           syncPracticeVisuals();
         }
       } catch (err) {
@@ -536,6 +575,15 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           const playbackRunning =
             state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
+          // DIAGNOSTIC (temporary)
+          console.warn('[DIAG:resizeObserver] fired', {
+            playbackRunning,
+            currentStepIndex: state.currentStepIndex,
+            containerWidth: container.clientWidth,
+            containerHeight: container.clientHeight,
+            path: playbackRunning ? 'debounced safeRender(false) in 250ms' : 'immediate safeRender(false)',
+          });
+
           if (playbackRunning) {
             syncPracticeVisuals();
             if (resizeDebounceId !== null) {
@@ -543,6 +591,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
             }
             resizeDebounceId = setTimeout(() => {
               resizeDebounceId = null;
+              console.warn('[DIAG:resizeObserver] debounced safeRender(false) FIRING now', {
+                currentStepIndex: useEngineStore.getState().currentStepIndex,
+              });
               safeRender(false);
             }, 250);
             return;

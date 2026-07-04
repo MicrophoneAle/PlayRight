@@ -22,7 +22,9 @@ function safeOsmdCall(label: string, fn: () => void): void {
   try {
     fn();
   } catch (err) {
-    console.warn(`[SheetMusic] ${label} failed (stale OSMD reference, skipped):`, err);
+    // DIAGNOSTIC (temporary): prefixed so a browser dump shows exactly which
+    // wrapped OSMD call still hits a stale node after the index-rebuild fix.
+    console.warn(`[DIAG:staleNode] ${label} failed (stale OSMD reference, skipped):`, err);
   }
 }
 
@@ -422,6 +424,13 @@ function resolveStepGraphicalNotes(
     return indexed;
   }
 
+  // DIAGNOSTIC (temporary): the pre-built index had nothing for this step.
+  console.warn('[DIAG:runtimeScanFallback] indexed step empty, runtime scan', {
+    stepIndex,
+    stepCursorOffset: visualIndex.stepCursorOffsets[stepIndex] ?? null,
+    practiceNoteCount: practiceNotes.length,
+  });
+
   if (practiceNotes.length === 0) {
     return [];
   }
@@ -787,13 +796,21 @@ export function buildPracticeVisualIndex(
     );
   }
 
-  const emptyStepCount = stepGraphicalNotes.filter((notes) => notes.length === 0).length;
-  if (emptyStepCount > 0 && import.meta.env.DEV) {
-    console.debug('[SheetMusic] buildPracticeVisualIndex empty steps', {
-      totalSteps: script.length,
-      emptyStepGraphicalNotes: emptyStepCount,
-    });
-  }
+  // DIAGNOSTIC (temporary): full-coverage report on every index build.
+  const emptyStepIndices = stepGraphicalNotes
+    .map((notes, index) => (notes.length === 0 ? index : -1))
+    .filter((index) => index >= 0);
+  console.warn('[DIAG:buildPracticeVisualIndex] complete', {
+    totalSteps: script.length,
+    emptyStepCount: emptyStepIndices.length,
+    firstEmptyStepIndex: emptyStepIndices[0] ?? null,
+    lastEmptyStepIndex: emptyStepIndices[emptyStepIndices.length - 1] ?? null,
+    isContiguousToEnd:
+      emptyStepIndices.length > 0 &&
+      emptyStepIndices[emptyStepIndices.length - 1] === script.length - 1 &&
+      emptyStepIndices.length === script.length - emptyStepIndices[0],
+    emptyStepIndicesSample: emptyStepIndices.slice(0, 30),
+  });
 
   osmd.cursor.reset();
   return { stepCursorOffsets, stepGraphicalNotes, stepMeasureNumbers };
@@ -1511,6 +1528,15 @@ export function syncSheetMusicPlaybackVisuals(
     scrollMode,
   } = options;
 
+  // DIAGNOSTIC (temporary)
+  console.warn('[DIAG:syncPlayback] enter', {
+    scrollStepIndex,
+    visualIndexIsNull: visualIndex === null,
+    activeNotesCount: activeNotes.length,
+    priorHighlightedCount: highlightedNotes.length,
+    indexedNotesForThisStep: visualIndex?.stepGraphicalNotes[scrollStepIndex]?.length ?? null,
+  });
+
   try {
     resetGraphicalNotes(highlightedNotes);
 
@@ -1576,7 +1602,7 @@ export function syncSheetMusicPlaybackVisuals(
     // call. Fail this one tick rather than freezing forever - returning []
     // (instead of leaving highlightedNotesRef pointing at dead references)
     // lets the next tick recover cleanly once the index has rebuilt.
-    console.warn('[SheetMusic] syncSheetMusicPlaybackVisuals failed, recovering next tick:', err);
+    console.warn('[DIAG:staleNode] syncSheetMusicPlaybackVisuals TOP-LEVEL failure, recovering next tick:', err);
     cursorOffsetRef.current = -1;
     return [];
   }
@@ -1656,7 +1682,7 @@ export function syncSheetMusicPracticeVisuals(
     // call. Fail this one tick rather than freezing forever - returning []
     // (instead of leaving highlightedNotesRef pointing at dead references)
     // lets the next tick recover cleanly once the index has rebuilt.
-    console.warn('[SheetMusic] syncSheetMusicPracticeVisuals failed, recovering next tick:', err);
+    console.warn('[DIAG:staleNode] syncSheetMusicPracticeVisuals TOP-LEVEL failure, recovering next tick:', err);
     cursorOffsetRef.current = -1;
     return [];
   }
