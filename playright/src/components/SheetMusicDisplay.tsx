@@ -489,19 +489,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         return;
       }
 
-      // DIAGNOSTIC (temporary): re-rendering replaces OSMD's SVG/GraphicalNote
-      // tree. When rebuildIndex is false (the debounced resize path below), the
-      // visual index keeps referencing GraphicalNote objects tied to the OLD
-      // SVG - any later cursor/highlight call against those stale references
-      // is a candidate source of "Node cannot be found in the current page".
-      console.warn('[DIAG:safeRender]', {
-        rebuildIndex,
-        currentStepIndex: useEngineStore.getState().currentStepIndex,
-        isPlaybackActive: useEngineStore.getState().isPlaybackActive,
-        isPlaybackPaused: useEngineStore.getState().isPlaybackPaused,
-        visualIndexGeneration: visualIndexGenerationRef.current,
-      });
-
       try {
         applyCompactSheetLayout(osmd);
         osmd.render();
@@ -516,7 +503,18 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         normalizeMeasureNumberPositions(container);
         ensureSheetTopClearance(container);
 
-        if (rebuildIndex) {
+        // A re-render replaces OSMD's SVG and every GraphicalNote object, so
+        // the visual index (which holds GraphicalNote references) must be
+        // rebuilt whenever playback is actively running through it - not
+        // just when the caller explicitly asked for a rebuild. Otherwise a
+        // mid-playback re-render (e.g. the debounced resize path below)
+        // leaves visualIndexRef pointing at destroyed nodes, and every
+        // subsequent highlight/scroll/click-to-seek call fails silently.
+        const state = useEngineStore.getState();
+        const playbackRunning =
+          state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
+
+        if (rebuildIndex || playbackRunning) {
           scheduleVisualIndexBuild();
         } else {
           syncPracticeVisuals();
@@ -538,16 +536,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           const playbackRunning =
             state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
-          // DIAGNOSTIC (temporary): confirms whether a resize fires mid-playback
-          // right around the former stall point, and whether it takes the
-          // non-index-rebuilding debounced safeRender(false) path.
-          console.warn('[DIAG:resizeObserver]', {
-            playbackRunning,
-            currentStepIndex: state.currentStepIndex,
-            containerWidth: container.clientWidth,
-            containerHeight: container.clientHeight,
-          });
-
           if (playbackRunning) {
             syncPracticeVisuals();
             if (resizeDebounceId !== null) {
@@ -555,9 +543,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
             }
             resizeDebounceId = setTimeout(() => {
               resizeDebounceId = null;
-              console.warn('[DIAG:resizeObserver] debounced safeRender(false) firing', {
-                currentStepIndex: useEngineStore.getState().currentStepIndex,
-              });
               safeRender(false);
             }, 250);
             return;

@@ -11,66 +11,18 @@ const HIGHLIGHT_COLOR = '#10b981';
 const DEFAULT_NOTE_COLOR = '#000000';
 
 /**
- * DIAGNOSTIC (temporary): intercepts console.warn/error and any thrown error
- * during `fn` to flag occurrences of OSMD's "Node cannot be found in the
- * current page" message, tagging it with which call site produced it and
- * what step/offset context was active at the time. Remove once the source is
- * identified.
+ * Some OSMD DOM operations (cursor positioning, note coloring) can throw if a
+ * re-render replaced the underlying SVG while a stale GraphicalNote/cursor
+ * reference from before that render is still in use - e.g. a resize-observer
+ * re-render firing mid-playback. Swallow and log once rather than aborting
+ * the whole highlight/scroll tick; the visual index rebuild (see safeRender
+ * in SheetMusicDisplay.tsx) supplies fresh references on the next tick.
  */
-let nodeNotFoundHitCount = 0;
-function withNodeNotFoundDiagnostics<T>(
-  label: string,
-  context: Record<string, unknown>,
-  fn: () => T,
-): T {
-  const originalWarn = console.warn;
-  const originalError = console.error;
-  const flagIfMatch = (args: unknown[]) => {
-    const text = args.map((arg) => String(arg)).join(' ');
-    if (text.includes('Node cannot be found')) {
-      nodeNotFoundHitCount += 1;
-      originalError(
-        '[DIAG:NodeNotFound]',
-        `hit #${nodeNotFoundHitCount}`,
-        'at',
-        label,
-        context,
-        'original args:',
-        args,
-        'stack:',
-        new Error().stack,
-      );
-    }
-  };
-
-  console.warn = (...args: unknown[]) => {
-    flagIfMatch(args);
-    originalWarn(...args);
-  };
-  console.error = (...args: unknown[]) => {
-    flagIfMatch(args);
-    originalError(...args);
-  };
-
+function safeOsmdCall(label: string, fn: () => void): void {
   try {
-    return fn();
+    fn();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Node cannot be found')) {
-      nodeNotFoundHitCount += 1;
-      originalError(
-        '[DIAG:NodeNotFound-thrown]',
-        `hit #${nodeNotFoundHitCount}`,
-        'at',
-        label,
-        context,
-        err,
-      );
-    }
-    throw err;
-  } finally {
-    console.warn = originalWarn;
-    console.error = originalError;
+    console.warn(`[SheetMusic] ${label} failed (stale OSMD reference, skipped):`, err);
   }
 }
 
@@ -235,13 +187,7 @@ function attackGNotesUnderCursor(cursor: OpenSheetMusicDisplay['cursor']): Graph
     return [];
   }
 
-  const gNotes = withNodeNotFoundDiagnostics(
-    'attackGNotesUnderCursor:GNotesUnderCursor',
-    {},
-    () => cursor.GNotesUnderCursor(),
-  );
-
-  return gNotes.filter(
+  return cursor.GNotesUnderCursor().filter(
     (gNote) =>
       !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
   );
@@ -476,17 +422,6 @@ function resolveStepGraphicalNotes(
     return indexed;
   }
 
-  // DIAGNOSTIC (temporary): reaching here means the pre-built visual index had
-  // no graphical notes for this step - i.e. buildPracticeVisualIndex's
-  // sequential search never matched it. Logging every occurrence shows
-  // whether this is a one-off (single unmatched step) or every step from a
-  // point onward (a permanent search-state desync).
-  console.warn('[DIAG:emptyIndexedStep] falling back to runtime scan', {
-    stepIndex,
-    stepCursorOffset: visualIndex.stepCursorOffsets[stepIndex],
-    practiceNoteCount: practiceNotes.length,
-  });
-
   if (practiceNotes.length === 0) {
     return [];
   }
@@ -514,11 +449,7 @@ function resolveStepGraphicalNotes(
 
   for (let scanned = 0; scanned < maxScan; scanned += 1) {
     const attackGNotes = attackGNotesUnderCursor(cursor);
-    const allGNotes = withNodeNotFoundDiagnostics(
-      'resolveStepGraphicalNotes:GNotesUnderCursor',
-      { stepIndex, startOffset, scanned },
-      () => cursor.GNotesUnderCursor(),
-    );
+    const allGNotes = cursor.GNotesUnderCursor();
     const measureInfo = osmdMeasureInfoFromCursor(cursor);
     const snapshot: CursorSnapshot = {
       cursorIndex: startOffset + scanned,
@@ -590,14 +521,7 @@ function graphicalNoteFromSource(
 ): GraphicalNote | null {
   try {
     return osmd.EngravingRules.GNote(note);
-  } catch (err) {
-    // DIAGNOSTIC (temporary): this catch previously swallowed the error
-    // silently - surface it in case it's the source of the "Node cannot be
-    // found" warning.
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Node cannot be found')) {
-      console.error('[DIAG:NodeNotFound-thrown] at graphicalNoteFromSource', err);
-    }
+  } catch {
     return null;
   }
 }
@@ -781,11 +705,7 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
       continue;
     }
 
-    const gNotes = withNodeNotFoundDiagnostics(
-      'walkCursorSnapshots:GNotesUnderCursor',
-      { snapshotIndex: snapshots.length },
-      () => cursor.GNotesUnderCursor(),
-    );
+    const gNotes = cursor.GNotesUnderCursor();
     const attackGNotes = gNotes.filter(
       (gNote) =>
         !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
@@ -867,28 +787,11 @@ export function buildPracticeVisualIndex(
     );
   }
 
-  const emptyStepIndices = stepGraphicalNotes
-    .map((notes, index) => (notes.length === 0 ? index : -1))
-    .filter((index) => index >= 0);
-  // DIAGNOSTIC (temporary): unconditional (was DEV-gated debug) + reports the
-  // actual empty step indices so we can see whether they're scattered
-  // (isolated match misses, harmless) or a contiguous run from some point to
-  // the end of the piece (a permanent search-state desync).
-  if (emptyStepIndices.length > 0) {
-    console.warn('[DIAG:buildPracticeVisualIndex] empty steps', {
+  const emptyStepCount = stepGraphicalNotes.filter((notes) => notes.length === 0).length;
+  if (emptyStepCount > 0 && import.meta.env.DEV) {
+    console.debug('[SheetMusic] buildPracticeVisualIndex empty steps', {
       totalSteps: script.length,
-      emptyStepCount: emptyStepIndices.length,
-      firstEmptyStepIndex: emptyStepIndices[0],
-      lastEmptyStepIndex: emptyStepIndices[emptyStepIndices.length - 1],
-      isContiguousToEnd:
-        emptyStepIndices[emptyStepIndices.length - 1] === script.length - 1 &&
-        emptyStepIndices.length ===
-          script.length - emptyStepIndices[0],
-      emptyStepIndicesSample: emptyStepIndices.slice(0, 20),
-    });
-  } else {
-    console.warn('[DIAG:buildPracticeVisualIndex] all steps mapped', {
-      totalSteps: script.length,
+      emptyStepGraphicalNotes: emptyStepCount,
     });
   }
 
@@ -902,7 +805,6 @@ function moveCursorToOffset(
   lastOffsetRef: { current: number },
 ): void {
   const cursor = osmd.cursor;
-  const previousOffset = lastOffsetRef.current;
 
   if (lastOffsetRef.current < 0 || offset < lastOffsetRef.current) {
     cursor.reset();
@@ -916,29 +818,21 @@ function moveCursorToOffset(
   }
 
   lastOffsetRef.current = offset;
-  withNodeNotFoundDiagnostics(
-    'moveCursorToOffset:cursor.update',
-    { offset, previousOffset },
-    () => cursor.update(),
-  );
+  safeOsmdCall('moveCursorToOffset:cursor.update', () => cursor.update());
 }
 
 function resetGraphicalNotes(notes: GraphicalNote[]): void {
-  for (const [index, gNote] of notes.entries()) {
-    withNodeNotFoundDiagnostics(
-      'resetGraphicalNotes:setColor',
-      { index, total: notes.length },
-      () => gNote.setColor(DEFAULT_NOTE_COLOR, NOTE_HIGHLIGHT_OPTIONS),
+  for (const gNote of notes) {
+    safeOsmdCall('resetGraphicalNotes:setColor', () =>
+      gNote.setColor(DEFAULT_NOTE_COLOR, NOTE_HIGHLIGHT_OPTIONS),
     );
   }
 }
 
 function highlightGraphicalNotes(notes: GraphicalNote[]): void {
-  for (const [index, gNote] of notes.entries()) {
-    withNodeNotFoundDiagnostics(
-      'highlightGraphicalNotes:setColor',
-      { index, total: notes.length },
-      () => gNote.setColor(HIGHLIGHT_COLOR, NOTE_HIGHLIGHT_OPTIONS),
+  for (const gNote of notes) {
+    safeOsmdCall('highlightGraphicalNotes:setColor', () =>
+      gNote.setColor(HIGHLIGHT_COLOR, NOTE_HIGHLIGHT_OPTIONS),
     );
   }
 }
@@ -1617,78 +1511,75 @@ export function syncSheetMusicPlaybackVisuals(
     scrollMode,
   } = options;
 
-  // DIAGNOSTIC (temporary)
-  console.warn('[DIAG:syncSheetMusicPlaybackVisuals] enter', {
-    scrollStepIndex,
-    highlightedNotesCount: highlightedNotes.length,
-    activeNotesCount: activeNotes.length,
-  });
+  try {
+    resetGraphicalNotes(highlightedNotes);
 
-  resetGraphicalNotes(highlightedNotes);
+    const cursor = osmd.cursor;
+    if (!cursor || !visualIndex) {
+      cursorOffsetRef.current = -1;
+      safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide(no-visualIndex)', () =>
+        cursor?.hide(),
+      );
+      return [];
+    }
 
-  const cursor = osmd.cursor;
-  if (!cursor || !visualIndex) {
-    cursorOffsetRef.current = -1;
-    withNodeNotFoundDiagnostics(
-      'syncSheetMusicPlaybackVisuals:cursor.hide(no-visualIndex)',
-      { scrollStepIndex },
-      () => cursor?.hide(),
-    );
-    return [];
-  }
+    const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
+    moveCursorToOffset(osmd, offset, cursorOffsetRef);
+    safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide', () => cursor.hide());
 
-  const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
-  moveCursorToOffset(osmd, offset, cursorOffsetRef);
-  withNodeNotFoundDiagnostics(
-    'syncSheetMusicPlaybackVisuals:cursor.hide',
-    { scrollStepIndex, offset },
-    () => cursor.hide(),
-  );
+    const seen = new Set<GraphicalNote>();
+    const toHighlight: GraphicalNote[] = [];
 
-  const seen = new Set<GraphicalNote>();
-  const toHighlight: GraphicalNote[] = [];
+    for (const press of activeNotes) {
+      const gNotes = visualIndex.stepGraphicalNotes[press.stepIndex] ?? [];
+      for (const gNote of gNotes) {
+        const source = gNote.sourceNote;
+        if (source.isRest()) {
+          continue;
+        }
 
-  for (const press of activeNotes) {
-    const gNotes = visualIndex.stepGraphicalNotes[press.stepIndex] ?? [];
-    for (const gNote of gNotes) {
-      const source = gNote.sourceNote;
-      if (source.isRest()) {
-        continue;
-      }
-
-      const midi = osmdNoteMidi(source);
-      const hand = osmdNoteHand(source);
-      if (midi === press.midi && hand === press.hand && !seen.has(gNote)) {
-        seen.add(gNote);
-        toHighlight.push(gNote);
+        const midi = osmdNoteMidi(source);
+        const hand = osmdNoteHand(source);
+        if (midi === press.midi && hand === press.hand && !seen.has(gNote)) {
+          seen.add(gNote);
+          toHighlight.push(gNote);
+        }
       }
     }
-  }
 
-  if (toHighlight.length > 0) {
-    highlightGraphicalNotes(toHighlight);
-  }
+    if (toHighlight.length > 0) {
+      highlightGraphicalNotes(toHighlight);
+    }
 
-  // Scroll on the CURRENT step's notes, not the sounding notes. The step index
-  // advances to the new system synchronously (applyStepVisual -> setStepIndex)
-  // while playingPlaybackNotes is briefly empty (prior step released, next press
-  // not yet fired or deferred). Driving the scroll off the step's graphical notes
-  // makes the system-boundary scroll fire the instant the step advances, instead
-  // of being skipped because nothing is sounding yet. Falls back to the sounding
-  // notes only when the step has no matched graphics.
-  const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
-  const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
-  if (scrollNotes.length > 0) {
-    scrollContainerForPlayback(
-      container,
-      scrollNotes,
-      scrollStateRef,
-      scrollMode,
-      visualIndex,
-    );
-  }
+    // Scroll on the CURRENT step's notes, not the sounding notes. The step index
+    // advances to the new system synchronously (applyStepVisual -> setStepIndex)
+    // while playingPlaybackNotes is briefly empty (prior step released, next press
+    // not yet fired or deferred). Driving the scroll off the step's graphical notes
+    // makes the system-boundary scroll fire the instant the step advances, instead
+    // of being skipped because nothing is sounding yet. Falls back to the sounding
+    // notes only when the step has no matched graphics.
+    const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
+    const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
+    if (scrollNotes.length > 0) {
+      scrollContainerForPlayback(
+        container,
+        scrollNotes,
+        scrollStateRef,
+        scrollMode,
+        visualIndex,
+      );
+    }
 
-  return toHighlight;
+    return toHighlight;
+  } catch (err) {
+    // Last-resort safety net: a re-render mid-playback can still race this
+    // call. Fail this one tick rather than freezing forever - returning []
+    // (instead of leaving highlightedNotesRef pointing at dead references)
+    // lets the next tick recover cleanly once the index has rebuilt.
+    console.warn('[SheetMusic] syncSheetMusicPlaybackVisuals failed, recovering next tick:', err);
+    cursorOffsetRef.current = -1;
+    return [];
+  }
 }
 
 export function syncSheetMusicPracticeVisuals(
@@ -1719,59 +1610,54 @@ export function syncSheetMusicPracticeVisuals(
     scrollMode,
   } = options;
 
-  // DIAGNOSTIC (temporary)
-  console.warn('[DIAG:syncSheetMusicPracticeVisuals] enter', {
-    stepIndex,
-    highlightedNotesCount: highlightedNotes.length,
-    expectedMidiNotesCount: expectedMidiNotes.length,
-  });
+  try {
+    resetGraphicalNotes(highlightedNotes);
 
-  resetGraphicalNotes(highlightedNotes);
+    const cursor = osmd.cursor;
+    if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
+      cursorOffsetRef.current = -1;
+      safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide(no-visualIndex)', () =>
+        cursor?.hide(),
+      );
+      return [];
+    }
 
-  const cursor = osmd.cursor;
-  if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
+    const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
+    moveCursorToOffset(osmd, offset, cursorOffsetRef);
+    safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide', () => cursor.hide());
+
+    const toHighlight = resolveStepGraphicalNotes(
+      osmd,
+      visualIndex,
+      stepIndex,
+      practiceNotes,
+      cursorOffsetRef,
+    );
+
+    if (toHighlight.length === 0) {
+      safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide(empty-toHighlight)', () =>
+        cursor.hide(),
+      );
+      return [];
+    }
+
+    highlightGraphicalNotes(toHighlight);
+    scrollContainerForPlayback(
+      container,
+      toHighlight,
+      scrollStateRef,
+      scrollMode,
+      visualIndex as PracticeVisualIndex,
+    );
+
+    return toHighlight;
+  } catch (err) {
+    // Last-resort safety net: a re-render mid-playback can still race this
+    // call. Fail this one tick rather than freezing forever - returning []
+    // (instead of leaving highlightedNotesRef pointing at dead references)
+    // lets the next tick recover cleanly once the index has rebuilt.
+    console.warn('[SheetMusic] syncSheetMusicPracticeVisuals failed, recovering next tick:', err);
     cursorOffsetRef.current = -1;
-    withNodeNotFoundDiagnostics(
-      'syncSheetMusicPracticeVisuals:cursor.hide(no-visualIndex)',
-      { stepIndex },
-      () => cursor?.hide(),
-    );
     return [];
   }
-
-  const offset = visualIndex.stepCursorOffsets[stepIndex] ?? 0;
-  moveCursorToOffset(osmd, offset, cursorOffsetRef);
-  withNodeNotFoundDiagnostics(
-    'syncSheetMusicPracticeVisuals:cursor.hide',
-    { stepIndex, offset },
-    () => cursor.hide(),
-  );
-
-  const toHighlight = resolveStepGraphicalNotes(
-    osmd,
-    visualIndex,
-    stepIndex,
-    practiceNotes,
-    cursorOffsetRef,
-  );
-
-  if (toHighlight.length === 0) {
-    withNodeNotFoundDiagnostics(
-      'syncSheetMusicPracticeVisuals:cursor.hide(empty-toHighlight)',
-      { stepIndex },
-      () => cursor.hide(),
-    );
-    return [];
-  }
-
-  highlightGraphicalNotes(toHighlight);
-  scrollContainerForPlayback(
-    container,
-    toHighlight,
-    scrollStateRef,
-    scrollMode,
-    visualIndex as PracticeVisualIndex,
-  );
-
-  return toHighlight;
 }
