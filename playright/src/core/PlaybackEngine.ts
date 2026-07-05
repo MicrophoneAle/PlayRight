@@ -531,6 +531,16 @@ export class PlaybackEngine {
       consecutiveSameNoteKeys,
       fermataContext,
     );
+    // DIAGNOSTIC (temporary): confirms the scheduling architecture - every
+    // step's attack is scheduled up-front, synchronously, in this single
+    // pass (not chained step-to-step), before transport.start() is called.
+    console.warn('[DIAG:scheduleFromStep] loop starting', {
+      fromStepIndex,
+      scriptLength: script.length,
+      wallClock: new Date().toISOString(),
+    });
+    let diagPreviousTick: number | null = null;
+
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
       const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
@@ -539,6 +549,32 @@ export class PlaybackEngine {
         fermataOffsets[stepIndex],
       );
       const transportTime = quartersToTransportTickTime(attackOnsetQuarters, ppq);
+
+      // DIAGNOSTIC (temporary): exact scheduled tick for every step's attack
+      // event, at SCHEDULE time (not fire time). Always logs an anomaly
+      // (NaN/negative/non-monotonic vs the previous step) regardless of
+      // index, plus a normal log for the range around the fermata.
+      const diagTickValue = quartersToTicks(attackOnsetQuarters, ppq);
+      const diagIsAnomalous =
+        !Number.isFinite(diagTickValue) ||
+        diagTickValue < 0 ||
+        (diagPreviousTick !== null && diagTickValue < diagPreviousTick);
+      if ((stepIndex >= 70 && stepIndex <= 80) || diagIsAnomalous) {
+        console.warn('[DIAG:scheduleTick] step attack scheduled', {
+          stepIndex,
+          attackOnsetQuarters: Number(attackOnsetQuarters.toFixed(4)),
+          fermataOffset: Number((fermataOffsets[stepIndex] ?? 0).toFixed(4)),
+          tickValue: diagTickValue,
+          transportTimeString: transportTime,
+          previousStepTick: diagPreviousTick,
+          isAnomalous: diagIsAnomalous,
+          delegateToNextStep: fermataContext.delegateToNextStep.has(stepIndex),
+          carryForwardStep: fermataContext.carryForwardSteps.has(stepIndex),
+          noteCount: step.notes.length,
+        });
+      }
+      diagPreviousTick = diagTickValue;
+
       const stepPresses: Array<{
         pressId: number;
         note: ScriptNote;
@@ -617,13 +653,39 @@ export class PlaybackEngine {
       }, transportTime);
 
       this.scheduledEventIds.push(stepEventId);
+
+      // DIAGNOSTIC (temporary): confirms scheduleOnce returned (didn't
+      // throw) for this step. If the loop dies mid-iteration, this log -
+      // and every log for later stepIndex values - simply won't appear.
+      if (stepIndex >= 70 && stepIndex <= 80) {
+        console.warn('[DIAG:scheduleTick] step event registered OK', {
+          stepIndex,
+          stepEventId,
+          totalScheduledSoFar: this.scheduledEventIds.length,
+        });
+      }
     }
+
+    // DIAGNOSTIC (temporary): only printed if the loop above completed
+    // fully for every step without throwing.
+    console.warn('[DIAG:scheduleFromStep] loop completed', {
+      fromStepIndex,
+      scriptLength: script.length,
+      totalScheduledEvents: this.scheduledEventIds.length,
+    });
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
     const endEventId = transport.scheduleOnce(() => {
       this.completePlayback();
     }, quartersToTransportTickTime(pieceEndQuarters, ppq));
     this.scheduledEventIds.push(endEventId);
+
+    // DIAGNOSTIC (temporary)
+    console.warn('[DIAG:scheduleFromStep] piece-end event registered', {
+      pieceEndQuarters: Number(pieceEndQuarters.toFixed(4)),
+      pieceEndTickValue: quartersToTicks(pieceEndQuarters, ppq),
+      endEventId,
+    });
   }
 
   private completePlayback(): void {
