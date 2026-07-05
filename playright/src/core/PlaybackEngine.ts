@@ -624,31 +624,83 @@ export class PlaybackEngine {
       }
 
       const stepEventId = transport.scheduleOnce((time) => {
-        // DIAGNOSTIC (temporary)
-        const diagIndexBefore = useEngineStore.getState().currentStepIndex;
-
-        this.releasePriorStepNotes(stepIndex);
-        this.applyStepVisual(stepIndex);
-
-        // DIAGNOSTIC (temporary)
-        console.warn('[DIAG:stepFire] step attack callback fired', {
+        // DIAGNOSTIC (temporary): entry into the fire-time callback, before
+        // ANY internal operation runs. If a step's log stops appearing
+        // starting here, the loss is upstream (Tone never invoked this
+        // callback at all) rather than inside this function body.
+        console.warn('[DIAG:stepFire] callback entered', {
           stepIndex,
           wallClock: new Date().toISOString(),
-          audioTime: Number(time.toFixed(3)),
-          transportTicks: transport.ticks,
-          storeIndexBefore: diagIndexBefore,
-          storeIndexAfter: useEngineStore.getState().currentStepIndex,
-          notesInStep: stepPresses.length,
         });
 
-        for (const { pressId, note, playedDuration } of stepPresses) {
-          engine.scheduleAttackRelease(note.midi, playedDuration, time);
+        try {
+          const diagIndexBefore = useEngineStore.getState().currentStepIndex;
 
-          if (isSamePitchReattack(script, stepIndex, note)) {
-            this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
-          } else {
-            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+          this.releasePriorStepNotes(stepIndex);
+          console.warn('[DIAG:stepFire] releasePriorStepNotes done', { stepIndex });
+
+          this.applyStepVisual(stepIndex);
+          console.warn('[DIAG:stepFire] applyStepVisual done', { stepIndex });
+
+          // DIAGNOSTIC (temporary)
+          console.warn('[DIAG:stepFire] step attack callback fired', {
+            stepIndex,
+            wallClock: new Date().toISOString(),
+            audioTime: Number(time.toFixed(3)),
+            transportTicks: transport.ticks,
+            storeIndexBefore: diagIndexBefore,
+            storeIndexAfter: useEngineStore.getState().currentStepIndex,
+            notesInStep: stepPresses.length,
+          });
+
+          for (const { pressId, note, playedDuration } of stepPresses) {
+            engine.scheduleAttackRelease(note.midi, playedDuration, time);
+            console.warn('[DIAG:stepFire] scheduleAttackRelease done', {
+              stepIndex,
+              pressId,
+              midi: note.midi,
+              playedDuration,
+            });
+
+            const isReattack = isSamePitchReattack(script, stepIndex, note);
+            console.warn('[DIAG:stepFire] isSamePitchReattack computed', {
+              stepIndex,
+              pressId,
+              isReattack,
+            });
+
+            if (isReattack) {
+              this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
+              console.warn('[DIAG:stepFire] deferRepeatedPress done', {
+                stepIndex,
+                pressId,
+              });
+            } else {
+              this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+              console.warn('[DIAG:stepFire] pressPlayingNote done', {
+                stepIndex,
+                pressId,
+              });
+            }
           }
+
+          // DIAGNOSTIC (temporary): only printed if every operation above
+          // for THIS step completed without throwing.
+          console.warn('[DIAG:stepFire] callback completed cleanly', { stepIndex });
+        } catch (err) {
+          // DIAGNOSTIC (temporary): a throw here would otherwise propagate
+          // into Tone's tick-draining loop and could silently abort
+          // delivery of every later event scheduled at/after this tick -
+          // explaining a step whose callback is registered but never fires.
+          // Catching it keeps the transport draining regardless of root
+          // cause; the logged stack identifies the exact failing operation.
+          console.error('[DIAG:stepFire] THROW inside step attack callback', {
+            stepIndex,
+            wallClock: new Date().toISOString(),
+            notesInStep: stepPresses.length,
+            errorMessage: err instanceof Error ? err.message : String(err),
+            errorStack: err instanceof Error ? err.stack : undefined,
+          });
         }
       }, transportTime);
 
