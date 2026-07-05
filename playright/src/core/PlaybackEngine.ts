@@ -464,13 +464,23 @@ export class PlaybackEngine {
       durationOptions,
     );
     const releaseEventId = getTransport().scheduleOnce(() => {
-      this.playingPressTracker.releaseMatching(
-        (active) =>
-          active.midi === note.midi &&
-          active.hand === note.hand &&
-          active.stepIndex < stepIndex,
-      );
-      this.syncPlayingNotes();
+      // Never let a throw escape into Tone's event-draining loop: a
+      // scheduleOnce event that throws during invocation is not cleared, so
+      // Tone re-invokes it (and re-throws) every tick, permanently blocking
+      // delivery of every later event - the transport keeps ticking but the
+      // step index freezes. A failed visual sync must degrade to a skipped
+      // frame, never a dead playhead.
+      try {
+        this.playingPressTracker.releaseMatching(
+          (active) =>
+            active.midi === note.midi &&
+            active.hand === note.hand &&
+            active.stepIndex < stepIndex,
+        );
+        this.syncPlayingNotes();
+      } catch (err) {
+        console.error('[PlaybackEngine] tie-end release callback failed (skipped):', err);
+      }
     }, quartersToTransportTickTime(releaseOnset, ppq));
     this.scheduledEventIds.push(releaseEventId);
   }
@@ -617,7 +627,14 @@ export class PlaybackEngine {
             `${stepIndex}:${note.hand}:${note.midi}`,
           );
           const releaseEventId = transport.scheduleOnce(() => {
-            this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
+            // See scheduleTieEndRelease: a throw here (e.g. flushSync
+            // committing React updates against a replaced OSMD SVG) would
+            // wedge Tone's event queue and freeze step advancement forever.
+            try {
+              this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
+            } catch (err) {
+              console.error('[PlaybackEngine] note release callback failed (skipped):', err);
+            }
           }, quartersToTransportTickTime(releaseOnset, ppq));
           this.scheduledEventIds.push(releaseEventId);
         }
@@ -728,7 +745,11 @@ export class PlaybackEngine {
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
     const endEventId = transport.scheduleOnce(() => {
-      this.completePlayback();
+      try {
+        this.completePlayback();
+      } catch (err) {
+        console.error('[PlaybackEngine] piece-end callback failed (skipped):', err);
+      }
     }, quartersToTransportTickTime(pieceEndQuarters, ppq));
     this.scheduledEventIds.push(endEventId);
 
