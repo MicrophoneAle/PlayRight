@@ -15,7 +15,6 @@ import {
   resolveNotePlaybackDurationQuarterNotes,
   quarterNotesToTickDuration,
   quartersToTicks,
-  quartersToTransportTickTime,
   scheduledPlaybackAttackQuarterNotes,
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -25,6 +24,42 @@ import type { Hand, ScriptNote } from '../types/index.ts';
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
+}
+
+/**
+ * Clamp a computed tick to a finite, non-decreasing value before it reaches
+ * Tone's Transport.
+ *
+ * scheduleFromStep computes every event's tick synchronously from
+ * playbackTiming's fermata/duration math and hands it straight to
+ * transport.scheduleOnce as a "<ticks>i" string. A NaN/Infinity or
+ * out-of-order tick (a fermata carry-forward bug, a divide-by-zero) is never
+ * an exception - Tone's Transport stores events in an internally ordered
+ * Timeline that inserts by numeric comparison, and a NaN/out-of-order key
+ * breaks that ordering invariant silently. Once corrupted, later
+ * lookups/inserts on the same Timeline can silently stop finding or firing
+ * events registered after the bad one - a permanent, unthrown freeze (this
+ * is suspected to be the actual mechanism behind playback wedging at the
+ * measure 8-9 fermata, since every scheduleOnce callback body is already
+ * guarded by try/catch and none of those guards stop this). Clamping here,
+ * before the value ever reaches Tone, is the only place that can prevent it.
+ */
+function safeTickTime(
+  rawTicks: number,
+  minTick: number,
+  label: string,
+  context: Record<string, unknown>,
+): { text: string; tick: number } {
+  if (Number.isFinite(rawTicks) && rawTicks >= minTick) {
+    return { text: `${rawTicks}i`, tick: rawTicks };
+  }
+
+  const fallbackTick = minTick + 1;
+  console.error(
+    `[PlaybackEngine] ${label} produced a non-finite/out-of-order tick - clamped to avoid corrupting Tone's Transport Timeline`,
+    { ...context, rawTicks, minTick, fallbackTick },
+  );
+  return { text: `${fallbackTick}i`, tick: fallbackTick };
 }
 
 /** Visual-only delay before a same-pitch re-strike press paints (~2 frames). */
@@ -446,6 +481,7 @@ export class PlaybackEngine {
     divisionsPerQuarter: number,
     ppq: number,
     finalNoteKeys: Set<string>,
+    minTick: number,
   ): void {
     const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
     const writtenQuarters = noteDurationQuarterNotes(
@@ -462,6 +498,12 @@ export class PlaybackEngine {
       writtenQuarters,
       false,
       durationOptions,
+    );
+    const { text: releaseTimeText } = safeTickTime(
+      quartersToTicks(releaseOnset, ppq),
+      minTick,
+      'scheduleTieEndRelease releaseOnset',
+      { stepIndex, midi: note.midi, hand: note.hand },
     );
     const releaseEventId = getTransport().scheduleOnce(() => {
       // Never let a throw escape into Tone's event-draining loop: a
@@ -481,7 +523,7 @@ export class PlaybackEngine {
       } catch (err) {
         console.error('[PlaybackEngine] tie-end release callback failed (skipped):', err);
       }
-    }, quartersToTransportTickTime(releaseOnset, ppq));
+    }, releaseTimeText);
     this.scheduledEventIds.push(releaseEventId);
   }
 
@@ -549,98 +591,115 @@ export class PlaybackEngine {
       scriptLength: script.length,
       wallClock: new Date().toISOString(),
     });
-    let diagPreviousTick: number | null = null;
+    // Tracks the last tick actually handed to Tone (post-clamp), never the
+    // raw computed value - so a clamp on step N keeps step N+1 anchored to
+    // the corrected timeline instead of re-deriving from the corruption.
+    let lastSafeAttackTick = -1;
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
-      const step = script[stepIndex];
-      const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-        step.onset,
-        divisionsPerQuarter,
-        fermataOffsets[stepIndex],
-      );
-      const transportTime = quartersToTransportTickTime(attackOnsetQuarters, ppq);
-
-      // DIAGNOSTIC (temporary): exact scheduled tick for every step's attack
-      // event, at SCHEDULE time (not fire time). Always logs an anomaly
-      // (NaN/negative/non-monotonic vs the previous step) regardless of
-      // index, plus a normal log for the range around the fermata.
-      const diagTickValue = quartersToTicks(attackOnsetQuarters, ppq);
-      const diagIsAnomalous =
-        !Number.isFinite(diagTickValue) ||
-        diagTickValue < 0 ||
-        (diagPreviousTick !== null && diagTickValue < diagPreviousTick);
-      if ((stepIndex >= 70 && stepIndex <= 80) || diagIsAnomalous) {
-        console.warn('[DIAG:scheduleTick] step attack scheduled', {
-          stepIndex,
-          attackOnsetQuarters: Number(attackOnsetQuarters.toFixed(4)),
-          fermataOffset: Number((fermataOffsets[stepIndex] ?? 0).toFixed(4)),
-          tickValue: diagTickValue,
-          transportTimeString: transportTime,
-          previousStepTick: diagPreviousTick,
-          isAnomalous: diagIsAnomalous,
-          delegateToNextStep: fermataContext.delegateToNextStep.has(stepIndex),
-          carryForwardStep: fermataContext.carryForwardSteps.has(stepIndex),
-          noteCount: step.notes.length,
-        });
-      }
-      diagPreviousTick = diagTickValue;
-
-      const stepPresses: Array<{
-        pressId: number;
-        note: ScriptNote;
-        playedDuration: string;
-      }> = [];
-
-      for (const note of step.notes) {
-        if (isPlaybackTieContinuation(script, stepIndex, note)) {
-          if (!note.tiedToNext) {
-            this.scheduleTieEndRelease(
-              stepIndex,
-              note,
-              attackOnsetQuarters,
-              divisionsPerQuarter,
-              ppq,
-              finalNoteKeys,
-            );
-          }
-          continue;
-        }
-
-        const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
-          stepIndex,
-          note,
-          script,
-          stepDurations,
+      // A throw anywhere in this step's scheduling (attack/release tick
+      // math, Tone.scheduleOnce itself) must not abort the loop: that would
+      // silently drop scheduling for every step after it, forever, with
+      // scheduleFromStep running once before transport.start() and every
+      // step scheduled independently - a single bad step must be skippable
+      // without losing the rest of the piece.
+      try {
+        const step = script[stepIndex];
+        const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
+          step.onset,
           divisionsPerQuarter,
-          finalNoteKeys,
-          consecutiveSameNoteKeys,
-          fermataContext,
+          fermataOffsets[stepIndex],
         );
-        const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
-        const pressId = this.playingPressTracker.allocatePressId();
 
-        stepPresses.push({ pressId, note, playedDuration });
-
-        if (!note.tiedToNext) {
-          const releaseOnset = attackOnsetQuarters + playedQuarters;
-          const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
-            `${stepIndex}:${note.hand}:${note.midi}`,
-          );
-          const releaseEventId = transport.scheduleOnce(() => {
-            // See scheduleTieEndRelease: a throw here (e.g. flushSync
-            // committing React updates against a replaced OSMD SVG) would
-            // wedge Tone's event queue and freeze step advancement forever.
-            try {
-              this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
-            } catch (err) {
-              console.error('[PlaybackEngine] note release callback failed (skipped):', err);
-            }
-          }, quartersToTransportTickTime(releaseOnset, ppq));
-          this.scheduledEventIds.push(releaseEventId);
+        // DIAGNOSTIC (temporary): exact scheduled tick for every step's attack
+        // event, at SCHEDULE time (not fire time).
+        const rawTickValue = quartersToTicks(attackOnsetQuarters, ppq);
+        const { text: transportTime, tick: safeAttackTick } = safeTickTime(
+          rawTickValue,
+          lastSafeAttackTick,
+          'scheduleFromStep attack tick',
+          { stepIndex, attackOnsetQuarters, fermataOffset: fermataOffsets[stepIndex] ?? 0 },
+        );
+        if (stepIndex >= 70 && stepIndex <= 80) {
+          console.warn('[DIAG:scheduleTick] step attack scheduled', {
+            stepIndex,
+            attackOnsetQuarters: Number(attackOnsetQuarters.toFixed(4)),
+            fermataOffset: Number((fermataOffsets[stepIndex] ?? 0).toFixed(4)),
+            rawTickValue,
+            safeAttackTick,
+            wasClamped: safeAttackTick !== rawTickValue,
+            transportTimeString: transportTime,
+            previousSafeTick: lastSafeAttackTick,
+            delegateToNextStep: fermataContext.delegateToNextStep.has(stepIndex),
+            carryForwardStep: fermataContext.carryForwardSteps.has(stepIndex),
+            noteCount: step.notes.length,
+          });
         }
-      }
+        lastSafeAttackTick = safeAttackTick;
 
-      const stepEventId = transport.scheduleOnce((time) => {
+        const stepPresses: Array<{
+          pressId: number;
+          note: ScriptNote;
+          playedDuration: string;
+        }> = [];
+
+        for (const note of step.notes) {
+          if (isPlaybackTieContinuation(script, stepIndex, note)) {
+            if (!note.tiedToNext) {
+              this.scheduleTieEndRelease(
+                stepIndex,
+                note,
+                attackOnsetQuarters,
+                divisionsPerQuarter,
+                ppq,
+                finalNoteKeys,
+                safeAttackTick,
+              );
+            }
+            continue;
+          }
+
+          const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
+            stepIndex,
+            note,
+            script,
+            stepDurations,
+            divisionsPerQuarter,
+            finalNoteKeys,
+            consecutiveSameNoteKeys,
+            fermataContext,
+          );
+          const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
+          const pressId = this.playingPressTracker.allocatePressId();
+
+          stepPresses.push({ pressId, note, playedDuration });
+
+          if (!note.tiedToNext) {
+            const releaseOnset = attackOnsetQuarters + playedQuarters;
+            const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
+              `${stepIndex}:${note.hand}:${note.midi}`,
+            );
+            const { text: releaseTimeText } = safeTickTime(
+              quartersToTicks(releaseOnset, ppq),
+              safeAttackTick,
+              'scheduleFromStep note release tick',
+              { stepIndex, midi: note.midi, hand: note.hand },
+            );
+            const releaseEventId = transport.scheduleOnce(() => {
+              // See scheduleTieEndRelease: a throw here (e.g. flushSync
+              // committing React updates against a replaced OSMD SVG) would
+              // wedge Tone's event queue and freeze step advancement forever.
+              try {
+                this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
+              } catch (err) {
+                console.error('[PlaybackEngine] note release callback failed (skipped):', err);
+              }
+            }, releaseTimeText);
+            this.scheduledEventIds.push(releaseEventId);
+          }
+        }
+
+        const stepEventId = transport.scheduleOnce((time) => {
         // DIAGNOSTIC (temporary): entry into the fire-time callback, before
         // ANY internal operation runs. If a step's log stops appearing
         // starting here, the loss is upstream (Tone never invoked this
@@ -719,18 +778,30 @@ export class PlaybackEngine {
             errorStack: err instanceof Error ? err.stack : undefined,
           });
         }
-      }, transportTime);
+        }, transportTime);
 
-      this.scheduledEventIds.push(stepEventId);
+        this.scheduledEventIds.push(stepEventId);
 
-      // DIAGNOSTIC (temporary): confirms scheduleOnce returned (didn't
-      // throw) for this step. If the loop dies mid-iteration, this log -
-      // and every log for later stepIndex values - simply won't appear.
-      if (stepIndex >= 70 && stepIndex <= 80) {
-        console.warn('[DIAG:scheduleTick] step event registered OK', {
+        // DIAGNOSTIC (temporary): confirms scheduleOnce returned (didn't
+        // throw) for this step. If the loop dies mid-iteration, this log -
+        // and every log for later stepIndex values - simply won't appear.
+        if (stepIndex >= 70 && stepIndex <= 80) {
+          console.warn('[DIAG:scheduleTick] step event registered OK', {
+            stepIndex,
+            stepEventId,
+            totalScheduledSoFar: this.scheduledEventIds.length,
+          });
+        }
+      } catch (err) {
+        // This is the loop-abort failure mode the old diagnostic comment
+        // warned about: an uncaught throw here used to silently stop
+        // scheduling for every step after this one, forever. Log with a
+        // unique label and move on to the next step instead - this step's
+        // attack/notes are lost, but the rest of the piece keeps advancing.
+        console.error('[PlaybackEngine] scheduleFromStep step scheduling THREW (step skipped, continuing)', {
           stepIndex,
-          stepEventId,
-          totalScheduledSoFar: this.scheduledEventIds.length,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          errorStack: err instanceof Error ? err.stack : undefined,
         });
       }
     }
@@ -744,13 +815,19 @@ export class PlaybackEngine {
     });
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
+    const { text: pieceEndTimeText } = safeTickTime(
+      quartersToTicks(pieceEndQuarters, ppq),
+      lastSafeAttackTick,
+      'scheduleFromStep piece-end tick',
+      { scriptLength: script.length },
+    );
     const endEventId = transport.scheduleOnce(() => {
       try {
         this.completePlayback();
       } catch (err) {
         console.error('[PlaybackEngine] piece-end callback failed (skipped):', err);
       }
-    }, quartersToTransportTickTime(pieceEndQuarters, ppq));
+    }, pieceEndTimeText);
     this.scheduledEventIds.push(endEventId);
 
     // DIAGNOSTIC (temporary)
