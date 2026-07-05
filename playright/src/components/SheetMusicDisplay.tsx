@@ -237,6 +237,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const visualIndexGenerationRef = useRef(0);
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
+  const lastRenderedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const scrollStateRef = useRef<PracticeScrollState>({
     systemKey: null,
     lineScrollTop: null,
@@ -477,6 +478,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
+      lastRenderedSizeRef.current = null;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       return;
     }
@@ -489,6 +491,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexRef.current = null;
     highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
+    lastRenderedSizeRef.current = null;
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     visualIndexGenerationRef.current += 1;
 
@@ -534,6 +537,16 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         normalizeMeasureNumberPositions(container);
         ensureSheetTopClearance(container);
 
+        // Record the box size produced by this render so the ResizeObserver
+        // below can tell "the browser resized" apart from "our own render
+        // just nudged the layout by a few px" (svg marginTop, scrollbar
+        // toggling) - without this, self-induced resizes re-trigger
+        // safeRender forever and starve playback of main-thread time.
+        lastRenderedSizeRef.current = {
+          width: container.clientWidth,
+          height: container.clientHeight,
+        };
+
         // A re-render replaces OSMD's SVG and every GraphicalNote object, so
         // the visual index (which holds GraphicalNote references) must be
         // rebuilt whenever playback is actively running through it - not
@@ -570,17 +583,41 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           return;
         }
 
+        const RESIZE_EPSILON_PX = 1;
+
         resizeObserver = new ResizeObserver(() => {
+          const width = container.clientWidth;
+          const height = container.clientHeight;
+          const lastRendered = lastRenderedSizeRef.current;
+          const isSelfInducedResize =
+            lastRendered !== null &&
+            Math.abs(width - lastRendered.width) <= RESIZE_EPSILON_PX &&
+            Math.abs(height - lastRendered.height) <= RESIZE_EPSILON_PX;
+
+          // DIAGNOSTIC (temporary)
+          console.warn('[DIAG:resizeObserver] fired', {
+            containerWidth: width,
+            containerHeight: height,
+            lastRenderedWidth: lastRendered?.width,
+            lastRenderedHeight: lastRendered?.height,
+            isSelfInducedResize,
+          });
+
+          if (isSelfInducedResize) {
+            // Our own render (osmd.render(), marginTop/measure-number
+            // adjustments, scrollbar toggling) nudged the box back to the
+            // size we just rendered at - not a genuine external resize.
+            // Ignoring it breaks the render -> resize -> render loop.
+            return;
+          }
+
           const state = useEngineStore.getState();
           const playbackRunning =
             state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
-          // DIAGNOSTIC (temporary)
-          console.warn('[DIAG:resizeObserver] fired', {
+          console.warn('[DIAG:resizeObserver] genuine resize, dispatching', {
             playbackRunning,
             currentStepIndex: state.currentStepIndex,
-            containerWidth: container.clientWidth,
-            containerHeight: container.clientHeight,
             path: playbackRunning ? 'debounced safeRender(false) in 250ms' : 'immediate safeRender(false)',
           });
 
@@ -621,6 +658,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
+      lastRenderedSizeRef.current = null;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       resizeObserver?.disconnect();
       if (resizeDebounceId !== null) {
