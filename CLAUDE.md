@@ -73,6 +73,7 @@ PlayRight/
 - **Cross-hand regression surface:** Physical-hand progress counts, keyboard next-note hints, practice matching, and Supabase round-trip must stay aligned. Tests live in `fingeringModes.test.ts`.
 - **MusicXML timeline drift:** `MusicXMLMapper` can advance time on tie-stop before chord tones on the same beat, inflating onsets (seen on complex scores like `morns-like-these-honkai-star-rail.musicxml`). Grace notes are skipped; octave-shift is not applied—parser changes need fixture tests.
 - **Play mode duration sync:** Highlights must follow note **release** time (ties, half notes), not just step onsets. `playingMidiPressTracker` handles repeated same-pitch attacks.
+- **Fermata playback (fixed):** Play mode previously froze or lingered at fermatas (notably Constant Moderato measure 8–9): fractional Transport ticks never fired, pickup fermatas on short notes did not extend the following whole-note chord, and seek/advance left notes sounding. Fixed in `playbackTiming.ts` (2× hold, `buildFermataPlaybackContext` carry-forward, release-aligned offsets) and `PlaybackEngine.ts` (`safeTickTime` integer rounding, callback error isolation, `releaseAll` on seek). Regression: `constant-moderato-fermata.test.ts`.
 - **Audio init:** Tone.js requires a user gesture; `App.tsx` warms audio on first pointer/keydown.
 - **Large score assets:** Bundled `.musicxml` files (especially multi-thousand-line scores) are for fixtures/regression—do not read or diff them unless working on parser/load behavior.
 - **Build hygiene:** Unused imports and strict `ManualFingeringMap` literals have broken Vercel builds before—keep `npm run build` clean.
@@ -83,4 +84,4 @@ PlayRight/
 - **Exclusions:** Do not read or analyze `node_modules/`, `dist/`, large bundled `.musicxml` assets, log dumps, or minified scripts unless the task explicitly requires it.
 - **Brevity:** Omit conversational fluff and lengthy post-code explanations. Let the code speak for itself.
 - **Verification:** After substantive changes, run `npm test` and `npm run build` from `playright/` (not the repo root).
-- **Checkpoints:** Stable milestones use annotated git tags (`checkpoint-*`); update README Checkpoints table when tagging.
+- **Checkpoints:** Stable milestones use annotated git tags (`checkpoint-*`); update README Checkpoints table when tagging. Latest: `checkpoint-fermata-playback` (fermata hold + carry-forward + integer ticks).

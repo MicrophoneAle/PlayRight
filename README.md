@@ -42,6 +42,7 @@ When play mode is enabled in Settings:
 - **Visual sync** — Green highlights on the sheet music and keyboard follow the same press/release schedule. Longer notes stay highlighted until their scheduled release, not just until the next step in the script.
 - **Ties and chords** — Tied notes play through their combined duration; chord tones on the same beat start and release together.
 - **Articulation** — Non-tied notes include a short release gap before the next attack so repeated pitches re-articulate cleanly.
+- **Fermatas** — Fermata-marked notes hold for **2×** their normal played duration. When the score places a fermata on a short pickup into an immediately following sustained chord (e.g. Constant Moderato measure 8), the extended hold applies to that chord step. Transport events use integer ticks so fractional fermata offsets still fire; seek and step advance release lingering notes.
 - **Keyboard in play mode** — Keys show green while a note is held and grey while it is sounding; scope labels and purple scope highlights are hidden. Computer piano keys are disabled.
 - **Transport** — Pause clears sounding highlights; stop returns to the beginning; **Replay** appears after the piece finishes.
 
@@ -209,6 +210,7 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 - [ ] Additional practice modes and scoring
 - [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
 - [x] Play mode with tempo control, seek, replay, and sheet/keyboard duration sync
+- [x] Fermata playback: 2× hold, carry-forward into abutting sustained chords, integer Transport ticks, seek/release cleanup
 - [x] Program mode with stable step progression, full-step highlights, sheet click-jump refingering, Supabase autosave, and auto-advance after re-finger
 - [x] Cross-hand program assignments (MIDI-walk, physical-hand progress, practice matching via `playingHand`)
 - [x] Live program reprogramming: finger presses on complete steps overwrite fingerings in pitch order without a sheet click
@@ -219,6 +221,7 @@ Annotated git tags mark stable milestones:
 
 | Tag | Description |
 |-----|-------------|
+| `checkpoint-fermata-playback` | Fermata playback fixed: 2× hold, carry-forward into abutting chords (Constant Moderato m8–9), integer Transport ticks, seek/release cleanup |
 | `checkpoint-program-reprogram` | Live program reprogramming: finger presses on complete steps overwrite fingerings in pitch order and persist, without requiring a sheet click |
 | `checkpoint-program-crossover` | Cross-hand program mode: MIDI-walk assignment, physical-hand progress, `{ finger, physicalHand }` persistence, practice matching via `playingHand` |
 | `checkpoint-program-refinger` | Program mode complete: sheet green highlights, click-jump re-finger with auto-advance, Supabase fingering persistence |
