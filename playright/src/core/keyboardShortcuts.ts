@@ -8,7 +8,7 @@ export interface KeyboardShortcut {
 
 const GLOBAL_SHORTCUTS: KeyboardShortcut[] = [
   { keys: 'Enter', description: 'Start practice' },
-  { keys: 'Space', description: 'Pause / resume' },
+  { keys: 'Space', description: 'Pause / Resume' },
   { keys: 'X', description: 'Stop and return to start' },
   { keys: 'Z', description: 'Toggle header' },
 ];
@@ -48,7 +48,7 @@ export function getKeyboardShortcuts(
     ...GLOBAL_SHORTCUTS,
     { keys: 'A – ;', description: 'White keys in scope' },
     { keys: 'Q – [', description: 'Black keys in scope' },
-    { keys: '⇪ / ↹ / \' / ]', description: 'Extension keys when needed' },
+    { keys: '⇧ / ↹ / \' / ]', description: 'Extension keys' },
     { keys: '← or 1', description: 'Move scope down' },
     { keys: '→ or 2', description: 'Move scope up' },
     {
