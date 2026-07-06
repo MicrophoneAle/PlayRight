@@ -1,4 +1,11 @@
-import type { Finger, Hand, PlaybackScript, ScriptNote, StepOrder } from '../../types/index.ts';
+import type {
+  Finger,
+  GraceNoteInfo,
+  Hand,
+  PlaybackScript,
+  ScriptNote,
+  StepOrder,
+} from '../../types/index.ts';
 import { formatPitch, getMidiNumber } from './pitch.ts';
 import type { NormalizedControl, NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
 
@@ -175,7 +182,12 @@ function controlTimeAdvance(
 }
 
 function groupByOnset(
-  absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
+  absoluteNotes: Array<{
+    note: ScriptNote;
+    onset: number;
+    measureNumber: number;
+    graceBefore?: GraceNoteInfo[];
+  }>,
 ): PlaybackScript {
   const sorted = [...absoluteNotes].sort((left, right) => left.onset - right.onset);
 
@@ -186,13 +198,23 @@ function groupByOnset(
     const onset = sorted[index].onset;
     const measureNumber = sorted[index].measureNumber;
     const notes: ScriptNote[] = [];
+    let graceBefore: GraceNoteInfo[] | undefined;
 
     while (index < sorted.length && sorted[index].onset === onset) {
       notes.push(sorted[index].note);
+      if (sorted[index].graceBefore) {
+        graceBefore = sorted[index].graceBefore;
+      }
       index += 1;
     }
 
-    const step: StepOrder = { order, onset, measureNumber, notes };
+    const step: StepOrder = {
+      order,
+      onset,
+      measureNumber,
+      notes,
+      ...(graceBefore ? { graceBefore } : {}),
+    };
     script.push(step);
     order += 1;
   }
@@ -240,8 +262,29 @@ function createScriptNote(
   };
 }
 
+function createGraceNoteInfo(
+  element: NormalizedNote,
+  partUsesMultipleStavesInPart: boolean,
+): GraceNoteInfo {
+  return {
+    midi: getMidiNumber(element.step, element.octave, element.alter),
+    pitch: formatPitch(element.step, element.octave, element.alter),
+    hand: mapStaffToHand(
+      element.staff,
+      element.partIndex,
+      element.partCount,
+      partUsesMultipleStavesInPart,
+    ),
+    kind: element.graceSlash ? 'acciaccatura' : 'appoggiatura',
+    ...(element.graceStealTime ? { stealTime: element.graceStealTime } : {}),
+  };
+}
+
 function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
-  const byOnset = new Map<number, { measureNumber: number; notes: ScriptNote[] }>();
+  const byOnset = new Map<
+    number,
+    { measureNumber: number; notes: ScriptNote[]; graceBefore?: GraceNoteInfo[] }
+  >();
 
   for (const script of scripts) {
     for (const step of script) {
@@ -249,24 +292,32 @@ function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
 
       if (existing) {
         existing.notes.push(...step.notes);
+        if (step.graceBefore) {
+          existing.graceBefore = [...(existing.graceBefore ?? []), ...step.graceBefore];
+        }
         continue;
       }
 
       byOnset.set(step.onset, {
         measureNumber: step.measureNumber,
         notes: [...step.notes],
+        ...(step.graceBefore ? { graceBefore: [...step.graceBefore] } : {}),
       });
     }
   }
 
   const sortedOnsets = [...byOnset.keys()].sort((left, right) => left - right);
 
-  return sortedOnsets.map((onset, order) => ({
-    order,
-    onset,
-    measureNumber: byOnset.get(onset)!.measureNumber,
-    notes: byOnset.get(onset)!.notes,
-  }));
+  return sortedOnsets.map((onset, order) => {
+    const entry = byOnset.get(onset)!;
+    return {
+      order,
+      onset,
+      measureNumber: entry.measureNumber,
+      notes: entry.notes,
+      ...(entry.graceBefore ? { graceBefore: entry.graceBefore } : {}),
+    };
+  });
 }
 
 export { getMidiNumber, formatPitch } from './pitch.ts';
@@ -282,7 +333,13 @@ export class MusicXMLMapper {
     let chordAnchorOnset = 0;
     let chordAnchorVoiceKey: string | null = null;
     let pendingTimeAdvance = 0;
-    const absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }> = [];
+    let pendingGraceNotes: GraceNoteInfo[] = [];
+    const absoluteNotes: Array<{
+      note: ScriptNote;
+      onset: number;
+      measureNumber: number;
+      graceBefore?: GraceNoteInfo[];
+    }> = [];
     const openTies = new Map<string, number>();
     const multiStaffPart = partUsesMultipleStaves(elements);
 
@@ -322,6 +379,9 @@ export class MusicXMLMapper {
       }
 
       if (element.isGrace) {
+        if (element.hasPlayablePitch) {
+          pendingGraceNotes.push(createGraceNoteInfo(element, multiStaffPart));
+        }
         continue;
       }
 
@@ -408,7 +468,9 @@ export class MusicXMLMapper {
           note: scriptNote,
           onset: currentTime,
           measureNumber: element.measureNumber,
+          ...(pendingGraceNotes.length > 0 ? { graceBefore: pendingGraceNotes } : {}),
         });
+        pendingGraceNotes = [];
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }

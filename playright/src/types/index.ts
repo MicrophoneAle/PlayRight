@@ -30,6 +30,14 @@ export interface ParseMusicXmlResult {
   warnings: string[];
 }
 
+export interface GraceNoteInfo {
+  midi: number;
+  pitch: string;
+  hand: Hand;
+  kind: 'acciaccatura' | 'appoggiatura';
+  stealTime?: 'previous' | 'following';
+}
+
 export interface StepOrder {
   order: number;
   /** MusicXML division time from the start of the part. */
@@ -37,6 +45,12 @@ export interface StepOrder {
   /** MusicXML measure number (1-based) for the step's attack. */
   measureNumber: number;
   notes: ScriptNote[];
+  /**
+   * Grace note(s) immediately preceding this step's note/chord. Metadata only:
+   * not played, not fingered, and does not advance onset - rides on the main
+   * note/chord it precedes.
+   */
+  graceBefore?: GraceNoteInfo[];
 }
 
 export type PlaybackScript = StepOrder[];

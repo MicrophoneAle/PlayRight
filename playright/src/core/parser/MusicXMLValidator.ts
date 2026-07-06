@@ -13,12 +13,22 @@ const ScriptNoteSchema = z.object({
   hasFermata: z.boolean().optional(),
 });
 
+/** Mirrors {@link GraceNoteInfo} */
+const GraceNoteInfoSchema = z.object({
+  midi: z.number().int().min(21).max(108),
+  pitch: z.string().min(1),
+  hand: z.enum(['L', 'R']),
+  kind: z.enum(['acciaccatura', 'appoggiatura']),
+  stealTime: z.enum(['previous', 'following']).optional(),
+});
+
 /** Mirrors {@link StepOrder} — domain field is `order`, not `orderId`. */
 const StepOrderSchema = z.object({
   order: z.number().int().min(0),
   onset: z.number().int().min(0),
   measureNumber: z.number().int().min(1),
   notes: z.array(ScriptNoteSchema),
+  graceBefore: z.array(GraceNoteInfoSchema).optional(),
 });
 
 /** Mirrors {@link PlaybackScript} */
