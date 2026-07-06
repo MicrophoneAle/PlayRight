@@ -153,7 +153,7 @@ export function Lid() {
   const settingsPanel = settingsOpen && settingsMenuPosition ? (
     <div
       ref={settingsPanelRef}
-      className="fixed z-[200] flex w-56 flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 p-3 shadow-2xl"
+      className="fixed z-[200] flex w-56 flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 py-3 pl-3 pr-0 shadow-2xl"
       style={{
         top: settingsMenuPosition.top,
         right: settingsMenuPosition.right,
@@ -162,10 +162,10 @@ export function Lid() {
       }}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <p className="mb-2 shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-500">
+      <p className="mb-2 shrink-0 pr-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
         Settings
       </p>
-      <div className="playright-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pr-0.5">
+      <div className="playright-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain">
         <div className="flex items-center justify-between gap-3">
           <label
             htmlFor="play-mode-toggle"

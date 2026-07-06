@@ -62,7 +62,10 @@ button:focus-visible {
   background-color: #71717a;
 }
 
-.playright-scrollbar::-webkit-scrollbar-button {
+.playright-scrollbar::-webkit-scrollbar-button,
+.playright-scrollbar::-webkit-scrollbar-button:single-button,
+.playright-scrollbar::-webkit-scrollbar-button:start:decrement,
+.playright-scrollbar::-webkit-scrollbar-button:end:increment {
   display: none;
   height: 0;
   width: 0;
