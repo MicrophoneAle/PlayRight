@@ -484,7 +484,7 @@ export function Lid() {
         : 'text-zinc-400 hover:text-zinc-200';
 
   const headerToggleClass =
-    'fixed left-6 z-50 top-[calc(1rem+(3.5rem-1.375rem)/2)] inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
+    'fixed left-8 z-50 top-[calc(1rem+(3.5rem-1.375rem)/2)] inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
 
   const toggleCollapsed = () => {
     toggleHeaderCollapsed();
@@ -639,7 +639,7 @@ export function Lid() {
 
       {!collapsed ? (
     <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
-      <div className="flex min-w-0 flex-1 items-center gap-4">
+      <div className="ml-2 flex min-w-0 flex-1 items-center gap-4">
         <div className="flex min-w-0 items-center gap-1.5 h-14">
           <span className="w-[22px] shrink-0" aria-hidden />
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
