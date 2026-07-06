@@ -13,18 +13,13 @@ import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.
 import type { ScriptNote } from '../types/index.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 
-/** Wait this long after the last hit before advancing, so 3+ simultaneous finger keys register. */
-export const PRACTICE_CHORD_INTAKE_MS = 48;
-
 export class PracticeEngine {
   private audioEngine: AudioEngine | null = null;
   private expectedNotes: Set<number> = new Set();
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
-  private fingersPressedThisStep = new Set<string>();
   private soundingMidis = new Set<number>();
   private activeFingerSounds = new Map<string, number>();
-  private chordCompletionTimer: ReturnType<typeof setTimeout> | null = null;
   private storeSubscriptionInitialized = false;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -93,7 +88,6 @@ export class PracticeEngine {
   }
 
   pause(): void {
-    this.clearChordCompletionTimer();
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
     actions.setExpectedNotes([]);
@@ -117,7 +111,6 @@ export class PracticeEngine {
       return;
     }
 
-    this.clearChordCompletionTimer();
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
@@ -181,56 +174,29 @@ export class PracticeEngine {
   }
 
   handleFingerPress(mapping: FingerMapping): void {
-    const { script, currentStepIndex, engineMode } = useEngineStore.getState();
+    const { script, currentStepIndex } = useEngineStore.getState();
     if (!script || currentStepIndex < 0 || currentStepIndex >= script.length) {
       return;
     }
 
-    const isTwoHand = engineMode === 'two-hand';
-
-    if (
-      isTwoHand &&
-      !selectIsPracticeActive(useEngineStore.getState()) &&
-      !this.ensureTwoHandPracticeStarted()
-    ) {
-      return;
-    }
-
     const currentStep = script[currentStepIndex];
-    let expected = this.findUnhitExpectedNoteForFinger(currentStep, mapping);
-    let lookahead = false;
-
-    if (
-      expected === null &&
-      isTwoHand &&
-      selectIsPracticeActive(useEngineStore.getState()) &&
-      this.chordCompletionTimer !== null &&
-      currentStepIndex + 1 < script.length
-    ) {
-      const nextStep = script[currentStepIndex + 1];
-      const nextExpected = getExpectedNoteForFinger(
-        nextStep,
-        mapping.hand,
-        mapping.finger,
-      );
-      if (nextExpected !== null) {
-        expected = nextExpected;
-        lookahead = true;
-      }
-    }
-
+    const expected = getExpectedNoteForFinger(
+      currentStep,
+      mapping.hand,
+      mapping.finger,
+    );
     if (expected === null) {
       return;
     }
 
-    if (!selectIsPracticeActive(useEngineStore.getState())) {
+    const isTwoHand = useEngineStore.getState().engineMode === 'two-hand';
+
+    if (!this.ensureTwoHandPracticeStarted()) {
       if (!isTwoHand) {
         this.playNotePreview(expected.midi);
       }
       return;
     }
-
-    this.fingersPressedThisStep.add(this.fingerKey(mapping));
 
     if (isTwoHand) {
       this.sustainNote(expected.midi, mapping);
@@ -238,12 +204,20 @@ export class PracticeEngine {
       this.playNotePreview(expected.midi);
     }
 
-    if (lookahead) {
+    if (!useEngineStore.getState().isPracticeActive) {
       return;
     }
 
-    this.recordFingerHitsForMapping(mapping);
-    this.syncHitsFromHeldFingers();
+    const hitIndex = this.practiceNotesForStep.findIndex(
+      (note) =>
+        (note.playingHand ?? note.hand) === mapping.hand &&
+        note.finger === mapping.finger,
+    );
+    if (hitIndex < 0) {
+      return;
+    }
+
+    this.registerPracticeHitAtIndex(hitIndex);
   }
 
   handleFingerRelease(mapping: FingerMapping): void {
@@ -310,119 +284,8 @@ export class PracticeEngine {
     }
   }
 
-  private fingerKey(mapping: FingerMapping): string {
-    return `${mapping.hand}:${mapping.finger}`;
-  }
-
-  private noteFingerKey(note: ScriptNote): string {
-    return `${note.playingHand ?? note.hand}:${note.finger}`;
-  }
-
-  private practiceNoteMatchesMapping(
-    note: ScriptNote,
-    mapping: FingerMapping,
-  ): boolean {
-    return (
-      (note.playingHand ?? note.hand) === mapping.hand &&
-      note.finger === mapping.finger
-    );
-  }
-
-  private practiceNoteMatchesScriptNote(
-    practiceNote: ScriptNote,
-    scriptNote: ScriptNote,
-  ): boolean {
-    return (
-      practiceNote.midi === scriptNote.midi &&
-      practiceNote.hand === scriptNote.hand &&
-      (practiceNote.playingHand ?? practiceNote.hand) ===
-        (scriptNote.playingHand ?? scriptNote.hand) &&
-      practiceNote.finger === scriptNote.finger
-    );
-  }
-
-  private findUnhitExpectedNoteForFinger(
-    step: { notes: ScriptNote[] },
-    mapping: FingerMapping,
-  ): ScriptNote | null {
-    for (const note of step.notes) {
-      if (!this.practiceNoteMatchesMapping(note, mapping)) {
-        continue;
-      }
-
-      const practiceIndex = this.practiceNotesForStep.findIndex(
-        (practiceNote, index) =>
-          !this.hitNoteIndices.has(index) &&
-          this.practiceNoteMatchesScriptNote(practiceNote, note),
-      );
-      if (practiceIndex >= 0) {
-        return note;
-      }
-    }
-
-    return null;
-  }
-
-  /** Mark every still-unhit step note that matches this physical finger press. */
-  private recordFingerHitsForMapping(mapping: FingerMapping): void {
-    let marked = false;
-
-    for (let index = 0; index < this.practiceNotesForStep.length; index += 1) {
-      if (this.hitNoteIndices.has(index)) {
-        continue;
-      }
-
-      const note = this.practiceNotesForStep[index];
-      if (!this.practiceNoteMatchesMapping(note, mapping)) {
-        continue;
-      }
-
-      if (this.markHitAtIndex(index)) {
-        marked = true;
-      }
-    }
-
-    if (marked) {
-      this.checkStepCompletion();
-    }
-  }
-
-  /**
-   * When several chord fingers are held together, credit every pressed finger
-   * for this step in one pass so a rolled or slightly staggered chord still
-   * completes without re-striking earlier notes.
-   */
-  private syncHitsFromHeldFingers(): void {
-    if (!useEngineStore.getState().isPracticeActive) {
-      return;
-    }
-
-    let marked = false;
-
-    for (let index = 0; index < this.practiceNotesForStep.length; index += 1) {
-      if (this.hitNoteIndices.has(index)) {
-        continue;
-      }
-
-      const note = this.practiceNotesForStep[index];
-      if (note.finger === null) {
-        continue;
-      }
-
-      const fingerKey = this.noteFingerKey(note);
-      if (
-        !this.fingersPressedThisStep.has(fingerKey) ||
-        !this.activeFingerSounds.has(fingerKey)
-      ) {
-        continue;
-      }
-
-      if (this.markHitAtIndex(index)) {
-        marked = true;
-      }
-    }
-
-    if (marked) {
+  private registerPracticeHitAtIndex(index: number): void {
+    if (this.markHitAtIndex(index)) {
       this.checkStepCompletion();
     }
   }
@@ -430,7 +293,7 @@ export class PracticeEngine {
   /**
    * Record a hit without advancing. Returns true when a new hit was recorded.
    * Completion is checked synchronously by the caller so the step advances within
-   * the same event, before the next keydown is processed; otherwise a chord (or a
+   * the same event, before the next keydown is processed — otherwise a chord (or a
    * note pressed immediately after) is matched against the not-yet-advanced step
    * and silently dropped, forcing the player to space notes out.
    */
@@ -557,9 +420,7 @@ export class PracticeEngine {
     const { alignScope = false, exactStep = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
-    this.clearChordCompletionTimer();
     this.hitNoteIndices.clear();
-    this.fingersPressedThisStep.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
 
@@ -666,31 +527,6 @@ export class PracticeEngine {
   }
 
   private checkStepCompletion(): void {
-    this.scheduleStepCompletionCheck();
-  }
-
-  /** Run any pending step-advance check immediately (tests and teardown). */
-  flushStepCompletionCheck(): void {
-    this.clearChordCompletionTimer();
-    this.runStepCompletionCheck();
-  }
-
-  private clearChordCompletionTimer(): void {
-    if (this.chordCompletionTimer !== null) {
-      clearTimeout(this.chordCompletionTimer);
-      this.chordCompletionTimer = null;
-    }
-  }
-
-  private scheduleStepCompletionCheck(): void {
-    this.clearChordCompletionTimer();
-    this.chordCompletionTimer = setTimeout(() => {
-      this.chordCompletionTimer = null;
-      this.runStepCompletionCheck();
-    }, PRACTICE_CHORD_INTAKE_MS);
-  }
-
-  private runStepCompletionCheck(): void {
     if (this.practiceNotesForStep.length === 0) {
       return;
     }
@@ -714,40 +550,7 @@ export class PracticeEngine {
       return;
     }
 
-    const carryForwardFingerKeys = [...this.fingersPressedThisStep].filter((fingerKey) =>
-      this.activeFingerSounds.has(fingerKey),
-    );
     this.loadCurrentStep();
-    this.replayCarriedFingerHits(carryForwardFingerKeys);
-  }
-
-  private replayCarriedFingerHits(fingerKeys: string[]): void {
-    if (!useEngineStore.getState().isPracticeActive) {
-      return;
-    }
-
-    for (const fingerKey of fingerKeys) {
-      const separator = fingerKey.indexOf(':');
-      if (separator < 0) {
-        continue;
-      }
-
-      const hand = fingerKey.slice(0, separator);
-      const finger = Number.parseInt(fingerKey.slice(separator + 1), 10);
-      if (hand !== 'L' && hand !== 'R') {
-        continue;
-      }
-      if (!Number.isInteger(finger) || finger < 1 || finger > 5) {
-        continue;
-      }
-
-      this.recordFingerHitsForMapping({ hand, finger: finger as FingerMapping['finger'] });
-      this.syncHitsFromHeldFingers();
-    }
-
-    if (this.hitNoteIndices.size === this.practiceNotesForStep.length) {
-      this.scheduleStepCompletionCheck();
-    }
   }
 }
 

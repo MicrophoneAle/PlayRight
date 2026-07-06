@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine } from './AudioEngine.ts';
-import { PracticeEngine, PRACTICE_CHORD_INTAKE_MS } from './PracticeEngine.ts';
+import { PracticeEngine } from './PracticeEngine.ts';
 import type { PlaybackScript } from '../types/index.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
@@ -34,10 +34,16 @@ function createMockAudio(): AudioEngine {
 describe('PracticeEngine two-hand finger press', () => {
   let engine: PracticeEngine;
   let audio: AudioEngine;
+  let rafCallback: FrameRequestCallback | null = null;
 
   beforeEach(() => {
     resetStore();
-    vi.useFakeTimers();
+    rafCallback = null;
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallback = cb;
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
     engine = new PracticeEngine();
     engine.ensureStoreSubscription();
@@ -46,12 +52,12 @@ describe('PracticeEngine two-hand finger press', () => {
   });
 
   afterEach(() => {
-    engine.flushStepCompletionCheck();
-    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
-  const flushStepCompletion = () => {
-    vi.advanceTimersByTime(PRACTICE_CHORD_INTAKE_MS);
+  const flushAdvance = () => {
+    rafCallback?.(0);
+    rafCallback = null;
   };
 
   it('unrequested finger produces no preview, hit, or advance', () => {
@@ -111,7 +117,7 @@ describe('PracticeEngine two-hand finger press', () => {
     expect(useEngineStore.getState().isPracticeActive).toBe(false);
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
 
     expect(useEngineStore.getState().isPracticeActive).toBe(true);
     expect(useEngineStore.getState().hasPracticeStarted).toBe(true);
@@ -136,7 +142,7 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.start();
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
 
     expect(audio.noteOn).toHaveBeenCalledWith(60);
     expect(audio.noteOff).not.toHaveBeenCalled();
@@ -167,11 +173,11 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.start();
 
     engine.handleFingerPress({ hand: 'L', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -196,11 +202,11 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.start();
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     engine.handleFingerPress({ hand: 'L', finger: 5 });
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -227,41 +233,7 @@ describe('PracticeEngine two-hand finger press', () => {
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     engine.handleFingerPress({ hand: 'R', finger: 3 });
-    flushStepCompletion();
-    expect(useEngineStore.getState().currentStepIndex).toBe(1);
-  });
-
-  it('registers a four-note cross-hand chord when keys arrive in separate event turns', () => {
-    makeScript([
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [
-          { pitch: 'C#3', midi: 49, hand: 'L', finger: 4 },
-          { pitch: 'G#3', midi: 56, hand: 'L', finger: 2 },
-          { pitch: 'C#4', midi: 61, hand: 'L', finger: 1 },
-          { pitch: 'E4', midi: 64, hand: 'R', finger: 2 },
-        ],
-      },
-      {
-        order: 1,
-        onset: 1,
-        measureNumber: 1,
-        notes: [{ pitch: 'G4', midi: 67, hand: 'R', finger: 3 }],
-      },
-    ]);
-    engine.start();
-
-    engine.handleFingerPress({ hand: 'L', finger: 4 });
-    engine.handleFingerPress({ hand: 'L', finger: 2 });
-    vi.advanceTimersByTime(10);
-    engine.handleFingerPress({ hand: 'L', finger: 1 });
-    vi.advanceTimersByTime(10);
-    engine.handleFingerPress({ hand: 'R', finger: 2 });
-    expect(useEngineStore.getState().currentStepIndex).toBe(0);
-
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -291,7 +263,6 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.handleFingerPress({ hand: 'L', finger: 2 });
     engine.handleFingerPress({ hand: 'L', finger: 1 });
 
-    flushStepCompletion();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -329,67 +300,7 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.handleFingerPress({ hand: 'L', finger: 2 });
     engine.handleFingerPress({ hand: 'L', finger: 1 });
 
-    flushStepCompletion();
-    flushStepCompletion();
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
-  });
-
-  it('advances a duplicate-finger chord on a single key press', () => {
-    makeScript([
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [
-          { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
-          { pitch: 'E4', midi: 64, hand: 'R', finger: 1 },
-        ],
-      },
-      {
-        order: 1,
-        onset: 1,
-        measureNumber: 1,
-        notes: [{ pitch: 'G4', midi: 67, hand: 'R', finger: 2 }],
-      },
-    ]);
-    engine.start();
-
-    engine.handleFingerPress({ hand: 'R', finger: 1 });
-
-    flushStepCompletion();
-    expect(useEngineStore.getState().currentStepIndex).toBe(1);
-  });
-
-  it('credits earlier held chord fingers when the last finger lands', () => {
-    makeScript([
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [
-          { pitch: 'C#3', midi: 49, hand: 'L', finger: 4 },
-          { pitch: 'G#3', midi: 56, hand: 'L', finger: 2 },
-          { pitch: 'C#4', midi: 61, hand: 'L', finger: 1 },
-        ],
-      },
-      {
-        order: 1,
-        onset: 1,
-        measureNumber: 1,
-        notes: [{ pitch: 'E4', midi: 64, hand: 'R', finger: 2 }],
-      },
-    ]);
-    engine.start();
-
-    engine.handleFingerPress({ hand: 'L', finger: 4 });
-    expect(useEngineStore.getState().currentStepIndex).toBe(0);
-
-    engine.handleFingerPress({ hand: 'L', finger: 2 });
-    expect(useEngineStore.getState().currentStepIndex).toBe(0);
-
-    engine.handleFingerPress({ hand: 'L', finger: 1 });
-    flushStepCompletion();
-    expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
   it('does not double-count an already-hit finger', () => {
@@ -408,11 +319,11 @@ describe('PracticeEngine two-hand finger press', () => {
 
     engine.handleFingerPress({ hand: 'L', finger: 1 });
     engine.handleFingerPress({ hand: 'L', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
   });

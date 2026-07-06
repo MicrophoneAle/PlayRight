@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine } from './AudioEngine.ts';
-import { PracticeEngine, PRACTICE_CHORD_INTAKE_MS } from './PracticeEngine.ts';
+import { PracticeEngine } from './PracticeEngine.ts';
 import { getDynamicKeyMap, getScopeKeyMap, midisFitScopeKeyMap } from './InputManager.ts';
 import type { PlaybackScript } from '../types/index.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -35,9 +35,15 @@ function createMockAudio(): AudioEngine {
 describe('PracticeEngine one-hand progression', () => {
   let engine: PracticeEngine;
   let audio: AudioEngine;
+  let rafCallback: FrameRequestCallback | null = null;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    rafCallback = null;
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallback = cb;
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
     resetStore();
 
@@ -48,12 +54,12 @@ describe('PracticeEngine one-hand progression', () => {
   });
 
   afterEach(() => {
-    engine.flushStepCompletionCheck();
-    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
-  const flushStepCompletion = () => {
-    vi.advanceTimersByTime(PRACTICE_CHORD_INTAKE_MS);
+  const flushAdvance = () => {
+    rafCallback?.(0);
+    rafCallback = null;
   };
 
   it('advances on a single correct note in one-hand mode', () => {
@@ -74,7 +80,7 @@ describe('PracticeEngine one-hand progression', () => {
     engine.start();
 
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
 
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([62]);
@@ -101,11 +107,11 @@ describe('PracticeEngine one-hand progression', () => {
     engine.start();
 
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     engine.handleNoteOn(64);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -124,11 +130,11 @@ describe('PracticeEngine one-hand progression', () => {
     engine.start();
 
     engine.handleNoteOn(48);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 
@@ -176,7 +182,7 @@ describe('PracticeEngine one-hand progression', () => {
     ]);
     engine.start();
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
 
     engine.stop();
@@ -205,7 +211,7 @@ describe('PracticeEngine one-hand progression', () => {
     ]);
     engine.start();
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
 
     engine.restart();
@@ -290,7 +296,7 @@ describe('PracticeEngine one-hand progression', () => {
     engine.handleNoteOn(64);
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
 
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
   });
@@ -327,15 +333,15 @@ describe('PracticeEngine one-hand progression', () => {
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(2);
 
     engine.handleNoteOn(62);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(3);
 
     engine.handleNoteOn(64);
-    flushStepCompletion();
+    flushAdvance();
     expect(useEngineStore.getState().isPracticeActive).toBe(false);
   });
 
@@ -363,7 +369,7 @@ describe('PracticeEngine one-hand progression', () => {
     engine.start();
 
     engine.handleNoteOn(88);
-    flushStepCompletion();
+    flushAdvance();
 
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([88]);
@@ -390,7 +396,7 @@ describe('PracticeEngine one-hand progression', () => {
     engine.start();
 
     engine.handleNoteOn(60);
-    flushStepCompletion();
+    flushAdvance();
 
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([62]);

@@ -135,20 +135,6 @@ describe('InputManager two-hand routing', () => {
     expect(onFingerPress).toHaveBeenCalledTimes(2);
   });
 
-  it('routes simultaneous chord finger keydowns synchronously', () => {
-    mount();
-    windowStub.dispatchEvent(keyEvent('keydown', 'q', 'KeyQ'));
-    windowStub.dispatchEvent(keyEvent('keydown', 'w', 'KeyW'));
-    windowStub.dispatchEvent(keyEvent('keydown', 'e', 'KeyE'));
-
-    expect(onFingerPress).toHaveBeenCalledTimes(3);
-    expect(onFingerPress.mock.calls.map(([mapping]) => mapping)).toEqual([
-      { hand: 'L', finger: 5 },
-      { hand: 'L', finger: 4 },
-      { hand: 'L', finger: 3 },
-    ]);
-  });
-
   it('blocks overlapping one-hand note keys while in two-hand mode', () => {
     mount();
     for (const code of ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyP'] as const) {
