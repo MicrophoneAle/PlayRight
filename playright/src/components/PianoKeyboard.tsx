@@ -110,7 +110,7 @@ function getWhiteKeyClasses(
   isSelected: boolean,
 ): string {
   const base =
-    'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 first:rounded-bl-md last:rounded-br-md last:border-r-0';
+    'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 last:border-r-0';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-400' : '';
 
@@ -712,7 +712,7 @@ export function PianoKeyboard() {
       ) : null}
 
       <div
-        className="relative flex h-32 w-full select-none overflow-hidden rounded-b-md border-t border-zinc-800 shadow-2xl"
+        className="relative flex h-32 w-full select-none overflow-hidden border-t border-zinc-800 shadow-2xl"
         aria-label="88-key piano keyboard"
       >
         {whiteKeys.map((key) => {
