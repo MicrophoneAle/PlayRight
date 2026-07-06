@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPracticeVisualIndex,
   countMatchedPracticeNotes,
   findCursorOffsetForStep,
   findSequentialStepMatch,
+  graceHighlightNotes,
   isGraceOnlyAttackGNotes,
   measureListIndexForStep,
   measureNumberMatchesStep,
   practiceNotesFullyMatched,
   type CursorKeySnapshot,
 } from './sheetMusicPracticeSync.ts';
-import type { ScriptNote } from '../types/index.ts';
+import type { PlaybackScript, ScriptNote, StepOrder } from '../types/index.ts';
 import type { GraphicalNote, Note, OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
 function snapshot(
@@ -261,6 +263,164 @@ describe('grace-free cursor offset alignment', () => {
     expect(
       findSequentialStepMatch(osmd, snapshots, 0, [d4], 1),
     ).toMatchObject({ offset: 0 });
+  });
+});
+
+interface MockCursorPosition {
+  gNotes: GraphicalNote[];
+  measureNumber: number;
+  measureListIndex: number;
+}
+
+function mockOsmdWithCursorWalk(
+  positions: MockCursorPosition[],
+  allNotes: GraphicalNote[],
+): OpenSheetMusicDisplay {
+  let idx = 0;
+  const cursor = {
+    reset: () => {
+      idx = 0;
+    },
+    next: () => {
+      idx += 1;
+    },
+    update: () => {},
+    hide: () => {},
+    GNotesUnderCursor: () => positions[idx]?.gNotes ?? [],
+    get Iterator() {
+      return {
+        EndReached: idx >= positions.length,
+        CurrentMeasure: {
+          MeasureNumberXML: positions[idx]?.measureNumber ?? 0,
+          measureListIndex: positions[idx]?.measureListIndex ?? 0,
+        },
+        CurrentMeasureIndex: positions[idx]?.measureListIndex ?? 0,
+      };
+    },
+  };
+
+  return {
+    cursor,
+    EngravingRules: {
+      GNote: (note: Note) =>
+        allNotes.find((gNote) => gNote.sourceNote === note) ?? null,
+    },
+  } as unknown as OpenSheetMusicDisplay;
+}
+
+describe('grace notehead highlighting', () => {
+  // Mirrors morns measure 5: E5 acciaccatura before an F#5+B4 attack.
+  const graceStep: StepOrder = {
+    order: 1,
+    onset: 4,
+    measureNumber: 5,
+    notes: [
+      { pitch: 'F#5', midi: 78, hand: 'R', finger: null },
+      { pitch: 'B4', midi: 71, hand: 'R', finger: null },
+    ],
+    graceBefore: [{ midi: 76, pitch: 'E5', hand: 'R', kind: 'acciaccatura' }],
+  };
+
+  it('matches grace engraving to graceBefore by midi and notated hand', () => {
+    const graceGNote = mockGraphicalNote(76, 1, { isGrace: true });
+    const wrongPitch = mockGraphicalNote(77, 1, { isGrace: true });
+    const wrongHand = mockGraphicalNote(76, 2, { isGrace: true });
+
+    expect(
+      graceHighlightNotes(graceStep, [graceGNote, wrongPitch, wrongHand]),
+    ).toEqual([graceGNote]);
+    expect(
+      graceHighlightNotes({ ...graceStep, graceBefore: undefined }, [graceGNote]),
+    ).toEqual([]);
+    expect(graceHighlightNotes(graceStep, [])).toEqual([]);
+  });
+
+  it('keeps cursor offsets grace-free while adding the grace to the step highlight', () => {
+    const c4 = mockGraphicalNote(60, 1);
+    const graceE5 = mockGraphicalNote(76, 1, { isGrace: true });
+    const fSharp5 = mockGraphicalNote(78, 1);
+    const b4 = mockGraphicalNote(71, 1);
+    const g5 = mockGraphicalNote(79, 1);
+    const allNotes = [c4, graceE5, fSharp5, b4, g5];
+
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null }],
+      },
+      graceStep,
+      {
+        order: 2,
+        onset: 8,
+        measureNumber: 6,
+        notes: [{ pitch: 'G5', midi: 79, hand: 'R', finger: null }],
+      },
+    ];
+
+    // Grace-only position between the m1 attack and the m5 chord: skipped as
+    // a cursor position, carried into the m5 snapshot's engraving.
+    const positions: MockCursorPosition[] = [
+      { gNotes: [c4], measureNumber: 1, measureListIndex: 0 },
+      { gNotes: [graceE5], measureNumber: 5, measureListIndex: 4 },
+      { gNotes: [fSharp5, b4], measureNumber: 5, measureListIndex: 4 },
+      { gNotes: [g5], measureNumber: 6, measureListIndex: 5 },
+    ];
+
+    const osmd = mockOsmdWithCursorWalk(positions, allNotes);
+    const index = buildPracticeVisualIndex(osmd, script, 'two-hand', 'R');
+
+    // Offsets count only non-grace positions: no double-count, no skipped step.
+    expect(index.stepCursorOffsets).toEqual([0, 1, 2]);
+
+    // The grace notehead is highlighted alongside the step's main notes.
+    expect(index.stepGraphicalNotes[1]).toContain(graceE5);
+    expect(index.stepGraphicalNotes[1]).toContain(fSharp5);
+    expect(index.stepGraphicalNotes[1]).toContain(b4);
+
+    // Steps without graceBefore never pick up grace engraving.
+    expect(index.stepGraphicalNotes[0]).toEqual([c4]);
+    expect(index.stepGraphicalNotes[2]).toEqual([g5]);
+  });
+
+  it('produces identical cursor offsets when graceBefore metadata is absent', () => {
+    const c4 = mockGraphicalNote(60, 1);
+    const graceE5 = mockGraphicalNote(76, 1, { isGrace: true });
+    const fSharp5 = mockGraphicalNote(78, 1);
+    const b4 = mockGraphicalNote(71, 1);
+    const g5 = mockGraphicalNote(79, 1);
+    const allNotes = [c4, graceE5, fSharp5, b4, g5];
+
+    const { graceBefore: _omit, ...strippedGraceStep } = graceStep;
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: null }],
+      },
+      strippedGraceStep,
+      {
+        order: 2,
+        onset: 8,
+        measureNumber: 6,
+        notes: [{ pitch: 'G5', midi: 79, hand: 'R', finger: null }],
+      },
+    ];
+
+    const positions: MockCursorPosition[] = [
+      { gNotes: [c4], measureNumber: 1, measureListIndex: 0 },
+      { gNotes: [graceE5], measureNumber: 5, measureListIndex: 4 },
+      { gNotes: [fSharp5, b4], measureNumber: 5, measureListIndex: 4 },
+      { gNotes: [g5], measureNumber: 6, measureListIndex: 5 },
+    ];
+
+    const osmd = mockOsmdWithCursorWalk(positions, allNotes);
+    const index = buildPracticeVisualIndex(osmd, script, 'two-hand', 'R');
+
+    expect(index.stepCursorOffsets).toEqual([0, 1, 2]);
+    expect(index.stepGraphicalNotes[1]).not.toContain(graceE5);
   });
 });
 

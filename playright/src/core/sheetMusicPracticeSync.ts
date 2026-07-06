@@ -4,7 +4,14 @@ import type {
   OpenSheetMusicDisplay,
 } from 'opensheetmusicdisplay';
 import { getPracticeNotes } from './practiceSteps.ts';
-import type { EngineMode, Hand, PlaybackScript, PlayingPlaybackNote, ScriptNote } from '../types/index.ts';
+import type {
+  EngineMode,
+  Hand,
+  PlaybackScript,
+  PlayingPlaybackNote,
+  ScriptNote,
+  StepOrder,
+} from '../types/index.ts';
 import type { SheetScrollMode } from '../store/useEngineStore.ts';
 
 const HIGHLIGHT_COLOR = '#10b981';
@@ -59,6 +66,13 @@ interface CursorSnapshot {
   allGNotes: GraphicalNote[];
   measureNumber: number;
   measureListIndex: number;
+  /**
+   * Grace noteheads engraved immediately before this position's attack.
+   * Grace-only cursor positions stay skipped (the script gives them no step,
+   * so counting them would desync every stepCursorOffset); their engraving is
+   * carried onto the following real snapshot for highlighting instead.
+   */
+  graceGNotes?: GraphicalNote[];
 }
 
 interface OsmdSourceMeasure {
@@ -702,14 +716,52 @@ function collectGraphicalNotesForStep(
   return results;
 }
 
+function graceGNotesAtCursor(gNotes: GraphicalNote[]): GraphicalNote[] {
+  return gNotes.filter(
+    (gNote) =>
+      !gNote.sourceNote.isRest() && gNote.sourceNote.IsGraceNote === true,
+  );
+}
+
+/**
+ * Grace noteheads belonging to a step's graceBefore metadata, matched against
+ * the engraving carried on the step's cursor snapshot (midi + notated hand).
+ */
+export function graceHighlightNotes(
+  step: StepOrder,
+  graceGNotes: readonly GraphicalNote[] | undefined,
+): GraphicalNote[] {
+  const graceBefore = step.graceBefore;
+  if (!graceBefore?.length || !graceGNotes?.length) {
+    return [];
+  }
+
+  return graceGNotes.filter((gNote) => {
+    const source = gNote.sourceNote;
+    return (
+      !source.isRest() &&
+      source.IsGraceNote === true &&
+      graceBefore.some(
+        (grace) =>
+          grace.midi === osmdNoteMidi(source) &&
+          grace.hand === osmdNoteHand(source),
+      )
+    );
+  });
+}
+
 function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
   const cursor = osmd.cursor;
   const snapshots: CursorSnapshot[] = [];
+  let pendingGraceGNotes: GraphicalNote[] = [];
 
   cursor.reset();
 
   while (!cursor.Iterator?.EndReached) {
     if (isGraceOnlyCursorPosition(cursor)) {
+      // Still skipped as a POSITION (no script step exists for it), but the
+      // grace engraving rides onto the next real snapshot for highlighting.
+      pendingGraceGNotes.push(...graceGNotesAtCursor(cursor.GNotesUnderCursor()));
       cursor.next();
       continue;
     }
@@ -720,6 +772,9 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
         !gNote.sourceNote.isRest() && !isTieContinuation(gNote.sourceNote),
     );
     const measureInfo = osmdMeasureInfoFromCursor(cursor);
+    // Graces engraved at the same position as their main note (rather than a
+    // skipped grace-only position) belong to this snapshot too.
+    const graceGNotes = [...pendingGraceGNotes, ...graceGNotesAtCursor(gNotes)];
 
     snapshots.push({
       cursorIndex: snapshots.length,
@@ -728,7 +783,9 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
       allGNotes: gNotes,
       measureNumber: measureInfo.measureNumber,
       measureListIndex: measureInfo.measureListIndex,
+      ...(graceGNotes.length > 0 ? { graceGNotes } : {}),
     });
+    pendingGraceGNotes = [];
 
     cursor.next();
   }
@@ -782,7 +839,13 @@ export function buildPracticeVisualIndex(
       stepCursorOffsets[stepIndex] = match.offset;
       lastMatchedOffset = match.offset;
       searchStart = match.endIdx + 1;
-      stepGraphicalNotes[stepIndex] = match.notes;
+      stepGraphicalNotes[stepIndex] = [
+        ...graceHighlightNotes(
+          script[stepIndex],
+          snapshots[match.offset]?.graceGNotes,
+        ),
+        ...match.notes,
+      ];
       continue;
     }
 
@@ -1561,6 +1624,18 @@ export function syncSheetMusicPlaybackVisuals(
       for (const gNote of gNotes) {
         const source = gNote.sourceNote;
         if (source.isRest()) {
+          continue;
+        }
+
+        // A step's grace noteheads are step-level decorations: they light
+        // whenever any of the step's presses (grace or main) is sounding, so
+        // the grace stays highlighted alongside its main note instead of
+        // flashing for only its own crushed duration.
+        if (source.IsGraceNote === true) {
+          if (!seen.has(gNote)) {
+            seen.add(gNote);
+            toHighlight.push(gNote);
+          }
           continue;
         }
 

@@ -23,6 +23,7 @@ export function Lid() {
   const [settingsMenuPosition, setSettingsMenuPosition] = useState<{
     top: number;
     right: number;
+    maxHeight: number;
   } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -125,9 +126,17 @@ export function Lid() {
       }
 
       const rect = settingsRef.current.getBoundingClientRect();
+      const menuGap = 8;
+      const bottomInset = 16;
+      const top = rect.bottom + menuGap;
+      const maxHeight = Math.max(
+        160,
+        window.innerHeight - top - bottomInset,
+      );
       setSettingsMenuPosition({
-        top: rect.bottom + 8,
+        top,
         right: window.innerWidth - rect.right,
+        maxHeight,
       });
     };
 
@@ -144,18 +153,19 @@ export function Lid() {
   const settingsPanel = settingsOpen && settingsMenuPosition ? (
     <div
       ref={settingsPanelRef}
-      className="fixed z-[200] w-56 rounded-lg border border-zinc-700 bg-zinc-950 p-3 shadow-2xl"
+      className="fixed z-[200] flex w-56 flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 p-3 shadow-2xl"
       style={{
         top: settingsMenuPosition.top,
         right: settingsMenuPosition.right,
+        maxHeight: settingsMenuPosition.maxHeight,
         backgroundColor: '#09090b',
       }}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+      <p className="mb-2 shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-500">
         Settings
       </p>
-      <div className="flex flex-col gap-3">
+      <div className="-mr-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pr-1">
         <div className="flex items-center justify-between gap-3">
           <label
             htmlFor="play-mode-toggle"

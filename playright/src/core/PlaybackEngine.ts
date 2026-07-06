@@ -20,7 +20,7 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
-import type { Hand, ScriptNote } from '../types/index.ts';
+import type { GraceNoteInfo, Hand, ScriptNote } from '../types/index.ts';
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
@@ -59,6 +59,17 @@ function safeTickTime(
 
 /** Visual-only delay before a same-pitch re-strike press paints (~2 frames). */
 const PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS = 40;
+
+/**
+ * Crushed grace-note length: a 32nd note's worth of time
+ * (divisionsPerQuarter / 8 divisions = 1/8 quarter note). Graces play
+ * back-to-back ending exactly at their main note's attack; the time is
+ * borrowed from the preceding note's tail, never from the main note's own
+ * onset or duration. v1 simplification: appoggiaturas use this same crushed
+ * duration as acciaccaturas; proper appoggiatura time-stealing from the main
+ * note is a later refinement.
+ */
+const GRACE_NOTE_DURATION_QUARTERS = 1 / 8;
 
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
@@ -488,6 +499,73 @@ export class PlaybackEngine {
     actions.setExpectedNotes(displayNotes.map((note) => note.midi));
   }
 
+  /**
+   * Schedule a step's graceBefore notes back-to-back so the last grace ends
+   * exactly at the main attack. The main note's own attack time and duration
+   * are never moved. When the main attack sits too close to the timeline
+   * start for the full window, the graces compress into whatever room exists
+   * (and are skipped entirely at onset 0, where there is none).
+   */
+  private scheduleGraceNotes(
+    stepIndex: number,
+    graceNotes: GraceNoteInfo[],
+    mainAttackQuarters: number,
+    minTick: number,
+    ppq: number,
+    engine: AudioEngine,
+  ): void {
+    const transport = getTransport();
+    const windowStartQuarters = Math.max(
+      0,
+      mainAttackQuarters - graceNotes.length * GRACE_NOTE_DURATION_QUARTERS,
+    );
+    const perGraceQuarters =
+      (mainAttackQuarters - windowStartQuarters) / graceNotes.length;
+    if (perGraceQuarters <= 0) {
+      return;
+    }
+
+    const graceDuration = quarterNotesToTickDuration(perGraceQuarters, ppq);
+    let previousGraceTick = minTick;
+
+    graceNotes.forEach((grace, graceIndex) => {
+      const graceAttackQuarters = windowStartQuarters + graceIndex * perGraceQuarters;
+      const { text: graceAttackTime, tick: graceAttackTick } = safeTickTime(
+        quartersToTicks(graceAttackQuarters, ppq),
+        previousGraceTick,
+        'grace attack',
+        { stepIndex, graceIndex, midi: grace.midi },
+      );
+      previousGraceTick = graceAttackTick;
+
+      const pressId = this.playingPressTracker.allocatePressId();
+      const attackEventId = transport.scheduleOnce((time) => {
+        try {
+          engine.scheduleAttackRelease(grace.midi, graceDuration, time);
+          this.pressPlayingNote(stepIndex, grace.midi, grace.hand, pressId);
+        } catch (err) {
+          console.error('[PlaybackEngine] grace attack callback failed (skipped):', err);
+        }
+      }, graceAttackTime);
+      this.scheduledEventIds.push(attackEventId);
+
+      const { text: graceReleaseTime } = safeTickTime(
+        quartersToTicks(graceAttackQuarters + perGraceQuarters, ppq),
+        graceAttackTick,
+        'grace release',
+        { stepIndex, graceIndex, midi: grace.midi },
+      );
+      const releaseEventId = transport.scheduleOnce(() => {
+        try {
+          this.releasePlayingNote(pressId);
+        } catch (err) {
+          console.error('[PlaybackEngine] grace release callback failed (skipped):', err);
+        }
+      }, graceReleaseTime);
+      this.scheduledEventIds.push(releaseEventId);
+    });
+  }
+
   private scheduleFromStep(fromStepIndex: number): void {
     const { script, scoreTiming } = useEngineStore.getState();
     const engine = this.audioEngine;
@@ -535,7 +613,45 @@ export class PlaybackEngine {
           'step attack',
           { stepIndex, attackOnsetQuarters, fermataOffset: fermataOffsets[stepIndex] ?? 0 },
         );
+
+        // Graces are scheduled before this step's attack/release events so
+        // that, at the shared main-attack tick, the last grace's release
+        // fires ahead of the main press (Tone dispatches equal-tick events
+        // in insertion order). The tick floor is the previous step's attack,
+        // since all grace events land between the two attacks.
+        if (step.graceBefore && step.graceBefore.length > 0) {
+          this.scheduleGraceNotes(
+            stepIndex,
+            step.graceBefore,
+            attackOnsetQuarters,
+            lastSafeAttackTick,
+            ppq,
+            engine,
+          );
+        }
         lastSafeAttackTick = attackTick;
+
+        // Acciaccatura time is borrowed from the preceding note's tail: when
+        // the NEXT step opens with graces, any of this step's releases that
+        // would land inside that grace window release early to make room.
+        // Notes intentionally sustaining past the next attack (other voices,
+        // long holds) are left alone.
+        let nextGraceWindowStartQuarters: number | null = null;
+        let nextAttackQuarters = 0;
+        const nextStep = stepIndex + 1 < script.length ? script[stepIndex + 1] : null;
+        const nextGraceCount = nextStep?.graceBefore?.length ?? 0;
+        if (nextStep && nextGraceCount > 0) {
+          nextAttackQuarters = scheduledPlaybackAttackQuarterNotes(
+            nextStep.onset,
+            divisionsPerQuarter,
+            fermataOffsets[stepIndex + 1],
+          );
+          const windowStart =
+            nextAttackQuarters - nextGraceCount * GRACE_NOTE_DURATION_QUARTERS;
+          if (windowStart > attackOnsetQuarters) {
+            nextGraceWindowStartQuarters = windowStart;
+          }
+        }
 
         const stepPresses: Array<{
           pressId: number;
@@ -559,7 +675,7 @@ export class PlaybackEngine {
             continue;
           }
 
-          const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
+          let playedQuarters = resolveNotePlaybackDurationQuarterNotes(
             stepIndex,
             note,
             script,
@@ -569,6 +685,15 @@ export class PlaybackEngine {
             consecutiveSameNoteKeys,
             fermataContext,
           );
+          if (nextGraceWindowStartQuarters !== null) {
+            const releaseQuarters = attackOnsetQuarters + playedQuarters;
+            if (
+              releaseQuarters > nextGraceWindowStartQuarters &&
+              releaseQuarters <= nextAttackQuarters
+            ) {
+              playedQuarters = nextGraceWindowStartQuarters - attackOnsetQuarters;
+            }
+          }
           const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
           const pressId = this.playingPressTracker.allocatePressId();
 
