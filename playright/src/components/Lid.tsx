@@ -483,13 +483,8 @@ export function Lid() {
         ? 'bg-violet-600 text-white'
         : 'text-zinc-400 hover:text-zinc-200';
 
-  const headerToggleBase =
-    'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
-
-  const headerToggleClass = (inHeader: boolean) =>
-    inHeader
-      ? headerToggleBase
-      : `${headerToggleBase} fixed left-6 top-4 z-50 sm:left-7 sm:top-[1.125rem]`;
+  const headerToggleClass =
+    'fixed left-6 z-50 top-[calc(1rem+(3.5rem-1.375rem)/2)] inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
 
   const toggleCollapsed = () => {
     toggleHeaderCollapsed();
@@ -620,7 +615,7 @@ export function Lid() {
       aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand header' : 'Collapse header'}
       title={collapsed ? 'Expand header' : 'Collapse header'}
-      className={headerToggleClass(!collapsed)}
+      className={headerToggleClass}
     >
       {collapsed ? (
         <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
@@ -630,32 +625,8 @@ export function Lid() {
     </button>
   );
 
-  if (collapsed) {
-    return (
-      <>
-        <input
-          type="file"
-          accept=".xml,.musicxml,.mxl"
-          className="hidden"
-          ref={fileInputRef}
-          onChange={handleFileUpload}
-        />
-
-        {collapseButton}
-
-        <ScoreLibraryPanel
-          isOpen={isLibraryOpen}
-          onClose={() => setIsLibraryOpen(false)}
-          onSelect={handleSelectFromLibrary}
-          canDelete={canManageLibrary}
-          userId={userId ?? null}
-        />
-      </>
-    );
-  }
-
   return (
-    <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
+    <>
       <input
         type="file"
         accept=".xml,.musicxml,.mxl"
@@ -664,9 +635,13 @@ export function Lid() {
         onChange={handleFileUpload}
       />
 
+      {collapseButton}
+
+      {!collapsed ? (
+    <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
       <div className="flex min-w-0 flex-1 items-center gap-4">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {collapseButton}
+        <div className="flex min-w-0 items-center gap-1.5 h-14">
+          <span className="w-[22px] shrink-0" aria-hidden />
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
             <Music2 size={18} strokeWidth={2} aria-hidden />
           </div>
@@ -747,6 +722,8 @@ export function Lid() {
 
         <AccountSection />
       </div>
+    </header>
+      ) : null}
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel
         isOpen={isLibraryOpen}
@@ -755,6 +732,6 @@ export function Lid() {
         canDelete={canManageLibrary}
         userId={userId ?? null}
       />
-    </header>
+    </>
   );
 }
