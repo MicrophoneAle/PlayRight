@@ -483,10 +483,13 @@ export function Lid() {
         ? 'bg-violet-600 text-white'
         : 'text-zinc-400 hover:text-zinc-200';
 
-  const headerToggleClass = (visible: boolean) =>
-    visible
-      ? 'inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
-      : 'fixed left-8 top-4 z-50 inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-700/70 bg-zinc-900/30 text-zinc-300/90 shadow-sm backdrop-blur-sm transition-colors hover:border-zinc-600 hover:bg-zinc-900/50 hover:text-zinc-100 sm:left-10 sm:top-[1.125rem]';
+  const headerToggleBase =
+    'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
+
+  const headerToggleClass = (inHeader: boolean) =>
+    inHeader
+      ? headerToggleBase
+      : `${headerToggleBase} fixed left-6 top-4 z-50 sm:left-7 sm:top-[1.125rem]`;
 
   const toggleCollapsed = () => {
     toggleHeaderCollapsed();
@@ -620,9 +623,9 @@ export function Lid() {
       className={headerToggleClass(!collapsed)}
     >
       {collapsed ? (
-        <ChevronDown size={12} strokeWidth={2.5} aria-hidden />
+        <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
       ) : (
-        <ChevronUp size={12} strokeWidth={2.5} aria-hidden />
+        <ChevronUp size={10} strokeWidth={2.5} aria-hidden />
       )}
     </button>
   );
@@ -662,7 +665,7 @@ export function Lid() {
       />
 
       <div className="flex min-w-0 flex-1 items-center gap-4">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-1.5">
           {collapseButton}
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
             <Music2 size={18} strokeWidth={2} aria-hidden />
