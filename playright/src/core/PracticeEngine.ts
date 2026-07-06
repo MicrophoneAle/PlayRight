@@ -4,6 +4,7 @@ import {
   stepHasPlaybackFermataHold,
 } from './playbackTiming.ts';
 import {
+  getExpectedNoteForFinger,
   getPracticeNotes,
   stepHasPracticeNotes,
 } from './practiceSteps.ts';
@@ -11,6 +12,9 @@ import { alignScopeToMidis } from './scopeAlign.ts';
 import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
 import type { ScriptNote } from '../types/index.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
+
+/** Wait this long after the last hit before advancing, so 3+ simultaneous finger keys register. */
+export const PRACTICE_CHORD_INTAKE_MS = 48;
 
 export class PracticeEngine {
   private audioEngine: AudioEngine | null = null;
@@ -20,6 +24,7 @@ export class PracticeEngine {
   private fingersPressedThisStep = new Set<string>();
   private soundingMidis = new Set<number>();
   private activeFingerSounds = new Map<string, number>();
+  private chordCompletionTimer: ReturnType<typeof setTimeout> | null = null;
   private storeSubscriptionInitialized = false;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -88,6 +93,7 @@ export class PracticeEngine {
   }
 
   pause(): void {
+    this.clearChordCompletionTimer();
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
     actions.setExpectedNotes([]);
@@ -111,6 +117,7 @@ export class PracticeEngine {
       return;
     }
 
+    this.clearChordCompletionTimer();
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
@@ -174,20 +181,49 @@ export class PracticeEngine {
   }
 
   handleFingerPress(mapping: FingerMapping): void {
-    const { script, currentStepIndex } = useEngineStore.getState();
+    const { script, currentStepIndex, engineMode } = useEngineStore.getState();
     if (!script || currentStepIndex < 0 || currentStepIndex >= script.length) {
       return;
     }
 
+    const isTwoHand = engineMode === 'two-hand';
+
+    if (
+      isTwoHand &&
+      !selectIsPracticeActive(useEngineStore.getState()) &&
+      !this.ensureTwoHandPracticeStarted()
+    ) {
+      return;
+    }
+
     const currentStep = script[currentStepIndex];
-    const expected = this.findUnhitExpectedNoteForFinger(currentStep, mapping);
+    let expected = this.findUnhitExpectedNoteForFinger(currentStep, mapping);
+    let lookahead = false;
+
+    if (
+      expected === null &&
+      isTwoHand &&
+      selectIsPracticeActive(useEngineStore.getState()) &&
+      this.chordCompletionTimer !== null &&
+      currentStepIndex + 1 < script.length
+    ) {
+      const nextStep = script[currentStepIndex + 1];
+      const nextExpected = getExpectedNoteForFinger(
+        nextStep,
+        mapping.hand,
+        mapping.finger,
+      );
+      if (nextExpected !== null) {
+        expected = nextExpected;
+        lookahead = true;
+      }
+    }
+
     if (expected === null) {
       return;
     }
 
-    const isTwoHand = useEngineStore.getState().engineMode === 'two-hand';
-
-    if (!this.ensureTwoHandPracticeStarted()) {
+    if (!selectIsPracticeActive(useEngineStore.getState())) {
       if (!isTwoHand) {
         this.playNotePreview(expected.midi);
       }
@@ -202,7 +238,7 @@ export class PracticeEngine {
       this.playNotePreview(expected.midi);
     }
 
-    if (!useEngineStore.getState().isPracticeActive) {
+    if (lookahead) {
       return;
     }
 
@@ -521,6 +557,7 @@ export class PracticeEngine {
     const { alignScope = false, exactStep = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
+    this.clearChordCompletionTimer();
     this.hitNoteIndices.clear();
     this.fingersPressedThisStep.clear();
     this.expectedNotes.clear();
@@ -629,6 +666,31 @@ export class PracticeEngine {
   }
 
   private checkStepCompletion(): void {
+    this.scheduleStepCompletionCheck();
+  }
+
+  /** Run any pending step-advance check immediately (tests and teardown). */
+  flushStepCompletionCheck(): void {
+    this.clearChordCompletionTimer();
+    this.runStepCompletionCheck();
+  }
+
+  private clearChordCompletionTimer(): void {
+    if (this.chordCompletionTimer !== null) {
+      clearTimeout(this.chordCompletionTimer);
+      this.chordCompletionTimer = null;
+    }
+  }
+
+  private scheduleStepCompletionCheck(): void {
+    this.clearChordCompletionTimer();
+    this.chordCompletionTimer = setTimeout(() => {
+      this.chordCompletionTimer = null;
+      this.runStepCompletionCheck();
+    }, PRACTICE_CHORD_INTAKE_MS);
+  }
+
+  private runStepCompletionCheck(): void {
     if (this.practiceNotesForStep.length === 0) {
       return;
     }
@@ -652,7 +714,40 @@ export class PracticeEngine {
       return;
     }
 
+    const carryForwardFingerKeys = [...this.fingersPressedThisStep].filter((fingerKey) =>
+      this.activeFingerSounds.has(fingerKey),
+    );
     this.loadCurrentStep();
+    this.replayCarriedFingerHits(carryForwardFingerKeys);
+  }
+
+  private replayCarriedFingerHits(fingerKeys: string[]): void {
+    if (!useEngineStore.getState().isPracticeActive) {
+      return;
+    }
+
+    for (const fingerKey of fingerKeys) {
+      const separator = fingerKey.indexOf(':');
+      if (separator < 0) {
+        continue;
+      }
+
+      const hand = fingerKey.slice(0, separator);
+      const finger = Number.parseInt(fingerKey.slice(separator + 1), 10);
+      if (hand !== 'L' && hand !== 'R') {
+        continue;
+      }
+      if (!Number.isInteger(finger) || finger < 1 || finger > 5) {
+        continue;
+      }
+
+      this.recordFingerHitsForMapping({ hand, finger: finger as FingerMapping['finger'] });
+      this.syncHitsFromHeldFingers();
+    }
+
+    if (this.hitNoteIndices.size === this.practiceNotesForStep.length) {
+      this.scheduleStepCompletionCheck();
+    }
   }
 }
 
