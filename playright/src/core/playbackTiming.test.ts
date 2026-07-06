@@ -615,6 +615,11 @@ describe('playbackTiming', () => {
   });
 
   it('shifts subsequent attacks after a fermata so they do not overlap the extended release', () => {
+    // C4 (step 0) carries fermata weight onto D4 (step 1, abutting) per the
+    // carry-forward heuristic. D4 attacks on time (immediately after C4's
+    // normal, un-held release) and rings for its own extended duration; the
+    // step AFTER the carried note (step 2) is the one that must be pushed
+    // later so it doesn't overlap D4's extended release.
     const script: PlaybackScript = [
       {
         order: 0,
@@ -645,33 +650,62 @@ describe('playbackTiming', () => {
           },
         ],
       },
+      {
+        order: 2,
+        onset: 960,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'E4',
+            midi: 64,
+            hand: 'R',
+            finger: null,
+            durationDivisions: 480,
+          },
+        ],
+      },
     ];
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
+    const consecutive = buildConsecutiveSameNoteKeySet(script, divisionsPerQuarter);
+    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutive,
+      fermataContext,
+    );
     const fermataOffsets = buildPlaybackFermataOffsetsByStep(
       script,
       divisionsPerQuarter,
       finalNoteKeys,
+      fermataContext,
+      stepDurations,
     );
-    const writtenQuarters = 1;
 
-    const fermataAttack = scheduledPlaybackAttackQuarterNotes(
-      script[0].onset,
-      divisionsPerQuarter,
-      fermataOffsets[0],
-    );
-    const fermataRelease =
-      fermataAttack +
-      playbackDurationQuarterNotes(writtenQuarters, false, { hasFermata: true });
-    const nextAttack = scheduledPlaybackAttackQuarterNotes(
+    const carriedAttack = scheduledPlaybackAttackQuarterNotes(
       script[1].onset,
       divisionsPerQuarter,
       fermataOffsets[1],
     );
-    const writtenNextAttack = stepOnsetQuarterNotes(script[1].onset, divisionsPerQuarter);
+    const writtenCarriedAttack = stepOnsetQuarterNotes(script[1].onset, divisionsPerQuarter);
+    const carriedRelease = carriedAttack + stepDurations[1];
+    const nextAttack = scheduledPlaybackAttackQuarterNotes(
+      script[2].onset,
+      divisionsPerQuarter,
+      fermataOffsets[2],
+    );
+    const writtenNextAttack = stepOnsetQuarterNotes(script[2].onset, divisionsPerQuarter);
 
-    expect(fermataOffsets[1]).toBeGreaterThan(0);
+    // The carried note itself attacks on time - no pre-attack silence.
+    expect(fermataOffsets[1]).toBeCloseTo(0, 9);
+    expect(carriedAttack).toBeCloseTo(writtenCarriedAttack, 9);
+
+    // Only the step AFTER the carried note is pushed, and only enough to
+    // clear its extended release.
+    expect(fermataOffsets[2]).toBeGreaterThan(0);
     expect(nextAttack).toBeGreaterThan(writtenNextAttack);
-    expect(nextAttack).toBeGreaterThanOrEqual(fermataRelease - 1e-9);
+    expect(nextAttack).toBeGreaterThanOrEqual(carriedRelease - 1e-9);
   });
 });

@@ -42,6 +42,15 @@ export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_
 /** Play-mode multiplier applied to a fermata note's held duration. */
 export const PLAYBACK_FERMATA_HOLD_FACTOR = 2;
 
+/**
+ * Safety cap on the EXTRA hold time a fermata can add, in quarter notes
+ * (tempo-independent, matching this module's other units). Backstops the
+ * unify-reference fix above in case a fermata ever lands on an unusually
+ * long note some other way - a fermata should never be able to produce an
+ * unboundedly long dead hold.
+ */
+export const PLAYBACK_FERMATA_MAX_EXTENSION_QUARTERS = 8;
+
 export interface PlaybackDurationOptions {
   /** Play through the full written length (no pre-release gap). */
   isFinalNote?: boolean;
@@ -149,42 +158,6 @@ export function stepHasPlaybackFermataHold(
   return step.notes.some((note) => effectiveNoteHasFermata(stepIndex, note, context));
 }
 
-function maxFermataExtensionForNotes(
-  script: PlaybackScript,
-  stepIndex: number,
-  divisionsPerQuarter: number,
-  finalNoteKeys: Set<string>,
-  treatAllNotesAsFermata: boolean,
-): number {
-  const step = script[stepIndex];
-  let stepExtension = 0;
-
-  for (const note of step.notes) {
-    if (!treatAllNotesAsFermata && !note.hasFermata) {
-      continue;
-    }
-
-    const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
-    const writtenQuarters = noteDurationQuarterNotes(
-      durationDivisions,
-      divisionsPerQuarter,
-    );
-    const isFinalNote = finalNoteKeys.has(
-      playbackNoteKey(stepIndex, note.hand, note.midi),
-    );
-    stepExtension = Math.max(
-      stepExtension,
-      fermataExtensionDeltaQuarterNotes(
-        writtenQuarters,
-        note.tiedToNext ?? false,
-        { isFinalNote },
-      ),
-    );
-  }
-
-  return stepExtension;
-}
-
 /** Extra play-mode hold added by a fermata over the non-fermata playback duration. */
 export function fermataExtensionDeltaQuarterNotes(
   writtenQuarterNotes: number,
@@ -229,15 +202,12 @@ export function buildPlaybackFermataOffsetsByStep(
 
     let stepExtension = 0;
 
-    if (fermataContext.delegateToNextStep.has(stepIndex)) {
-      stepExtension = maxFermataExtensionForNotes(
-        script,
-        stepIndex + 1,
-        divisionsPerQuarter,
-        finalNoteKeys,
-        true,
-      );
-    } else {
+    // Delegating steps (a fermata pickup abutting the next sonority) must not
+    // pre-push the carried step's attack time. The carried step's own
+    // stepHasFermataHold block below derives the correct post-hold push from
+    // its actual (on-time) attack and extended release, so pushing here too
+    // would double-count the extension as bogus silence before the attack.
+    if (!fermataContext.delegateToNextStep.has(stepIndex)) {
       for (const note of script[stepIndex].notes) {
         if (!note.hasFermata) {
           continue;
@@ -340,7 +310,8 @@ export function playbackDurationQuarterNotes(
     return baseDuration;
   }
 
-  return baseDuration * PLAYBACK_FERMATA_HOLD_FACTOR;
+  const uncappedExtension = baseDuration * (PLAYBACK_FERMATA_HOLD_FACTOR - 1);
+  return baseDuration + Math.min(uncappedExtension, PLAYBACK_FERMATA_MAX_EXTENSION_QUARTERS);
 }
 
 /** Release onset for a note, leaving a short gap before the next attack at the written duration. */
@@ -656,9 +627,34 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
   ),
 ): number[] {
   return script.map((step, stepIndex) => {
+    const unify = shouldUnifyStepPlaybackDuration(step, stepIndex, fermataContext);
+
+    // When unifying a fermata step's release, only let notes that actually
+    // carry the fermata weight drive the extended duration: notes with
+    // their own written hasFermata mark, or - for a pure carry-forward step
+    // where nothing is directly marked - the step's shortest written
+    // note(s). A carry-forward step marks EVERY note as effectively
+    // fermata'd (see effectiveNoteHasFermata), including notes that are
+    // independently long for unrelated reasons (e.g. a bass note whose
+    // written length already spans multiple tied-together measures);
+    // letting that already-extended length drive the unify max would
+    // multiply an already-long duration by the fermata factor again.
+    let referenceNotes = step.notes;
+    if (unify && !step.notes.some((note) => note.hasFermata)) {
+      const writtenQuartersOf = (note: ScriptNote): number =>
+        noteDurationQuarterNotes(
+          note.durationDivisions ?? divisionsPerQuarter,
+          divisionsPerQuarter,
+        );
+      const minWritten = Math.min(...step.notes.map(writtenQuartersOf));
+      referenceNotes = step.notes.filter(
+        (note) => writtenQuartersOf(note) === minWritten,
+      );
+    }
+
     let maxDuration = 0;
 
-    for (const note of step.notes) {
+    for (const note of referenceNotes) {
       const noteDuration = notePlaybackDurationQuarterNotes(
         note,
         divisionsPerQuarter,

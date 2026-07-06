@@ -26,19 +26,23 @@ function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
 }
 
+/**
+ * Clamp a computed tick to a finite, non-decreasing integer before it reaches
+ * Tone's Transport.
+ *
+ * scheduleFromStep computes every event's tick synchronously from
+ * playbackTiming's fermata/duration math and hands it straight to
+ * transport.scheduleOnce as a "<ticks>i" string. A NaN/Infinity or
+ * out-of-order tick breaks Tone's ordered Timeline silently. Tone's Clock also
+ * advances one whole tick at a time, so fractional ticks are never matched and
+ * their events are skipped forever.
+ */
 function safeTickTime(
   rawTicks: number,
   minTick: number,
   label: string,
   context: Record<string, unknown>,
 ): { text: string; tick: number } {
-  // Tone's Transport dispatches scheduled events by exact integer-tick match:
-  // its Clock advances one whole tick per process and fires only events whose
-  // tick time equals that integer. A fractional tick (e.g. a fermata offset of
-  // 3.86 quarters -> 6885.12 ticks) never equals any integer the clock lands
-  // on, so the event is skipped forever while the transport keeps advancing.
-  // Rounding to the nearest whole tick puts every event back on the grid the
-  // Clock samples. At 192 PPQ the worst-case shift is under 2 ms (inaudible).
   const roundedTicks = Math.round(rawTicks);
 
   if (Number.isFinite(roundedTicks) && roundedTicks >= minTick) {
@@ -436,21 +440,24 @@ export class PlaybackEngine {
       false,
       durationOptions,
     );
-    const rawReleaseTicks = quartersToTicks(releaseOnset, ppq);
     const { text: releaseTime } = safeTickTime(
-      rawReleaseTicks,
+      quartersToTicks(releaseOnset, ppq),
       attackTick,
       'tie-end release',
       { stepIndex, midi: note.midi, hand: note.hand },
     );
     const releaseEventId = getTransport().scheduleOnce(() => {
-      this.playingPressTracker.releaseMatching(
-        (active) =>
-          active.midi === note.midi &&
-          active.hand === note.hand &&
-          active.stepIndex < stepIndex,
-      );
-      this.syncPlayingNotes();
+      try {
+        this.playingPressTracker.releaseMatching(
+          (active) =>
+            active.midi === note.midi &&
+            active.hand === note.hand &&
+            active.stepIndex < stepIndex,
+        );
+        this.syncPlayingNotes();
+      } catch (err) {
+        console.error('[PlaybackEngine] tie-end release callback failed (skipped):', err);
+      }
     }, releaseTime);
     this.scheduledEventIds.push(releaseEventId);
   }
@@ -511,107 +518,129 @@ export class PlaybackEngine {
       consecutiveSameNoteKeys,
       fermataContext,
     );
-    let previousStepTick = 0;
+
+    let lastSafeAttackTick = -1;
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
-      const step = script[stepIndex];
-      const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-        step.onset,
-        divisionsPerQuarter,
-        fermataOffsets[stepIndex],
-      );
-      const rawAttackTicks = quartersToTicks(attackOnsetQuarters, ppq);
-      const { text: attackTime, tick: attackTick } = safeTickTime(
-        rawAttackTicks,
-        previousStepTick,
-        'step attack',
-        { stepIndex },
-      );
-      previousStepTick = attackTick;
-      const stepPresses: Array<{
-        pressId: number;
-        note: ScriptNote;
-        playedDuration: string;
-      }> = [];
-
-      for (const note of step.notes) {
-        if (isPlaybackTieContinuation(script, stepIndex, note)) {
-          if (!note.tiedToNext) {
-            this.scheduleTieEndRelease(
-              stepIndex,
-              note,
-              attackOnsetQuarters,
-              attackTick,
-              divisionsPerQuarter,
-              ppq,
-              finalNoteKeys,
-            );
-          }
-          continue;
-        }
-
-        const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
-          stepIndex,
-          note,
-          script,
-          stepDurations,
+      try {
+        const step = script[stepIndex];
+        const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
+          step.onset,
           divisionsPerQuarter,
-          finalNoteKeys,
-          consecutiveSameNoteKeys,
-          fermataContext,
+          fermataOffsets[stepIndex],
         );
-        const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
-        const pressId = this.playingPressTracker.allocatePressId();
+        const { text: attackTime, tick: attackTick } = safeTickTime(
+          quartersToTicks(attackOnsetQuarters, ppq),
+          lastSafeAttackTick,
+          'step attack',
+          { stepIndex, attackOnsetQuarters, fermataOffset: fermataOffsets[stepIndex] ?? 0 },
+        );
+        lastSafeAttackTick = attackTick;
 
-        stepPresses.push({ pressId, note, playedDuration });
+        const stepPresses: Array<{
+          pressId: number;
+          note: ScriptNote;
+          playedDuration: string;
+        }> = [];
 
-        if (!note.tiedToNext) {
-          const releaseOnset = attackOnsetQuarters + playedQuarters;
-          const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
-            `${stepIndex}:${note.hand}:${note.midi}`,
+        for (const note of step.notes) {
+          if (isPlaybackTieContinuation(script, stepIndex, note)) {
+            if (!note.tiedToNext) {
+              this.scheduleTieEndRelease(
+                stepIndex,
+                note,
+                attackOnsetQuarters,
+                attackTick,
+                divisionsPerQuarter,
+                ppq,
+                finalNoteKeys,
+              );
+            }
+            continue;
+          }
+
+          const playedQuarters = resolveNotePlaybackDurationQuarterNotes(
+            stepIndex,
+            note,
+            script,
+            stepDurations,
+            divisionsPerQuarter,
+            finalNoteKeys,
+            consecutiveSameNoteKeys,
+            fermataContext,
           );
-          const rawReleaseTicks = quartersToTicks(releaseOnset, ppq);
-          const { text: releaseTime } = safeTickTime(
-            rawReleaseTicks,
-            attackTick,
-            'note release',
-            { stepIndex, midi: note.midi, hand: note.hand },
-          );
-          const releaseEventId = transport.scheduleOnce(() => {
-            this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
-          }, releaseTime);
-          this.scheduledEventIds.push(releaseEventId);
-        }
-      }
+          const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
+          const pressId = this.playingPressTracker.allocatePressId();
 
-      const stepEventId = transport.scheduleOnce((time) => {
-        this.releasePriorStepNotes(stepIndex);
-        this.applyStepVisual(stepIndex);
+          stepPresses.push({ pressId, note, playedDuration });
 
-        for (const { pressId, note, playedDuration } of stepPresses) {
-          engine.scheduleAttackRelease(note.midi, playedDuration, time);
-
-          if (isSamePitchReattack(script, stepIndex, note)) {
-            this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
-          } else {
-            this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+          if (!note.tiedToNext) {
+            const releaseOnset = attackOnsetQuarters + playedQuarters;
+            const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
+              `${stepIndex}:${note.hand}:${note.midi}`,
+            );
+            const { text: releaseTime } = safeTickTime(
+              quartersToTicks(releaseOnset, ppq),
+              attackTick,
+              'note release',
+              { stepIndex, midi: note.midi, hand: note.hand },
+            );
+            const releaseEventId = transport.scheduleOnce(() => {
+              try {
+                this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
+              } catch (err) {
+                console.error('[PlaybackEngine] note release callback failed (skipped):', err);
+              }
+            }, releaseTime);
+            this.scheduledEventIds.push(releaseEventId);
           }
         }
-      }, attackTime);
 
-      this.scheduledEventIds.push(stepEventId);
+        const stepEventId = transport.scheduleOnce((time) => {
+          try {
+            this.releasePriorStepNotes(stepIndex);
+            this.applyStepVisual(stepIndex);
+
+            for (const { pressId, note, playedDuration } of stepPresses) {
+              engine.scheduleAttackRelease(note.midi, playedDuration, time);
+
+              if (isSamePitchReattack(script, stepIndex, note)) {
+                this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
+              } else {
+                this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
+              }
+            }
+          } catch (err) {
+            console.error('[PlaybackEngine] step attack callback failed (skipped):', err);
+          }
+        }, attackTime);
+
+        this.scheduledEventIds.push(stepEventId);
+      } catch (err) {
+        console.error(
+          '[PlaybackEngine] scheduleFromStep step scheduling failed (step skipped, continuing)',
+          {
+            stepIndex,
+            errorMessage: err instanceof Error ? err.message : String(err),
+            errorStack: err instanceof Error ? err.stack : undefined,
+          },
+        );
+      }
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
-    const rawPieceEndTicks = quartersToTicks(pieceEndQuarters, ppq);
     const { text: pieceEndTime } = safeTickTime(
-      rawPieceEndTicks,
-      previousStepTick,
+      quartersToTicks(pieceEndQuarters, ppq),
+      lastSafeAttackTick,
       'piece end',
-      {},
+      { scriptLength: script.length },
     );
     const endEventId = transport.scheduleOnce(() => {
-      this.completePlayback();
+      try {
+        this.completePlayback();
+      } catch (err) {
+        console.error('[PlaybackEngine] piece-end callback failed (skipped):', err);
+      }
     }, pieceEndTime);
     this.scheduledEventIds.push(endEventId);
   }

@@ -13,6 +13,7 @@ import {
   playbackDurationQuarterNotes,
   resolveNotePlaybackDurationQuarterNotes,
   scheduledPlaybackAttackQuarterNotes,
+  stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -92,19 +93,34 @@ describe('constant moderato fermata playback', () => {
       fermataContext,
     );
     const wholeWithoutFermata = playbackDurationQuarterNotes(wholeWritten);
-    const longestWritten = Math.max(
+    // The unify reference is the step's SHORTEST written note (the R-hand
+    // arrival chord, 4 quarters), not its longest: the L-hand bass notes are
+    // written as 8 quarters purely because the parser pre-combines their tie
+    // across measures 8-9, and that already-extended length must not also be
+    // multiplied by the fermata factor (that was the double-counting bug).
+    const shortestWritten = Math.min(
       ...script[wholeChordStepIndex].notes.map((note) =>
         noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq),
       ),
     );
-    const longestWithFermata = playbackDurationQuarterNotes(
-      longestWritten,
-      script[wholeChordStepIndex].notes.some((note) => note.tiedToNext),
-      { hasFermata: true },
-    );
+    const shortestWithFermata = playbackDurationQuarterNotes(shortestWritten, false, {
+      hasFermata: true,
+    });
 
     expect(wholePlayed).toBeGreaterThan(wholeWithoutFermata * 1.9);
-    expect(stepDurations[wholeChordStepIndex]).toBeCloseTo(longestWithFermata, 1);
+    expect(stepDurations[wholeChordStepIndex]).toBeCloseTo(shortestWithFermata, 1);
+    // Regression guard for the double-counted-hold bug: the bass note's own
+    // (already tie-extended) written length must never drive the unified
+    // release - it would roughly double the hold versus the correct value.
+    const bassNoteWritten = Math.max(
+      ...script[wholeChordStepIndex].notes.map((note) =>
+        noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq),
+      ),
+    );
+    expect(bassNoteWritten).toBeGreaterThan(shortestWritten);
+    expect(stepDurations[wholeChordStepIndex]).toBeLessThan(
+      playbackDurationQuarterNotes(bassNoteWritten, false, { hasFermata: true }) * 0.9,
+    );
 
     const pickupAttack = scheduledPlaybackAttackQuarterNotes(
       script[pickupStepIndex].onset,
@@ -129,6 +145,28 @@ describe('constant moderato fermata playback', () => {
     expect(chordAttack).toBeGreaterThanOrEqual(pickupRelease - 1e-9);
     expect(nextAttack).toBeGreaterThanOrEqual(chordRelease - 1e-9);
     expect(offsets[nextStepIndex]).toBeGreaterThan(offsets[wholeChordStepIndex]);
+
+    // Regression guard: the carried chord must attack at its own written
+    // onset (only the normal, sub-quarter articulation gap after the pickup
+    // releases) - not delayed by a bogus silent gap from double-counting the
+    // fermata extension as a pre-attack push (it previously pre-pushed the
+    // chord's own attack by ~7.95 quarters before also re-deriving the
+    // post-chord push from the chord's real release).
+    const writtenChordAttack = stepOnsetQuarterNotes(
+      script[wholeChordStepIndex].onset,
+      dpq,
+    );
+    expect(offsets[wholeChordStepIndex]).toBeCloseTo(0, 6);
+    expect(chordAttack).toBeCloseTo(writtenChordAttack, 6);
+    expect(chordAttack - pickupRelease).toBeLessThan(0.1);
+
+    // The post-chord push should reflect a single application of the excess
+    // hold (chord's extended release minus the next step's written onset),
+    // not that amount plus the extension already spent before the chord.
+    const expectedPostChordPush =
+      chordRelease -
+      stepOnsetQuarterNotes(script[nextStepIndex].onset, dpq);
+    expect(offsets[nextStepIndex]).toBeCloseTo(expectedPostChordPush, 6);
   });
 
   it('keeps the measure 9 half-note fermata on its own step', () => {

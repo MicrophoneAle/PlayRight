@@ -31,8 +31,15 @@ vi.mock('tone', () => ({
 }));
 
 import { PlaybackEngine } from './PlaybackEngine.ts';
-import { playbackReleaseOnsetQuarterNotes, quartersToTransportTickTime } from './playbackTiming.ts';
+import {
+  playbackReleaseOnsetQuarterNotes,
+  quartersToTicks,
+} from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+
+function roundedTransportTickTime(quarterNotes: number, ppq: number): string {
+  return `${Math.round(quartersToTicks(quarterNotes, ppq))}i`;
+}
 
 describe('PlaybackEngine playback visuals', () => {
   beforeEach(() => {
@@ -101,7 +108,7 @@ describe('PlaybackEngine playback visuals', () => {
 
     await engine.play();
 
-    const releaseTickTime = quartersToTransportTickTime(
+    const releaseTickTime = roundedTransportTickTime(
       playbackReleaseOnsetQuarterNotes(0, 1, false),
       480,
     );
@@ -132,7 +139,7 @@ describe('PlaybackEngine playback visuals', () => {
 
     useEngineStore.setState({ script });
 
-    const releaseTickTime = quartersToTransportTickTime(
+    const releaseTickTime = roundedTransportTickTime(
       playbackReleaseOnsetQuarterNotes(0, 1, false, {
         followedByConsecutiveSameNote: true,
       }),

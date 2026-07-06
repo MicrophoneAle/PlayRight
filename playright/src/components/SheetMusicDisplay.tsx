@@ -183,9 +183,44 @@ function ensureSheetTopClearance(container: HTMLElement): void {
   svg.style.marginTop = `${SHEET_TOP_CLEARANCE_PX - gap}px`;
 }
 
+/**
+ * Strip pedal markings from the display copy. OSMD can throw while calculating
+ * pedal brackets that span certain measure boundaries (calculateSinglePedal
+ * reading undefined staffEntries), which half-completes rendering and leaves
+ * everything after the crash without graphical notes. PlayRight does not use
+ * pedal markings functionally, so removing them here costs nothing and removes
+ * the crash at its source.
+ */
+function stripPedalDirections(xml: string): string {
+  return xml.replace(/<direction\b[^>]*>[\s\S]*?<\/direction>/g, (block) =>
+    block.includes('<pedal') ? '' : block,
+  );
+}
+
+/**
+ * Strip arpeggiate/non-arpeggiate roll markings from the display copy.
+ * Deliberate workaround: OSMD's roll-glyph rendering on complex chords (a
+ * fermata-held, tied chord with a reversed/down-direction roll - seen on the
+ * constant-moderato measure-9 fermata chord) can throw a stale "deferred DOM
+ * Node could not be resolved" error during render/reCalculate, and that
+ * throw mid-playback is what froze step advancement. Playback timing already
+ * ignores roll timing entirely (arpeggiated chords play as plain simultaneous
+ * chords - see the parser/PlaybackEngine, which are untouched by this), so
+ * the roll glyph carries no functional meaning here. Only the self-closing
+ * notation markers are removed; the chord tones and every other notation
+ * stay intact and still render as a normal (non-rolled) chord.
+ */
+function stripArpeggiateMarkings(xml: string): string {
+  return xml
+    .replace(/<arpeggiate\b[^>]*\/>/g, '')
+    .replace(/<arpeggiate\b[^>]*>[\s\S]*?<\/arpeggiate>/g, '')
+    .replace(/<non-arpeggiate\b[^>]*\/>/g, '')
+    .replace(/<non-arpeggiate\b[^>]*>[\s\S]*?<\/non-arpeggiate>/g, '');
+}
+
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
 function prepareMusicXmlForDisplay(xml: string): string {
-  return xml.replace(
+  return stripArpeggiateMarkings(stripPedalDirections(xml)).replace(
     /<technical>([\s\S]*?)<\/technical>/g,
     (block, inner) => {
       const fingeringPattern = /<fingering(\s[^>]*)?>([^<]*)<\/fingering>/g;
@@ -223,6 +258,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const visualIndexGenerationRef = useRef(0);
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
+  const lastRenderedSizeRef = useRef<{ width: number; height: number } | null>(null);
+  /** A genuine container resize arrived mid-playback; re-render once playback stops. */
+  const pendingPlaybackResizeRef = useRef(false);
+  /** Lets effects outside the OSMD-lifecycle effect trigger a render. */
+  const safeRenderRef = useRef<((rebuildIndex: boolean) => void) | null>(null);
   const scrollStateRef = useRef<PracticeScrollState>({
     systemKey: null,
     lineScrollTop: null,
@@ -244,7 +284,21 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
 
+  // This runs inside zustand subscribers and React effects, which in play
+  // mode execute synchronously inside PlaybackEngine's Tone.js transport
+  // callbacks (setStepIndex/setPlayingPlaybackNotes -> subscriber -> here).
+  // It must NEVER throw: an escaping exception propagates into Tone's
+  // event-draining loop and permanently freezes step advancement. A failed
+  // sync is one skipped visual frame; the next store change retries.
   const syncPracticeVisuals = () => {
+    try {
+      syncPracticeVisualsUnsafe();
+    } catch (err) {
+      console.warn('[SheetMusicDisplay] visual sync failed (frame skipped):', err);
+    }
+  };
+
+  const syncPracticeVisualsUnsafe = () => {
     const osmd = osmdRef.current;
     const container = containerRef.current;
     if (!osmd || !container || !osmdReadyRef.current) {
@@ -311,17 +365,32 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexGenerationRef.current = generation;
     cursorOffsetRef.current = -1;
 
+    // DIAGNOSTIC (temporary)
+    console.warn('[DIAG:scheduleVisualIndexBuild] scheduled', { generation });
+
     requestAnimationFrame(() => {
       if (generation !== visualIndexGenerationRef.current) {
+        console.warn('[DIAG:scheduleVisualIndexBuild] rAF BAILED (generation superseded)', {
+          generation,
+          currentGeneration: visualIndexGenerationRef.current,
+        });
         return;
       }
 
       const osmd = osmdRef.current;
       const state = useEngineStore.getState();
       if (!osmd || !osmdReadyRef.current || !state.script) {
+        console.warn('[DIAG:scheduleVisualIndexBuild] rAF BAILED (osmd/script not ready)', {
+          generation,
+          hasOsmd: !!osmd,
+          osmdReady: osmdReadyRef.current,
+          hasScript: !!state.script,
+        });
         visualIndexRef.current = null;
         return;
       }
+
+      console.warn('[DIAG:scheduleVisualIndexBuild] rAF RUNNING build', { generation });
 
       try {
         visualIndexRef.current = buildPracticeVisualIndex(
@@ -332,9 +401,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         );
 
         if (generation !== visualIndexGenerationRef.current) {
+          console.warn('[DIAG:scheduleVisualIndexBuild] build DISCARDED (generation superseded post-build)', {
+            generation,
+            currentGeneration: visualIndexGenerationRef.current,
+          });
           return;
         }
 
+        console.warn('[DIAG:scheduleVisualIndexBuild] build COMPLETE, syncing visuals', { generation });
         syncPracticeVisuals();
       } catch (err) {
         console.error("[SheetMusicDisplay] Practice visual index build failed:", err);
@@ -347,14 +421,22 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     clientX: number,
     clientY: number,
     allowBoundingBoxFallback = true,
-  ) =>
-    resolveStepIndexFromPointer(
-      visualIndexRef.current,
-      clientX,
-      clientY,
-      containerRef.current,
-      { allowBoundingBoxFallback },
-    );
+  ) => {
+    try {
+      return resolveStepIndexFromPointer(
+        visualIndexRef.current,
+        clientX,
+        clientY,
+        containerRef.current,
+        { allowBoundingBoxFallback },
+      );
+    } catch (err) {
+      // Stale GraphicalNote DOM references (post re-render) must not break
+      // click handling; treat as "no note here" and let the index rebuild.
+      console.warn('[SheetMusicDisplay] pointer step resolve failed:', err);
+      return null;
+    }
+  };
 
   const handleSheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
@@ -443,23 +525,31 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
+      lastRenderedSizeRef.current = null;
+      pendingPlaybackResizeRef.current = false;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       return;
     }
 
     let cancelled = false;
     let resizeObserver: ResizeObserver | null = null;
-    let resizeDebounceId: ReturnType<typeof setTimeout> | null = null;
+    pendingPlaybackResizeRef.current = false;
     osmdReadyRef.current = false;
     cursorsEnabledRef.current = false;
     visualIndexRef.current = null;
     highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
+    lastRenderedSizeRef.current = null;
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     visualIndexGenerationRef.current += 1;
 
+    // autoResize is off: this component's ResizeObserver is the ONLY render
+    // authority. OSMD's internal window-resize handler re-renders behind our
+    // back, replacing the SVG and orphaning every GraphicalNote held by the
+    // visual index / highlight refs mid-playback - the root of the
+    // "deferred DOM Node" freeze at the measure 8-9 fermata.
     const osmd = new OpenSheetMusicDisplay(container, {
-      autoResize: true,
+      autoResize: false,
       backend: "svg",
       drawingParameters: "compacttight",
       drawTitle: false,
@@ -473,6 +563,17 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     const safeRender = (rebuildIndex: boolean) => {
       if (cancelled || container.clientWidth === 0) {
         return;
+      }
+
+      // DIAGNOSTIC (temporary)
+      {
+        const diagState = useEngineStore.getState();
+        console.warn('[DIAG:safeRender] enter', {
+          rebuildIndex,
+          isPlaybackActive: diagState.isPlaybackActive,
+          isPlaybackPaused: diagState.isPlaybackPaused,
+          currentStepIndex: diagState.currentStepIndex,
+        });
       }
 
       try {
@@ -489,15 +590,45 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         normalizeMeasureNumberPositions(container);
         ensureSheetTopClearance(container);
 
-        if (rebuildIndex) {
+        // Record the box size produced by this render so the ResizeObserver
+        // below can tell "the browser resized" apart from "our own render
+        // just nudged the layout by a few px" (svg marginTop, scrollbar
+        // toggling) - without this, self-induced resizes re-trigger
+        // safeRender forever and starve playback of main-thread time.
+        lastRenderedSizeRef.current = {
+          width: container.clientWidth,
+          height: container.clientHeight,
+        };
+
+        // A re-render replaces OSMD's SVG and every GraphicalNote object, so
+        // the visual index (which holds GraphicalNote references) must be
+        // rebuilt after any render that happens while playback is running.
+        // The resize path no longer renders mid-playback (it defers until
+        // playback stops), so this branch is defense-in-depth for any other
+        // caller that renders while the transport is live.
+        const state = useEngineStore.getState();
+        const playbackRunning =
+          state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
+
+        if (rebuildIndex || playbackRunning) {
+          console.warn('[DIAG:safeRender] branch -> scheduleVisualIndexBuild', {
+            rebuildIndex,
+            playbackRunning,
+          });
           scheduleVisualIndexBuild();
         } else {
+          console.warn('[DIAG:safeRender] branch -> syncPracticeVisuals (NO index rebuild)', {
+            rebuildIndex,
+            playbackRunning,
+          });
           syncPracticeVisuals();
         }
       } catch (err) {
         console.error("[SheetMusicDisplay] OSMD render failed:", err);
       }
     };
+
+    safeRenderRef.current = safeRender;
 
     osmd
       .load(musicXml)
@@ -506,20 +637,50 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           return;
         }
 
+        const RESIZE_EPSILON_PX = 1;
+
         resizeObserver = new ResizeObserver(() => {
+          const width = container.clientWidth;
+          const height = container.clientHeight;
+          const lastRendered = lastRenderedSizeRef.current;
+          const isSelfInducedResize =
+            lastRendered !== null &&
+            Math.abs(width - lastRendered.width) <= RESIZE_EPSILON_PX &&
+            Math.abs(height - lastRendered.height) <= RESIZE_EPSILON_PX;
+
           const state = useEngineStore.getState();
           const playbackRunning =
             state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
+          // DIAGNOSTIC (temporary)
+          console.warn('[DIAG:resizeObserver] fired', {
+            containerWidth: width,
+            containerHeight: height,
+            lastRenderedWidth: lastRendered?.width,
+            lastRenderedHeight: lastRendered?.height,
+            isSelfInducedResize,
+            playbackRunning,
+            currentStepIndex: state.currentStepIndex,
+          });
+
+          if (isSelfInducedResize) {
+            // Our own render (osmd.render(), marginTop/measure-number
+            // adjustments, scrollbar toggling) nudged the box back to the
+            // size we just rendered at - not a genuine external resize.
+            // Ignoring it breaks the render -> resize -> render loop.
+            return;
+          }
+
           if (playbackRunning) {
+            // NEVER re-render while the transport is live. A render replaces
+            // OSMD's SVG, orphaning every GraphicalNote the visual index and
+            // highlight refs hold; the next sync then dies on stale deferred
+            // DOM nodes and (before the engine callbacks were hardened) froze
+            // step advancement permanently. The current layout's notes remain
+            // valid at any container size, so highlights and scroll keep
+            // working - the reflow is deferred until playback pauses/stops.
+            pendingPlaybackResizeRef.current = true;
             syncPracticeVisuals();
-            if (resizeDebounceId !== null) {
-              clearTimeout(resizeDebounceId);
-            }
-            resizeDebounceId = setTimeout(() => {
-              resizeDebounceId = null;
-              safeRender(false);
-            }, 250);
             return;
           }
 
@@ -545,15 +706,28 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       visualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
+      lastRenderedSizeRef.current = null;
+      pendingPlaybackResizeRef.current = false;
+      safeRenderRef.current = null;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       resizeObserver?.disconnect();
-      if (resizeDebounceId !== null) {
-        clearTimeout(resizeDebounceId);
-      }
       osmdRef.current = null;
       container.innerHTML = "";
     };
   }, [musicXml]);
+
+  // Reflow deferred from mid-playback: when a genuine container resize
+  // arrived while the transport was live, the observer only flagged it.
+  // Run the full render + index rebuild once playback pauses or stops.
+  const playbackRunning = playMode && isPlaybackActive && !isPlaybackPaused;
+  useEffect(() => {
+    if (playbackRunning || !pendingPlaybackResizeRef.current) {
+      return;
+    }
+
+    pendingPlaybackResizeRef.current = false;
+    safeRenderRef.current?.(true);
+  }, [playbackRunning]);
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
