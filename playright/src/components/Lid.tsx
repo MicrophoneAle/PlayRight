@@ -165,7 +165,7 @@ export function Lid() {
       <p className="mb-2 shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-500">
         Settings
       </p>
-      <div className="-mr-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pr-1">
+      <div className="playright-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain pr-0.5">
         <div className="flex items-center justify-between gap-3">
           <label
             htmlFor="play-mode-toggle"

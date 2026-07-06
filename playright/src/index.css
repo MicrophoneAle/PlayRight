@@ -39,3 +39,31 @@ button:focus-visible {
   outline: 2px solid #8b5cf6;
   outline-offset: 2px;
 }
+
+.playright-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #52525b transparent;
+}
+
+.playright-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.playright-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.playright-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #52525b;
+  border-radius: 9999px;
+}
+
+.playright-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #71717a;
+}
+
+.playright-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+  width: 0;
+}
