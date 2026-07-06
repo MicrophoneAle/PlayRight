@@ -1204,7 +1204,7 @@ function getTrebleStaveTopY(gNote: GraphicalNote): number | null {
  */
 function playbackScrollAnchorTop(
   notes: GraphicalNote[],
-  visualIndex: PracticeVisualIndex,
+  scrollVisualIndex: PracticeVisualIndex,
 ): number | null {
   const systemKey = getNotesSystemKey(notes);
   if (!systemKey) {
@@ -1216,7 +1216,7 @@ function playbackScrollAnchorTop(
 
   // Highest note anywhere on the line (any hand), covering ledger notes that
   // sit above the treble staff so they are not clipped at the top.
-  const systemNotes = graphicalNotesOnSystem(visualIndex, systemKey);
+  const systemNotes = graphicalNotesOnSystem(scrollVisualIndex, systemKey);
   let highestNoteTop: number | null = null;
 
   for (const gNote of systemNotes) {
@@ -1511,7 +1511,7 @@ function scrollContainerForPlayback(
   notes: GraphicalNote[],
   scrollState: { current: PracticeScrollState },
   scrollMode: SheetScrollMode,
-  visualIndex: PracticeVisualIndex,
+  scrollVisualIndex: PracticeVisualIndex,
 ): void {
   // Buffer above the anchor (highest note / treble staff top) so the top of the
   // line is not flush against the viewport edge.
@@ -1526,7 +1526,7 @@ function scrollContainerForPlayback(
   // scrolling. Before this fallback existed, a null treble anchor silently
   // stopped scrolling in every mode even though highlighting still worked.
   const anchorTop =
-    playbackScrollAnchorTop(notes, visualIndex) ??
+    playbackScrollAnchorTop(notes, scrollVisualIndex) ??
     getNotesSystemBounds(notes)?.top ??
     null;
   if (anchorTop === null) {
@@ -1576,6 +1576,7 @@ export function syncSheetMusicPlaybackVisuals(
     cursorOffsetRef: { current: number };
     scrollStateRef: { current: PracticeScrollState };
     scrollMode: SheetScrollMode;
+    scrollVisualIndex: PracticeVisualIndex | null;
     activeHand: Hand;
     engineMode: EngineMode;
   },
@@ -1589,6 +1590,7 @@ export function syncSheetMusicPlaybackVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
+    scrollVisualIndex,
   } = options;
 
   // DIAGNOSTIC (temporary)
@@ -1661,13 +1663,13 @@ export function syncSheetMusicPlaybackVisuals(
     // notes only when the step has no matched graphics.
     const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
     const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
-    if (scrollNotes.length > 0) {
+    if (scrollNotes.length > 0 && scrollVisualIndex) {
       scrollContainerForPlayback(
         container,
         scrollNotes,
         scrollStateRef,
         scrollMode,
-        visualIndex,
+        scrollVisualIndex,
       );
     }
 
@@ -1695,6 +1697,7 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef: { current: number };
     scrollStateRef: { current: PracticeScrollState };
     scrollMode: SheetScrollMode;
+    scrollVisualIndex: PracticeVisualIndex | null;
     activeHand: Hand;
     engineMode: EngineMode;
   },
@@ -1709,6 +1712,7 @@ export function syncSheetMusicPracticeVisuals(
     cursorOffsetRef,
     scrollStateRef,
     scrollMode,
+    scrollVisualIndex,
   } = options;
 
   try {
@@ -1743,13 +1747,15 @@ export function syncSheetMusicPracticeVisuals(
     }
 
     highlightGraphicalNotes(toHighlight);
-    scrollContainerForPlayback(
-      container,
-      toHighlight,
-      scrollStateRef,
-      scrollMode,
-      visualIndex as PracticeVisualIndex,
-    );
+    if (scrollVisualIndex) {
+      scrollContainerForPlayback(
+        container,
+        toHighlight,
+        scrollStateRef,
+        scrollMode,
+        scrollVisualIndex,
+      );
+    }
 
     return toHighlight;
   } catch (err) {

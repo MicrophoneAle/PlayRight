@@ -255,6 +255,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const osmdReadyRef = useRef(false);
   const cursorsEnabledRef = useRef(false);
   const visualIndexRef = useRef<PracticeVisualIndex | null>(null);
+  /** Hand-independent index for line scroll anchoring (always two-hand). */
+  const scrollVisualIndexRef = useRef<PracticeVisualIndex | null>(null);
   const visualIndexGenerationRef = useRef(0);
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
@@ -321,6 +323,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         cursorOffsetRef,
         scrollStateRef,
         scrollMode: state.sheetScrollMode,
+        scrollVisualIndex: scrollVisualIndexRef.current,
         activeHand: state.activeHand,
         engineMode: displayEngineMode,
       });
@@ -355,6 +358,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       cursorOffsetRef,
       scrollStateRef,
       scrollMode: state.sheetScrollMode,
+      scrollVisualIndex: scrollVisualIndexRef.current,
       activeHand: state.activeHand,
       engineMode: displayEngineMode,
     });
@@ -387,16 +391,27 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           hasScript: !!state.script,
         });
         visualIndexRef.current = null;
+        scrollVisualIndexRef.current = null;
         return;
       }
 
       console.warn('[DIAG:scheduleVisualIndexBuild] rAF RUNNING build', { generation });
 
       try {
+        const displayEngineMode = getDisplayEngineMode(
+          state.playMode,
+          state.engineMode,
+        );
         visualIndexRef.current = buildPracticeVisualIndex(
           osmd,
           state.script,
-          getDisplayEngineMode(state.playMode, state.engineMode),
+          displayEngineMode,
+          state.activeHand,
+        );
+        scrollVisualIndexRef.current = buildPracticeVisualIndex(
+          osmd,
+          state.script,
+          'two-hand',
           state.activeHand,
         );
 
@@ -413,6 +428,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       } catch (err) {
         console.error("[SheetMusicDisplay] Practice visual index build failed:", err);
         visualIndexRef.current = null;
+        scrollVisualIndexRef.current = null;
       }
     });
   };
@@ -523,6 +539,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       osmdReadyRef.current = false;
       cursorsEnabledRef.current = false;
       visualIndexRef.current = null;
+      scrollVisualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
       lastRenderedSizeRef.current = null;
@@ -537,6 +554,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     osmdReadyRef.current = false;
     cursorsEnabledRef.current = false;
     visualIndexRef.current = null;
+    scrollVisualIndexRef.current = null;
     highlightedNotesRef.current = [];
     cursorOffsetRef.current = -1;
     lastRenderedSizeRef.current = null;
@@ -704,6 +722,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       osmdReadyRef.current = false;
       cursorsEnabledRef.current = false;
       visualIndexRef.current = null;
+      scrollVisualIndexRef.current = null;
       highlightedNotesRef.current = [];
       cursorOffsetRef.current = -1;
       lastRenderedSizeRef.current = null;
@@ -730,14 +749,12 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   }, [playbackRunning]);
 
   useEffect(() => {
-    scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     scheduleVisualIndexBuild();
-  }, [engineMode, playMode, musicXml, activeHand, fingeringMode]);
+  }, [engineMode, playMode, activeHand, fingeringMode, script]);
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
-    scheduleVisualIndexBuild();
-  }, [script]);
+  }, [activeHand, musicXml, script]);
 
   useEffect(() => {
     syncPracticeVisuals();

@@ -142,7 +142,7 @@ export class PracticeEngine {
   prepareCurrentHand(): void {
     const { actions } = useEngineStore.getState();
     actions.setStepIndex(0);
-    this.loadCurrentStep({ alignScope: true });
+    this.loadCurrentStep({ alignScope: false });
   }
 
   handleNoteOn(midi: number): void {
