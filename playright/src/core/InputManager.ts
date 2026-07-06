@@ -603,6 +603,8 @@ export class InputManager {
   private readonly onFingerPress?: (mapping: FingerMapping) => void;
   private readonly onFingerRelease?: (mapping: FingerMapping) => void;
   private readonly activePhysicalKeys = new Set<string>();
+  private pendingFingerPresses: FingerMapping[] = [];
+  private fingerPressFlushScheduled = false;
   /** One-hand: physical key code → MIDI attacked on keydown (persists across scope shifts). */
   private readonly heldNoteMidis = new Map<string, number>();
   private cachedScopeStart: number | null = null;
@@ -648,6 +650,31 @@ export class InputManager {
 
     this.heldNoteMidis.clear();
     this.activePhysicalKeys.clear();
+    this.pendingFingerPresses = [];
+    this.fingerPressFlushScheduled = false;
+  }
+
+  /**
+   * Flush finger keydowns in one microtask so simultaneous chord keys are all
+   * matched against the same practice step before any step advance runs.
+   */
+  private scheduleFingerPress(mapping: FingerMapping): void {
+    this.pendingFingerPresses.push(mapping);
+
+    if (this.fingerPressFlushScheduled) {
+      return;
+    }
+
+    this.fingerPressFlushScheduled = true;
+    queueMicrotask(() => {
+      this.fingerPressFlushScheduled = false;
+      const batch = this.pendingFingerPresses;
+      this.pendingFingerPresses = [];
+
+      for (const press of batch) {
+        this.onFingerPress?.(press);
+      }
+    });
   }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
@@ -691,7 +718,7 @@ export class InputManager {
 
         this.activePhysicalKeys.add(event.code);
         void this.audioEngine.warm();
-        this.onFingerPress?.(mapping);
+        this.scheduleFingerPress(mapping);
         event.preventDefault();
         return;
       }

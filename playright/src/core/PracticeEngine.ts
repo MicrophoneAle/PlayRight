@@ -4,7 +4,6 @@ import {
   stepHasPlaybackFermataHold,
 } from './playbackTiming.ts';
 import {
-  getExpectedNoteForFinger,
   getPracticeNotes,
   stepHasPracticeNotes,
 } from './practiceSteps.ts';
@@ -18,6 +17,7 @@ export class PracticeEngine {
   private expectedNotes: Set<number> = new Set();
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
+  private fingersPressedThisStep = new Set<string>();
   private soundingMidis = new Set<number>();
   private activeFingerSounds = new Map<string, number>();
   private storeSubscriptionInitialized = false;
@@ -180,11 +180,7 @@ export class PracticeEngine {
     }
 
     const currentStep = script[currentStepIndex];
-    const expected = getExpectedNoteForFinger(
-      currentStep,
-      mapping.hand,
-      mapping.finger,
-    );
+    const expected = this.findUnhitExpectedNoteForFinger(currentStep, mapping);
     if (expected === null) {
       return;
     }
@@ -198,6 +194,8 @@ export class PracticeEngine {
       return;
     }
 
+    this.fingersPressedThisStep.add(this.fingerKey(mapping));
+
     if (isTwoHand) {
       this.sustainNote(expected.midi, mapping);
     } else {
@@ -208,16 +206,8 @@ export class PracticeEngine {
       return;
     }
 
-    const hitIndex = this.practiceNotesForStep.findIndex(
-      (note) =>
-        (note.playingHand ?? note.hand) === mapping.hand &&
-        note.finger === mapping.finger,
-    );
-    if (hitIndex < 0) {
-      return;
-    }
-
-    this.registerPracticeHitAtIndex(hitIndex);
+    this.recordFingerHitsForMapping(mapping);
+    this.syncHitsFromHeldFingers();
   }
 
   handleFingerRelease(mapping: FingerMapping): void {
@@ -290,10 +280,127 @@ export class PracticeEngine {
     }
   }
 
+  private fingerKey(mapping: FingerMapping): string {
+    return `${mapping.hand}:${mapping.finger}`;
+  }
+
+  private noteFingerKey(note: ScriptNote): string {
+    return `${note.playingHand ?? note.hand}:${note.finger}`;
+  }
+
+  private practiceNoteMatchesMapping(
+    note: ScriptNote,
+    mapping: FingerMapping,
+  ): boolean {
+    return (
+      (note.playingHand ?? note.hand) === mapping.hand &&
+      note.finger === mapping.finger
+    );
+  }
+
+  private practiceNoteMatchesScriptNote(
+    practiceNote: ScriptNote,
+    scriptNote: ScriptNote,
+  ): boolean {
+    return (
+      practiceNote.midi === scriptNote.midi &&
+      practiceNote.hand === scriptNote.hand &&
+      (practiceNote.playingHand ?? practiceNote.hand) ===
+        (scriptNote.playingHand ?? scriptNote.hand) &&
+      practiceNote.finger === scriptNote.finger
+    );
+  }
+
+  private findUnhitExpectedNoteForFinger(
+    step: { notes: ScriptNote[] },
+    mapping: FingerMapping,
+  ): ScriptNote | null {
+    for (const note of step.notes) {
+      if (!this.practiceNoteMatchesMapping(note, mapping)) {
+        continue;
+      }
+
+      const practiceIndex = this.practiceNotesForStep.findIndex(
+        (practiceNote, index) =>
+          !this.hitNoteIndices.has(index) &&
+          this.practiceNoteMatchesScriptNote(practiceNote, note),
+      );
+      if (practiceIndex >= 0) {
+        return note;
+      }
+    }
+
+    return null;
+  }
+
+  /** Mark every still-unhit step note that matches this physical finger press. */
+  private recordFingerHitsForMapping(mapping: FingerMapping): void {
+    let marked = false;
+
+    for (let index = 0; index < this.practiceNotesForStep.length; index += 1) {
+      if (this.hitNoteIndices.has(index)) {
+        continue;
+      }
+
+      const note = this.practiceNotesForStep[index];
+      if (!this.practiceNoteMatchesMapping(note, mapping)) {
+        continue;
+      }
+
+      if (this.markHitAtIndex(index)) {
+        marked = true;
+      }
+    }
+
+    if (marked) {
+      this.checkStepCompletion();
+    }
+  }
+
+  /**
+   * When several chord fingers are held together, credit every pressed finger
+   * for this step in one pass so a rolled or slightly staggered chord still
+   * completes without re-striking earlier notes.
+   */
+  private syncHitsFromHeldFingers(): void {
+    if (!useEngineStore.getState().isPracticeActive) {
+      return;
+    }
+
+    let marked = false;
+
+    for (let index = 0; index < this.practiceNotesForStep.length; index += 1) {
+      if (this.hitNoteIndices.has(index)) {
+        continue;
+      }
+
+      const note = this.practiceNotesForStep[index];
+      if (note.finger === null) {
+        continue;
+      }
+
+      const fingerKey = this.noteFingerKey(note);
+      if (
+        !this.fingersPressedThisStep.has(fingerKey) ||
+        !this.activeFingerSounds.has(fingerKey)
+      ) {
+        continue;
+      }
+
+      if (this.markHitAtIndex(index)) {
+        marked = true;
+      }
+    }
+
+    if (marked) {
+      this.checkStepCompletion();
+    }
+  }
+
   /**
    * Record a hit without advancing. Returns true when a new hit was recorded.
    * Completion is checked synchronously by the caller so the step advances within
-   * the same event, before the next keydown is processed â€” otherwise a chord (or a
+   * the same event, before the next keydown is processed  otherwise a chord (or a
    * note pressed immediately after) is matched against the not-yet-advanced step
    * and silently dropped, forcing the player to space notes out.
    */
@@ -421,6 +528,7 @@ export class PracticeEngine {
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
 
     this.hitNoteIndices.clear();
+    this.fingersPressedThisStep.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
 

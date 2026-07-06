@@ -111,37 +111,60 @@ describe('InputManager two-hand routing', () => {
     inputManager = new InputManager(audio, () => 60, { onFingerPress });
   };
 
-  it('emits onFingerPress with the correct mapping on finger keydown', () => {
+  it('emits onFingerPress with the correct mapping on finger keydown', async () => {
     mount();
     windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    await Promise.resolve();
 
     expect(onFingerPress).toHaveBeenCalledTimes(1);
     expect(onFingerPress).toHaveBeenCalledWith({ hand: 'R', finger: 1 });
   });
 
-  it('suppresses auto-repeat until keyup, then accepts the same key again', () => {
+  it('suppresses auto-repeat until keyup, then accepts the same key again', async () => {
     mount();
     windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN', true));
+    await Promise.resolve();
     expect(onFingerPress).not.toHaveBeenCalled();
 
     windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    await Promise.resolve();
     expect(onFingerPress).toHaveBeenCalledTimes(1);
 
     windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    await Promise.resolve();
     expect(onFingerPress).toHaveBeenCalledTimes(1);
 
     windowStub.dispatchEvent(keyEvent('keyup', 'n', 'KeyN'));
     windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    await Promise.resolve();
     expect(onFingerPress).toHaveBeenCalledTimes(2);
   });
 
-  it('blocks overlapping one-hand note keys while in two-hand mode', () => {
+  it('flushes simultaneous chord finger keydowns in one microtask batch', async () => {
+    mount();
+    windowStub.dispatchEvent(keyEvent('keydown', 'q', 'KeyQ'));
+    windowStub.dispatchEvent(keyEvent('keydown', 'w', 'KeyW'));
+    windowStub.dispatchEvent(keyEvent('keydown', 'e', 'KeyE'));
+    expect(onFingerPress).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+
+    expect(onFingerPress).toHaveBeenCalledTimes(3);
+    expect(onFingerPress.mock.calls.map(([mapping]) => mapping)).toEqual([
+      { hand: 'L', finger: 5 },
+      { hand: 'L', finger: 4 },
+      { hand: 'L', finger: 3 },
+    ]);
+  });
+
+  it('blocks overlapping one-hand note keys while in two-hand mode', async () => {
     mount();
     for (const code of ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyP'] as const) {
       windowStub.dispatchEvent(
         keyEvent('keydown', code.replace('Key', '').toLowerCase(), code),
       );
     }
+    await Promise.resolve();
 
     expect(onFingerPress).toHaveBeenCalledTimes(5);
     expect(practiceEngine.handleNoteOn).not.toHaveBeenCalled();
