@@ -12,12 +12,12 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Smart scope mapping** — Extension keys (`Shift`, Caps Lock, Tab, `Q`, `'`, `]`) are assigned contextually so labels stay aligned as you shift the window
 - **Scope shifting** — Arrow keys or `1`/`2` move the window; `↑`/`3` cycles shift distance (semitone, octave, or full 22-semitone range)
 - **Auto-fingering** — Predicts fingerings from the score with adjustable hand size (small / medium / large); respects MusicXML fingering markings and manual overrides
-- **Smart scrolling** — Anchors each staff line using the full vertical extent of that hand’s notes on the line; scrolls only when you reach a new line or content leaves the viewport
+- **Smart scrolling** — Anchors each staff line to the treble staff top and the highest note on the full grand-staff line; scroll position stays consistent when switching LH/RH or one-hand/two-hand practice (hand-independent scroll index)
 - **Practice controls** — Start, pause, restart, and stop; practice mode is the default; chord steps require all notes before advancing
 - **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
 - **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase)
-- **Settings** — Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
-- **Collapsible header** — More room for sheet music (`Z` to toggle)
+- **Settings** — Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode; scrollable panel with a slim edge scrollbar when content overflows
+- **Collapsible header** — More room for sheet music (`Z` to toggle); fixed-position collapse control that does not jump when toggled
 
 ### Program mode behavior
 
@@ -78,7 +78,7 @@ During play mode, computer piano keys are disabled; LH/RH toggle and scope shift
 |-----|--------|
 | `A` – `;` | White keys in scope |
 | `Q` – `[` | Black keys in scope |
-| `⇪` / `↹` / `'` / `]` | Extension keys when needed |
+| `⇧` / `⇪` / `↹` / `'` / `]` | Extension keys when needed |
 | `←` or `1` | Move scope down |
 | `→` or `2` | Move scope up |
 | `↑` or `3` | Cycle scope shift distance |
@@ -209,6 +209,7 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 
 - [ ] Additional practice modes and scoring
 - [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
+- [x] Hand-independent sheet scroll: consistent line framing across LH/RH and one-hand/two-hand; stable collapsible header; scrollable settings panel
 - [x] Play mode with tempo control, seek, replay, and sheet/keyboard duration sync
 - [x] Fermata playback: 2× hold, carry-forward into abutting sustained chords, integer Transport ticks, seek/release cleanup
 - [x] Program mode with stable step progression, full-step highlights, sheet click-jump refingering, Supabase autosave, and auto-advance after re-finger
@@ -221,6 +222,8 @@ Annotated git tags mark stable milestones:
 
 | Tag | Description |
 |-----|-------------|
+| `checkpoint-hand-scroll-ui` | Hand-independent sheet scroll across LH/RH/two-hand; stable collapsible header; scrollable settings panel; keyboard shortcuts and header layout polish |
+| `checkpoint-scroll-top-staff` | Scroll anchored to treble staff top / highest line note with robust fallback and top buffer |
 | `checkpoint-fermata-playback` | Fermata playback fixed: 2× hold, carry-forward into abutting chords (Constant Moderato m8–9), integer Transport ticks, seek/release cleanup |
 | `checkpoint-program-reprogram` | Live program reprogramming: finger presses on complete steps overwrite fingerings in pitch order and persist, without requiring a sheet click |
 | `checkpoint-program-crossover` | Cross-hand program mode: MIDI-walk assignment, physical-hand progress, `{ finger, physicalHand }` persistence, practice matching via `playingHand` |
