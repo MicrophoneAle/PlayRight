@@ -15,7 +15,6 @@ import {
   resolveNotePlaybackDurationQuarterNotes,
   quarterNotesToTickDuration,
   quartersToTicks,
-  quartersToTransportTickTime,
   scheduledPlaybackAttackQuarterNotes,
 } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -25,6 +24,33 @@ import type { Hand, ScriptNote } from '../types/index.ts';
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
+}
+
+function safeTickTime(
+  rawTicks: number,
+  minTick: number,
+  label: string,
+  context: Record<string, unknown>,
+): { text: string; tick: number } {
+  // Tone's Transport dispatches scheduled events by exact integer-tick match:
+  // its Clock advances one whole tick per process and fires only events whose
+  // tick time equals that integer. A fractional tick (e.g. a fermata offset of
+  // 3.86 quarters -> 6885.12 ticks) never equals any integer the clock lands
+  // on, so the event is skipped forever while the transport keeps advancing.
+  // Rounding to the nearest whole tick puts every event back on the grid the
+  // Clock samples. At 192 PPQ the worst-case shift is under 2 ms (inaudible).
+  const roundedTicks = Math.round(rawTicks);
+
+  if (Number.isFinite(roundedTicks) && roundedTicks >= minTick) {
+    return { text: `${roundedTicks}i`, tick: roundedTicks };
+  }
+
+  const fallbackTick = minTick + 1;
+  console.error(
+    `[PlaybackEngine] ${label} produced a non-finite/out-of-order tick - clamped to avoid corrupting Tone's Transport Timeline`,
+    { ...context, rawTicks, minTick, fallbackTick },
+  );
+  return { text: `${fallbackTick}i`, tick: fallbackTick };
 }
 
 /** Visual-only delay before a same-pitch re-strike press paints (~2 frames). */
@@ -107,7 +133,7 @@ export class PlaybackEngine {
     const transport = getTransport();
     transport.stop();
     this.applyTransportBpm(scoreTiming.tempoBpm);
-    transport.ticks = quartersToTicks(startOnsetQuarters, this.transportPpq());
+    transport.ticks = Math.round(quartersToTicks(startOnsetQuarters, this.transportPpq()));
     this.applyStepVisual(startIndex);
     this.scheduleFromStep(startIndex);
 
@@ -229,7 +255,7 @@ export class PlaybackEngine {
 
     this.clearScheduledEvents();
     this.audioEngine?.releaseAll();
-    getTransport().ticks = quartersToTicks(onsetQuarters, this.transportPpq());
+    getTransport().ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
     this.hasFinishedPiece = false;
     actions.setStepIndex(stepIndex);
     this.applyStepVisual(stepIndex);
@@ -389,6 +415,7 @@ export class PlaybackEngine {
     stepIndex: number,
     note: ScriptNote,
     attackOnsetQuarters: number,
+    attackTick: number,
     divisionsPerQuarter: number,
     ppq: number,
     finalNoteKeys: Set<string>,
@@ -409,6 +436,13 @@ export class PlaybackEngine {
       false,
       durationOptions,
     );
+    const rawReleaseTicks = quartersToTicks(releaseOnset, ppq);
+    const { text: releaseTime } = safeTickTime(
+      rawReleaseTicks,
+      attackTick,
+      'tie-end release',
+      { stepIndex, midi: note.midi, hand: note.hand },
+    );
     const releaseEventId = getTransport().scheduleOnce(() => {
       this.playingPressTracker.releaseMatching(
         (active) =>
@@ -417,7 +451,7 @@ export class PlaybackEngine {
           active.stepIndex < stepIndex,
       );
       this.syncPlayingNotes();
-    }, quartersToTransportTickTime(releaseOnset, ppq));
+    }, releaseTime);
     this.scheduledEventIds.push(releaseEventId);
   }
 
@@ -477,6 +511,8 @@ export class PlaybackEngine {
       consecutiveSameNoteKeys,
       fermataContext,
     );
+    let previousStepTick = 0;
+
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       const step = script[stepIndex];
       const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
@@ -484,7 +520,14 @@ export class PlaybackEngine {
         divisionsPerQuarter,
         fermataOffsets[stepIndex],
       );
-      const transportTime = quartersToTransportTickTime(attackOnsetQuarters, ppq);
+      const rawAttackTicks = quartersToTicks(attackOnsetQuarters, ppq);
+      const { text: attackTime, tick: attackTick } = safeTickTime(
+        rawAttackTicks,
+        previousStepTick,
+        'step attack',
+        { stepIndex },
+      );
+      previousStepTick = attackTick;
       const stepPresses: Array<{
         pressId: number;
         note: ScriptNote;
@@ -498,6 +541,7 @@ export class PlaybackEngine {
               stepIndex,
               note,
               attackOnsetQuarters,
+              attackTick,
               divisionsPerQuarter,
               ppq,
               finalNoteKeys,
@@ -526,9 +570,16 @@ export class PlaybackEngine {
           const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
             `${stepIndex}:${note.hand}:${note.midi}`,
           );
+          const rawReleaseTicks = quartersToTicks(releaseOnset, ppq);
+          const { text: releaseTime } = safeTickTime(
+            rawReleaseTicks,
+            attackTick,
+            'note release',
+            { stepIndex, midi: note.midi, hand: note.hand },
+          );
           const releaseEventId = transport.scheduleOnce(() => {
             this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
-          }, quartersToTransportTickTime(releaseOnset, ppq));
+          }, releaseTime);
           this.scheduledEventIds.push(releaseEventId);
         }
       }
@@ -546,15 +597,22 @@ export class PlaybackEngine {
             this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
           }
         }
-      }, transportTime);
+      }, attackTime);
 
       this.scheduledEventIds.push(stepEventId);
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
+    const rawPieceEndTicks = quartersToTicks(pieceEndQuarters, ppq);
+    const { text: pieceEndTime } = safeTickTime(
+      rawPieceEndTicks,
+      previousStepTick,
+      'piece end',
+      {},
+    );
     const endEventId = transport.scheduleOnce(() => {
       this.completePlayback();
-    }, quartersToTransportTickTime(pieceEndQuarters, ppq));
+    }, pieceEndTime);
     this.scheduledEventIds.push(endEventId);
   }
 
