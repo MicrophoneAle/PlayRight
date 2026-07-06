@@ -274,12 +274,6 @@ export class PracticeEngine {
     }
   }
 
-  private registerPracticeHitAtIndex(index: number): void {
-    if (this.markHitAtIndex(index)) {
-      this.checkStepCompletion();
-    }
-  }
-
   private fingerKey(mapping: FingerMapping): string {
     return `${mapping.hand}:${mapping.finger}`;
   }
@@ -400,7 +394,7 @@ export class PracticeEngine {
   /**
    * Record a hit without advancing. Returns true when a new hit was recorded.
    * Completion is checked synchronously by the caller so the step advances within
-   * the same event, before the next keydown is processed ù otherwise a chord (or a
+   * the same event, before the next keydown is processed; otherwise a chord (or a
    * note pressed immediately after) is matched against the not-yet-advanced step
    * and silently dropped, forcing the player to space notes out.
    */
