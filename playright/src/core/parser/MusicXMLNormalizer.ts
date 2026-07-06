@@ -10,6 +10,8 @@ import {
   PIANO_MIDI_MIN,
 } from './pitch.ts';
 
+export type GraceStealTime = 'previous' | 'following';
+
 export interface NormalizedNote {
   type: 'note';
   step: string;
@@ -21,6 +23,9 @@ export interface NormalizedNote {
   fingering: number;
   isRest: boolean;
   isGrace: boolean;
+  graceSlash: boolean;
+  graceStealTime: GraceStealTime | undefined;
+  graceType: string | undefined;
   isTieStart: boolean;
   isTieStop: boolean;
   isChord: boolean;
@@ -168,8 +173,22 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
 
     const value = child[tag];
 
-    if (tag === 'chord' || tag === 'grace') {
-      record[tag] = true;
+    if (tag === 'chord') {
+      record.chord = true;
+      continue;
+    }
+
+    if (tag === 'grace') {
+      record.grace = true;
+      if (readWrapperBooleanAttr(child, 'slash')) {
+        record.graceSlash = true;
+      }
+      if (readWrapperBooleanAttr(child, 'steal-time-previous')) {
+        record.graceStealTimePrevious = true;
+      }
+      if (readWrapperBooleanAttr(child, 'steal-time-following')) {
+        record.graceStealTimeFollowing = true;
+      }
       continue;
     }
 
@@ -333,6 +352,27 @@ function hasFermataNotation(note: RawRecord): boolean {
   return notations.fermata != null;
 }
 
+function extractGraceStealTime(note: RawRecord): GraceStealTime | undefined {
+  if (note.graceStealTimePrevious === true) {
+    return 'previous';
+  }
+
+  if (note.graceStealTimeFollowing === true) {
+    return 'following';
+  }
+
+  return undefined;
+}
+
+function extractGraceType(note: RawRecord): string | undefined {
+  if (note.type == null) {
+    return undefined;
+  }
+
+  const type = toString(note.type, '').trim();
+  return type.length > 0 ? type : undefined;
+}
+
 function extractTimeSignature(
   attributesChildren: unknown[],
 ): { beats: number; beatType: number } | null {
@@ -437,6 +477,7 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
   const step = toString(pitch.step, '').trim().charAt(0).toUpperCase();
   const octave = toNumber(pitch.octave, 0);
   const isRest = note.rest != null;
+  const isGrace = note.grace != null;
   const isCue = note.cue != null;
   const isUnpitched = note.unpitched != null;
   const isMeasureRest = isRest && note.restMeasureYes === true;
@@ -472,7 +513,10 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     voice: toNumber(note.voice, 1),
     fingering: extractFingering(note),
     isRest,
-    isGrace: note.grace != null,
+    isGrace,
+    graceSlash: isGrace && note.graceSlash === true,
+    graceStealTime: isGrace ? extractGraceStealTime(note) : undefined,
+    graceType: isGrace ? extractGraceType(note) : undefined,
     isTieStart: hasTieStart(note),
     isTieStop: hasTieStop(note),
     isChord: note.chord != null,
