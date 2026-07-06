@@ -46,7 +46,7 @@ button:focus-visible {
 }
 
 .playright-scrollbar::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .playright-scrollbar::-webkit-scrollbar-track {
