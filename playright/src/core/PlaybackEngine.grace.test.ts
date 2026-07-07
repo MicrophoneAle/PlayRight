@@ -33,7 +33,13 @@ vi.mock('tone', () => ({
 
 import { PlaybackEngine } from './PlaybackEngine.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
-import { quartersToTicks } from './playbackTiming.ts';
+import {
+  buildFermataPlaybackContext,
+  buildFinalNoteKeySet,
+  buildPlaybackFermataOffsetsByStep,
+  quartersToTicks,
+  scheduledPlaybackAttackQuarterNotes,
+} from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 const GRACE_DURATION_QUARTERS = 1 / 8;
@@ -147,5 +153,101 @@ describe('GN-3 PlaybackEngine grace note scheduling', () => {
     expect(mainAttackTickValue - graceAttackTickValue).toBe(
       Math.round(quartersToTicks(GRACE_DURATION_QUARTERS, PPQ)),
     );
+  });
+
+  it('full morns script: all three graces (m5/m9/m14) sound with 32nd duration before their main attack', async () => {
+    const mornsXml = readFileSync(
+      new URL('../assets/morns-like-these-honkai-star-rail.musicxml', import.meta.url),
+      'utf8',
+    );
+    const { script, scoreTiming } = parseMusicXmlToScript(mornsXml);
+    const divisionsPerQuarter = scoreTiming.divisionsPerQuarter;
+
+    useEngineStore.setState({
+      script,
+      scoreTiming,
+      playMode: true,
+      currentStepIndex: 0,
+      playingMidiNotes: [],
+      playingPlaybackNotes: [],
+      isPlaybackActive: false,
+      isPlaybackFinished: false,
+      isPlaybackPaused: false,
+    });
+
+    const scheduled: Array<{ time: string; callback: (time: number) => void }> = [];
+    transportScheduleOnce.mockImplementation((callback, time) => {
+      scheduled.push({ time: String(time), callback });
+      return scheduled.length;
+    });
+
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+    } as never);
+
+    await engine.play();
+
+    // Fire every scheduled callback in tick order, recording the audio calls
+    // each event produces so grace attacks can be located by scheduled tick.
+    const audioCallsByTick = new Map<number, Array<[number, string]>>();
+    for (const { time, callback } of [...scheduled].sort(
+      (left, right) => parseTransportTick(left.time) - parseTransportTick(right.time),
+    )) {
+      scheduleAttackRelease.mockClear();
+      callback(0);
+      const tick = parseTransportTick(time);
+      const existing = audioCallsByTick.get(tick) ?? [];
+      for (const [midi, duration] of scheduleAttackRelease.mock.calls) {
+        existing.push([midi as number, duration as string]);
+      }
+      audioCallsByTick.set(tick, existing);
+    }
+
+    const finalKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      divisionsPerQuarter,
+      finalKeys,
+      fermataContext,
+    );
+
+    const graceSteps = script
+      .map((step, stepIndex) => ({ step, stepIndex }))
+      .filter(({ step }) => step.graceBefore?.length);
+    expect(graceSteps.map(({ step }) => step.measureNumber)).toEqual([5, 9, 14]);
+
+    const graceDuration = roundedTransportTickTime(GRACE_DURATION_QUARTERS);
+
+    for (const { step, stepIndex } of graceSteps) {
+      const mainAttackQuarters = scheduledPlaybackAttackQuarterNotes(
+        step.onset,
+        divisionsPerQuarter,
+        fermataOffsets[stepIndex],
+      );
+      const graceTick = Math.round(
+        quartersToTicks(mainAttackQuarters - GRACE_DURATION_QUARTERS, PPQ),
+      );
+      const mainTick = Math.round(quartersToTicks(mainAttackQuarters, PPQ));
+
+      const graceMidi = step.graceBefore![0].midi;
+      const graceCalls = (audioCallsByTick.get(graceTick) ?? []).filter(
+        ([midi]) => midi === graceMidi,
+      );
+      expect(graceCalls, `m${step.measureNumber} grace audio at tick ${graceTick}`).toEqual([
+        [graceMidi, graceDuration],
+      ]);
+
+      const mainCalls = audioCallsByTick.get(mainTick) ?? [];
+      const mainPitches = step.notes.map((note) => note.midi);
+      for (const midi of mainPitches) {
+        const call = mainCalls.find(([callMidi]) => callMidi === midi);
+        expect(call, `m${step.measureNumber} main midi ${midi} at tick ${mainTick}`).toBeDefined();
+        expect(call![1]).not.toBe(graceDuration);
+      }
+    }
   });
 });
