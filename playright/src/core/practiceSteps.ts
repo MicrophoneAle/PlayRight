@@ -17,6 +17,14 @@ export interface TwoHandStepNoteInfo {
   fingerSource?: ScriptNote['fingerSource'];
 }
 
+/**
+ * Notes the user must hit to advance in practice mode.
+ *
+ * v1 scope: `graceBefore` is play-mode-only (scheduled in PlaybackEngine,
+ * highlighted in sheet sync). It is intentionally excluded here — a step with
+ * a grace completes on `step.notes` alone. Practice-mode grace support is a
+ * future enhancement.
+ */
 export function getPracticeNotes(
   step: StepOrder,
   engineMode: EngineMode,
