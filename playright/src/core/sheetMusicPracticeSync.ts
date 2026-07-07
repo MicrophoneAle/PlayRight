@@ -54,6 +54,10 @@ const NOTE_HIGHLIGHT_OPTIONS = {
 export interface PracticeScrollState {
   systemKey: string | null;
   lineScrollTop: number | null;
+  /** Line we most recently switched away from (flap guard). */
+  previousSystemKey?: string | null;
+  /** performance.now() of the last line switch (flap guard). */
+  switchedAt?: number;
 }
 
 export interface PracticeVisualIndex {
@@ -1406,20 +1410,41 @@ export function resolveStepIndexFromPointer(
   return null;
 }
 
-const activeScrollAnimations = new WeakMap<HTMLElement, number>();
+interface ScrollAnimation {
+  frame: number;
+  target: number;
+}
+
+const activeScrollAnimations = new WeakMap<HTMLElement, ScrollAnimation>();
+
+function isScrollAnimationActive(container: HTMLElement): boolean {
+  return activeScrollAnimations.has(container);
+}
+
+/** Same-line drift smaller than this is left alone instead of re-animated. */
+const REANCHOR_MIN_DRIFT_PX = 4;
+
+/** After a line switch, ignore bounce-backs to the previous line for this long. */
+const LINE_SWITCH_SETTLE_MS = 600;
 
 function animateScrollTop(
   container: HTMLElement,
   targetScrollTop: number,
   scrollMode: SheetScrollMode,
 ): void {
+  const clampedTarget = Math.max(0, targetScrollTop);
+
   const existing = activeScrollAnimations.get(container);
   if (existing !== undefined) {
-    cancelAnimationFrame(existing);
+    // An animation toward (practically) the same target is already running:
+    // let it finish instead of restarting the ease curve. Restarting on every
+    // highlight tick is what made line switches crawl and wiggle.
+    if (Math.abs(existing.target - clampedTarget) < 1) {
+      return;
+    }
+    cancelAnimationFrame(existing.frame);
     activeScrollAnimations.delete(container);
   }
-
-  const clampedTarget = Math.max(0, targetScrollTop);
 
   if (scrollMode === 'instant') {
     container.scrollTop = clampedTarget;
@@ -1444,14 +1469,14 @@ function animateScrollTop(
 
     if (progress < 1) {
       const frame = requestAnimationFrame(tick);
-      activeScrollAnimations.set(container, frame);
+      activeScrollAnimations.set(container, { frame, target: clampedTarget });
     } else {
       activeScrollAnimations.delete(container);
     }
   };
 
   const frame = requestAnimationFrame(tick);
-  activeScrollAnimations.set(container, frame);
+  activeScrollAnimations.set(container, { frame, target: clampedTarget });
 }
 
 /**
@@ -1522,24 +1547,47 @@ function scrollContainerForPlayback(
   );
 
   const lineTop = anchorTop - containerRect.top + scrollTop;
-  const previousSystemKey = scrollState.current.systemKey;
+  const currentSystemKey = scrollState.current.systemKey;
   const isNewStaffLine =
-    previousSystemKey !== null && systemKey !== previousSystemKey;
-  const needsAnchor = previousSystemKey === null;
+    currentSystemKey !== null && systemKey !== currentSystemKey;
+  const needsAnchor = currentSystemKey === null;
 
   if (isNewStaffLine || needsAnchor) {
+    // Flap guard: an active bar can briefly resolve its notes back to the
+    // line we just scrolled away from (cross-line highlight matching). Do not
+    // bounce back within the settle window - the committed line wins.
+    const now = performance.now();
+    if (
+      isNewStaffLine &&
+      systemKey === scrollState.current.previousSystemKey &&
+      scrollState.current.switchedAt !== undefined &&
+      now - scrollState.current.switchedAt < LINE_SWITCH_SETTLE_MS
+    ) {
+      return;
+    }
+
     const target = Math.min(Math.max(0, lineTop - padding), maxScrollTop);
-    scrollState.current = { systemKey, lineScrollTop: target };
+    scrollState.current = {
+      systemKey,
+      lineScrollTop: target,
+      previousSystemKey: currentSystemKey,
+      switchedAt: now,
+    };
     if (Math.abs(target - scrollTop) >= 1) {
       animateScrollTop(container, target, scrollMode);
     }
     return;
   }
 
-  scrollState.current.systemKey = systemKey;
-
+  // Same line: hold the committed anchor. Skip micro-drift and never restart
+  // an in-flight animation toward the same anchor (animateScrollTop dedupes),
+  // so a busy bar of highlight ticks cannot make the viewport wiggle.
   const anchor = scrollState.current.lineScrollTop;
-  if (anchor !== null && Math.abs(scrollTop - anchor) >= 1) {
+  if (
+    anchor !== null &&
+    Math.abs(scrollTop - anchor) >= REANCHOR_MIN_DRIFT_PX &&
+    !isScrollAnimationActive(container)
+  ) {
     animateScrollTop(container, anchor, scrollMode);
   }
 }

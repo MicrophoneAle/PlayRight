@@ -527,6 +527,18 @@ function argminFinger(
   return best;
 }
 
+/**
+ * Where the previous phrase left the hand. Seeds the next phrase's DP so the
+ * boundary transition is scored like any intra-phrase move (in-sequence rule,
+ * same-finger penalty, gap comfort) instead of being a free reposition.
+ * Only used when the phrases are temporally adjacent (split by frame-span or
+ * directional-run limits, not by a rest).
+ */
+export interface PhraseSeedContext {
+  midi: number;
+  finger: Finger;
+}
+
 interface DpCell {
   cost: number;
   backFinger: Finger | null;
@@ -545,6 +557,7 @@ export async function fingerPhrase(
   repeatFinger?: Finger,
   _divisionsPerQuarter?: number,
   mlCostWeight = ML_COST_WEIGHT,
+  prevContext?: PhraseSeedContext,
 ): Promise<Finger[]> {
   if (notes.length === 0) {
     return [];
@@ -570,6 +583,17 @@ export async function fingerPhrase(
 
       if (index === 0) {
         let cost = local + phraseStartCost(hand, finger, note, notes);
+        if (prevContext !== undefined) {
+          // Score the phrase-boundary transition like an intra-phrase move.
+          cost += transitionCost(
+            hand,
+            prevContext.finger,
+            prevContext.midi,
+            finger,
+            note.midi,
+            spanScale,
+          );
+        }
         if (startHome !== undefined) {
           cost +=
             HOME_START_WEIGHT * Math.abs(startHome[finger] - notes[0].midi);
@@ -914,6 +938,7 @@ export async function fingerPhraseWithChords(
   repeatFinger?: Finger,
   divisionsPerQuarter?: number,
   mlCostWeight = ML_COST_WEIGHT,
+  prevContext?: PhraseSeedContext,
 ): Promise<(Finger | null)[]> {
   if (phrase.length === 0) {
     return [];
@@ -957,6 +982,7 @@ export async function fingerPhraseWithChords(
     repeatFinger,
     divisionsPerQuarter,
     mlCostWeight,
+    prevContext,
   );
 
   representatives.forEach((representative, index) => {
@@ -987,6 +1013,35 @@ function isFingeringAnchor(note: ScriptNote, overrideScore: boolean): boolean {
   return !overrideScore && note.fingerSource === 'score';
 }
 
+/**
+ * The DP-representative of a phrase's final onset (RH lead = top note, LH
+ * lead = bottom note) and its solved finger. This is the state the next
+ * phrase's DP should transition from when the phrases are temporally adjacent.
+ */
+function phraseEndSeed(
+  phrase: NoteEvent[],
+  phraseFingers: (Finger | null)[],
+  hand: Hand,
+): PhraseSeedContext | null {
+  if (phrase.length === 0) {
+    return null;
+  }
+
+  const lastStepIndex = phrase[phrase.length - 1].stepIndex;
+  let onsetStart = phrase.length - 1;
+  while (onsetStart > 0 && phrase[onsetStart - 1].stepIndex === lastStepIndex) {
+    onsetStart -= 1;
+  }
+
+  const representativeIndex = hand === 'R' ? phrase.length - 1 : onsetStart;
+  const finger = phraseFingers[representativeIndex];
+  if (finger === null || finger === undefined) {
+    return null;
+  }
+
+  return { midi: phrase[representativeIndex].midi, finger };
+}
+
 async function predictFingersForHand(
   script: PlaybackScript,
   hand: Hand,
@@ -998,12 +1053,21 @@ async function predictFingersForHand(
   const phrases = segmentIntoPhrases(timeline);
   const fingers: (Finger | null)[] = [];
   const lastFingerByMidi = new Map<number, Finger>();
+  let previousSeed: PhraseSeedContext | null = null;
+  let previousEndOnset: number | null = null;
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
     const phrase = phrases[phraseIndex];
     const startHome =
       phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
     const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
+    // Seed only across non-rest splits (frame-span/directional-run breaks);
+    // after a genuine rest the hand repositions freely.
+    const temporallyAdjacent =
+      previousEndOnset !== null &&
+      phrase[0].onset - previousEndOnset < PHRASE_MIN_ONSET_GAP_DIVISIONS;
+    const prevContext =
+      temporallyAdjacent && previousSeed !== null ? previousSeed : undefined;
     const phraseFingers = await fingerPhraseWithChords(
       phrase,
       hand,
@@ -1012,6 +1076,7 @@ async function predictFingersForHand(
       repeatFinger,
       divisionsPerQuarter,
       mlCostWeight,
+      prevContext,
     );
 
     phrase.forEach((note, index) => {
@@ -1020,6 +1085,9 @@ async function predictFingersForHand(
         lastFingerByMidi.set(note.midi, finger);
       }
     });
+
+    previousSeed = phraseEndSeed(phrase, phraseFingers, hand);
+    previousEndOnset = phrase[phrase.length - 1].onset;
 
     fingers.push(...phraseFingers);
   }

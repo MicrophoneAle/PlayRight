@@ -272,7 +272,7 @@ export function ScoreLibraryPanel({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="playright-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
           {downloadError ? (
             <div className="mb-2 flex items-start gap-2 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-300">
               <AlertTriangle size={15} strokeWidth={2} className="mt-0.5 shrink-0" aria-hidden />
