@@ -6,6 +6,9 @@ import {
   buildPlaybackFermataOffsetsByStep,
   buildFermataPlaybackContext,
   buildStepPlaybackDurationQuarterNotesByStep,
+  effectiveNoteHasFermata,
+  fermataExtensionDeltaQuarterNotes,
+  type FermataPlaybackContext,
   isPlaybackTieContinuation,
   isRepeatedPlaybackAttack,
   isSamePitchReattack,
@@ -27,6 +30,7 @@ import {
   quartersToTicks,
   quartersToTransportTickTime,
   scheduledPlaybackAttackQuarterNotes,
+  stepHasPlaybackFermataHold,
   stepOnsetQuarterNotes,
 } from './playbackTiming.ts';
 import type { PlaybackScript } from '../types/index.ts';
@@ -707,5 +711,222 @@ describe('playbackTiming', () => {
     expect(fermataOffsets[2]).toBeGreaterThan(0);
     expect(nextAttack).toBeGreaterThan(writtenNextAttack);
     expect(nextAttack).toBeGreaterThanOrEqual(carriedRelease - 1e-9);
+  });
+});
+
+describe('effectiveNoteHasFermata', () => {
+  const emptyContext: FermataPlaybackContext = {
+    carryForwardSteps: new Set(),
+    delegateToNextStep: new Set(),
+  };
+
+  const carryForwardContext: FermataPlaybackContext = {
+    carryForwardSteps: new Set([1]),
+    delegateToNextStep: new Set([0]),
+  };
+
+  const fermataNote = {
+    pitch: 'C4',
+    midi: 60,
+    hand: 'R' as const,
+    finger: null,
+    hasFermata: true,
+  };
+
+  const plainNote = {
+    pitch: 'D4',
+    midi: 62,
+    hand: 'R' as const,
+    finger: null,
+  };
+
+  it('returns true when the note is directly fermata-marked', () => {
+    expect(effectiveNoteHasFermata(2, fermataNote, emptyContext)).toBe(true);
+  });
+
+  it('returns false for unmarked notes outside carry-forward', () => {
+    expect(effectiveNoteHasFermata(2, plainNote, emptyContext)).toBe(false);
+  });
+
+  it('carries hold onto the abutting next step without a local hasFermata flag', () => {
+    expect(effectiveNoteHasFermata(1, plainNote, carryForwardContext)).toBe(true);
+  });
+
+  it('suppresses fermata on the delegating pickup step to avoid double hold', () => {
+    expect(effectiveNoteHasFermata(0, fermataNote, carryForwardContext)).toBe(false);
+  });
+
+  it('marks every tone on a carry-forward step, including long bass tied spans', () => {
+    const longBass = {
+      pitch: 'E2',
+      midi: 40,
+      hand: 'L' as const,
+      finger: null,
+      durationDivisions: 3840,
+    };
+
+    expect(effectiveNoteHasFermata(1, longBass, carryForwardContext)).toBe(true);
+  });
+});
+
+describe('fermataExtensionDeltaQuarterNotes', () => {
+  it('returns the extra hold a fermata adds over normal playback', () => {
+    const written = 1;
+    const withoutFermata = playbackDurationQuarterNotes(written);
+    const withFermata = playbackDurationQuarterNotes(written, false, {
+      hasFermata: true,
+    });
+
+    expect(fermataExtensionDeltaQuarterNotes(written)).toBeCloseTo(
+      withFermata - withoutFermata,
+      9,
+    );
+    expect(fermataExtensionDeltaQuarterNotes(written)).toBeGreaterThan(0);
+  });
+
+  it('extends tied fermata notes by one extra written length (2x hold factor)', () => {
+    const written = 4;
+    expect(fermataExtensionDeltaQuarterNotes(written, true)).toBeCloseTo(written, 9);
+  });
+
+  it('returns zero when the written duration is zero', () => {
+    expect(fermataExtensionDeltaQuarterNotes(0)).toBe(0);
+  });
+
+  it('uses the pickup note written length for carry-forward offset math', () => {
+    const pickupWritten = 0.5;
+    const delta = fermataExtensionDeltaQuarterNotes(pickupWritten);
+
+    expect(delta).toBeCloseTo(
+      playbackDurationQuarterNotes(pickupWritten, false, { hasFermata: true }) -
+        playbackDurationQuarterNotes(pickupWritten),
+      9,
+    );
+  });
+});
+
+describe('stepHasPlaybackFermataHold', () => {
+  const divisionsPerQuarter = 480;
+
+  const pickupIntoChordScript: PlaybackScript = [
+    {
+      order: 0,
+      onset: 0,
+      measureNumber: 7,
+      notes: [
+        {
+          pitch: 'Ab4',
+          midi: 68,
+          hand: 'R',
+          finger: null,
+          durationDivisions: 240,
+          hasFermata: true,
+        },
+      ],
+    },
+    {
+      order: 1,
+      onset: 240,
+      measureNumber: 8,
+      notes: [
+        {
+          pitch: 'Ab4',
+          midi: 68,
+          hand: 'R',
+          finger: null,
+          durationDivisions: 1920,
+        },
+        {
+          pitch: 'E2',
+          midi: 40,
+          hand: 'L',
+          finger: null,
+          durationDivisions: 3840,
+        },
+      ],
+    },
+  ];
+
+  const isolatedFermataScript: PlaybackScript = [
+    {
+      order: 0,
+      onset: 0,
+      measureNumber: 9,
+      notes: [
+        {
+          pitch: 'C5',
+          midi: 72,
+          hand: 'R',
+          finger: null,
+          durationDivisions: 960,
+          hasFermata: true,
+        },
+      ],
+    },
+  ];
+
+  const nonAbuttingFermataScript: PlaybackScript = [
+    {
+      order: 0,
+      onset: 0,
+      measureNumber: 1,
+      notes: [
+        {
+          pitch: 'C4',
+          midi: 60,
+          hand: 'R',
+          finger: null,
+          durationDivisions: 480,
+          hasFermata: true,
+        },
+      ],
+    },
+    {
+      order: 1,
+      onset: 960,
+      measureNumber: 1,
+      notes: [
+        {
+          pitch: 'D4',
+          midi: 62,
+          hand: 'R',
+          finger: null,
+          durationDivisions: 480,
+        },
+      ],
+    },
+  ];
+
+  it('reports hold on a carry-forward chord step, not on the delegating pickup', () => {
+    expect(stepHasPlaybackFermataHold(pickupIntoChordScript, 0, divisionsPerQuarter)).toBe(
+      false,
+    );
+    expect(stepHasPlaybackFermataHold(pickupIntoChordScript, 1, divisionsPerQuarter)).toBe(
+      true,
+    );
+  });
+
+  it('reports hold on an isolated fermata step with no abutting delegate', () => {
+    expect(stepHasPlaybackFermataHold(isolatedFermataScript, 0, divisionsPerQuarter)).toBe(
+      true,
+    );
+  });
+
+  it('does not carry hold when the next step is not abutting', () => {
+    expect(stepHasPlaybackFermataHold(nonAbuttingFermataScript, 0, divisionsPerQuarter)).toBe(
+      true,
+    );
+    expect(stepHasPlaybackFermataHold(nonAbuttingFermataScript, 1, divisionsPerQuarter)).toBe(
+      false,
+    );
+  });
+
+  it('aligns with buildFermataPlaybackContext attach and detach sets', () => {
+    const context = buildFermataPlaybackContext(pickupIntoChordScript, divisionsPerQuarter);
+
+    expect(context.delegateToNextStep.has(0)).toBe(true);
+    expect(context.carryForwardSteps.has(1)).toBe(true);
+    expect(context.carryForwardSteps.has(0)).toBe(false);
+    expect(context.delegateToNextStep.has(1)).toBe(false);
   });
 });
