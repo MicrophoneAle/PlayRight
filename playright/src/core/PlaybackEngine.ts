@@ -70,6 +70,9 @@ const PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS = 40;
  */
 const GRACE_NOTE_DURATION_QUARTERS = 1 / 8;
 
+/** Pre-schedule this many quarter-note beats ahead of the transport. */
+export const PLAYBACK_SCHEDULE_AHEAD_QUARTERS = 24;
+
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
   private scheduledEventIds: number[] = [];
@@ -79,6 +82,8 @@ export class PlaybackEngine {
   private isPaused = false;
   private hasFinishedPiece = false;
   private storeSubscriptionInitialized = false;
+  private nextUnscheduledStepIndex = 0;
+  private lastScheduledAttackTick = -1;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -564,9 +569,21 @@ export class PlaybackEngine {
   }
 
   private scheduleFromStep(fromStepIndex: number): void {
+    this.nextUnscheduledStepIndex = fromStepIndex;
+    this.lastScheduledAttackTick = -1;
+    this.extendScheduleWindow();
+  }
+
+  /** Schedule the next window of steps so the Tone timeline stays bounded. */
+  private extendScheduleWindow(): void {
     const { script, scoreTiming } = useEngineStore.getState();
     const engine = this.audioEngine;
     if (!script || !scoreTiming || !engine) {
+      return;
+    }
+
+    const fromStepIndex = this.nextUnscheduledStepIndex;
+    if (fromStepIndex >= script.length) {
       return;
     }
 
@@ -594,7 +611,19 @@ export class PlaybackEngine {
       fermataContext,
     );
 
-    let lastSafeAttackTick = -1;
+    const currentQuarters = transport.ticks / ppq;
+    const anchorQuarters =
+      fromStepIndex > 0
+        ? scheduledPlaybackAttackQuarterNotes(
+            script[fromStepIndex].onset,
+            divisionsPerQuarter,
+            fermataOffsets[fromStepIndex],
+          )
+        : currentQuarters;
+    const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
+
+    let lastScheduledStep = fromStepIndex;
+    let lastSafeAttackTick = Math.max(this.lastScheduledAttackTick, Math.round(transport.ticks) - 1);
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       try {
@@ -604,6 +633,11 @@ export class PlaybackEngine {
           divisionsPerQuarter,
           fermataOffsets[stepIndex],
         );
+
+        if (stepIndex > fromStepIndex && attackOnsetQuarters > windowEndQuarters) {
+          break;
+        }
+
         const { text: attackTime, tick: attackTick } = safeTickTime(
           quartersToTicks(attackOnsetQuarters, ppq),
           lastSafeAttackTick,
@@ -735,6 +769,7 @@ export class PlaybackEngine {
         }, attackTime);
 
         this.scheduledEventIds.push(stepEventId);
+        lastScheduledStep = stepIndex + 1;
       } catch (err) {
         console.error(
           '[PlaybackEngine] scheduleFromStep step scheduling failed (step skipped, continuing)',
@@ -744,7 +779,40 @@ export class PlaybackEngine {
             errorStack: err instanceof Error ? err.stack : undefined,
           },
         );
+        lastScheduledStep = stepIndex + 1;
       }
+    }
+
+    this.nextUnscheduledStepIndex = lastScheduledStep;
+    this.lastScheduledAttackTick = lastSafeAttackTick;
+
+    if (lastScheduledStep < script.length) {
+      const triggerQuarters = scheduledPlaybackAttackQuarterNotes(
+        script[lastScheduledStep].onset,
+        divisionsPerQuarter,
+        fermataOffsets[lastScheduledStep],
+      );
+      const { text: extensionTime } = safeTickTime(
+        quartersToTicks(triggerQuarters, ppq),
+        lastSafeAttackTick,
+        'schedule extension',
+        { fromStepIndex: lastScheduledStep },
+      );
+      const extensionEventId = transport.scheduleOnce(() => {
+        try {
+          if (!this.isPlaying || this.isPaused) {
+            return;
+          }
+          if (this.nextUnscheduledStepIndex >= script.length) {
+            return;
+          }
+          this.extendScheduleWindow();
+        } catch (err) {
+          console.error('[PlaybackEngine] schedule extension callback failed (skipped):', err);
+        }
+      }, extensionTime);
+      this.scheduledEventIds.push(extensionEventId);
+      return;
     }
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
@@ -786,6 +854,8 @@ export class PlaybackEngine {
     }
 
     this.scheduledEventIds = [];
+    this.nextUnscheduledStepIndex = 0;
+    this.lastScheduledAttackTick = -1;
     this.clearPlayingNotes();
     transport.cancel(0);
   }

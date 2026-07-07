@@ -1595,6 +1595,28 @@ function scrollContainerForPlayback(
   }
 }
 
+let lastPlaybackVisualKey = '';
+
+/** Clears play-mode visual dedupe state (seek, stop, score change). */
+export function resetSheetMusicPlaybackVisualCache(): void {
+  lastPlaybackVisualKey = '';
+}
+
+function playbackVisualKey(
+  scrollStepIndex: number,
+  cursorOffset: number,
+  activeNotes: PlayingPlaybackNote[],
+): string {
+  if (activeNotes.length === 0) {
+    return `${scrollStepIndex}:${cursorOffset}:`;
+  }
+
+  const notesKey = activeNotes
+    .map((note) => `${note.stepIndex}:${note.hand}:${note.midi}:${note.pressId}`)
+    .join('|');
+  return `${scrollStepIndex}:${cursorOffset}:${notesKey}`;
+}
+
 /** Highlight all notes currently sounding during play mode (matches keyboard duration). */
 export function syncSheetMusicPlaybackVisuals(
   osmd: OpenSheetMusicDisplay,
@@ -1629,6 +1651,7 @@ export function syncSheetMusicPlaybackVisuals(
     if (!cursor || !visualIndex) {
       resetGraphicalNotes(highlightedNotes);
       cursorOffsetRef.current = -1;
+      lastPlaybackVisualKey = '';
       safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide(no-visualIndex)', () =>
         cursor?.hide(),
       );
@@ -1639,6 +1662,11 @@ export function syncSheetMusicPlaybackVisuals(
     // internal offset. Walking the iterator + cursor.update() per sync was
     // pure overhead on dense bars, so only do it when the step actually moved.
     const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
+    const visualKey = playbackVisualKey(scrollStepIndex, offset, activeNotes);
+    if (visualKey === lastPlaybackVisualKey) {
+      return highlightedNotes;
+    }
+    lastPlaybackVisualKey = visualKey;
     if (cursorOffsetRef.current !== offset) {
       moveCursorToOffset(osmd, offset, cursorOffsetRef);
       safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide', () => cursor.hide());
@@ -1719,6 +1747,7 @@ export function syncSheetMusicPlaybackVisuals(
     // lets the next tick recover cleanly once the index has rebuilt.
     console.warn('[DIAG:staleNode] syncSheetMusicPlaybackVisuals TOP-LEVEL failure, recovering next tick:', err);
     cursorOffsetRef.current = -1;
+    lastPlaybackVisualKey = '';
     return [];
   }
 }

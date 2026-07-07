@@ -8,6 +8,7 @@ import {
   type PracticeScrollState,
   type PracticeVisualIndex,
   resolveStepIndexFromPointer,
+  resetSheetMusicPlaybackVisualCache,
   syncSheetMusicPlaybackVisuals,
   syncSheetMusicPracticeVisuals,
 } from "../core/sheetMusicPracticeSync.ts";
@@ -513,6 +514,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+    resetSheetMusicPlaybackVisualCache();
 
     if (state.isPlaybackActive) {
       playbackEngine.seekToStep(stepIndex);
@@ -717,9 +719,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
   useEffect(() => {
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+    resetSheetMusicPlaybackVisualCache();
   }, [activeHand, musicXml, script]);
 
   useEffect(() => {
+    const state = useEngineStore.getState();
+    if (state.playMode && state.isPlaybackActive && !state.isPlaybackPaused) {
+      return;
+    }
     syncPracticeVisuals();
   }, [
     currentStepIndex,

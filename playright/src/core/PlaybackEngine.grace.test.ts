@@ -103,6 +103,7 @@ describe('GN-3 PlaybackEngine grace note scheduling', () => {
       warm: async () => {},
       init: async () => {},
       scheduleAttackRelease,
+      noteOff: vi.fn(),
     } as never);
 
     await engine.play();
@@ -186,17 +187,22 @@ describe('GN-3 PlaybackEngine grace note scheduling', () => {
       warm: async () => {},
       init: async () => {},
       scheduleAttackRelease,
+      noteOff: vi.fn(),
     } as never);
 
     await engine.play();
 
-    // Fire every scheduled callback in tick order, recording the audio calls
-    // each event produces so grace attacks can be located by scheduled tick.
+    // Fire every scheduled callback in tick order, including events added by
+    // rolling-window extension callbacks (which schedule the next chunk lazily).
     const audioCallsByTick = new Map<number, Array<[number, string]>>();
-    for (const { time, callback } of [...scheduled].sort(
+    const queue = [...scheduled].sort(
       (left, right) => parseTransportTick(left.time) - parseTransportTick(right.time),
-    )) {
+    );
+
+    while (queue.length > 0) {
+      const { time, callback } = queue.shift()!;
       scheduleAttackRelease.mockClear();
+      const scheduledBefore = scheduled.length;
       callback(0);
       const tick = parseTransportTick(time);
       const existing = audioCallsByTick.get(tick) ?? [];
@@ -204,6 +210,14 @@ describe('GN-3 PlaybackEngine grace note scheduling', () => {
         existing.push([midi as number, duration as string]);
       }
       audioCallsByTick.set(tick, existing);
+
+      if (scheduled.length > scheduledBefore) {
+        const extensionEvents = scheduled.slice(scheduledBefore);
+        queue.push(...extensionEvents);
+        queue.sort(
+          (left, right) => parseTransportTick(left.time) - parseTransportTick(right.time),
+        );
+      }
     }
 
     const finalKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);

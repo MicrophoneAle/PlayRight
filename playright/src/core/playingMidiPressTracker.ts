@@ -48,6 +48,7 @@ export class PlayingMidiPressTracker {
   clear(): void {
     this.activePressIds.clear();
     this.pressIdToNote.clear();
+    this.nextPressId = 0;
   }
 
   releaseMatching(
