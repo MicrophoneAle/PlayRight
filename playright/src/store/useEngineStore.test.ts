@@ -6,6 +6,25 @@ import {
   useEngineStore,
 } from './useEngineStore.ts';
 
+// setPlayMode(false) lazily imports the real PlaybackEngine and calls stop(),
+// which drives Tone's transport. Without this mock the store tests race real
+// Tone against the stubbed window global (transport.cancel missing -> flaky
+// unhandled rejection in full-suite runs).
+vi.mock('tone', () => ({
+  getTransport: () => ({
+    PPQ: 480,
+    bpm: { value: 120 },
+    ticks: 0,
+    start: vi.fn(),
+    stop: vi.fn(),
+    pause: vi.fn(),
+    scheduleOnce: vi.fn(() => 0),
+    clear: vi.fn(),
+    cancel: vi.fn(),
+  }),
+  getDraw: () => ({ schedule: vi.fn() }),
+}));
+
 const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
 const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
 

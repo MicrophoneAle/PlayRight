@@ -1,5 +1,4 @@
 import * as Tone from 'tone';
-import { flushSync } from 'react-dom';
 import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildConsecutiveSameNoteKeySet,
@@ -361,15 +360,13 @@ export class PlaybackEngine {
     this.syncPlayingNotes();
   }
 
-  private releasePlayingNote(pressId: number, flushVisual = false): void {
+  private releasePlayingNote(pressId: number): void {
     this.playingPressTracker.release(pressId);
-    if (flushVisual) {
-      flushSync(() => {
-        this.syncPlayingNotes();
-      });
-      return;
-    }
-
+    // No flushSync here even for consecutive same-note releases: the re-press
+    // is deferred by PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS (~2 frames),
+    // so React's normal async commit paints the release in time. Forcing a
+    // synchronous render inside the transport callback burned CPU on every
+    // repeated-note release and contributed to audio-scheduling starvation.
     this.syncPlayingNotes();
   }
 
@@ -701,9 +698,6 @@ export class PlaybackEngine {
 
           if (!note.tiedToNext) {
             const releaseOnset = attackOnsetQuarters + playedQuarters;
-            const followedByConsecutiveSameNote = consecutiveSameNoteKeys.has(
-              `${stepIndex}:${note.hand}:${note.midi}`,
-            );
             const { text: releaseTime } = safeTickTime(
               quartersToTicks(releaseOnset, ppq),
               attackTick,
@@ -712,7 +706,7 @@ export class PlaybackEngine {
             );
             const releaseEventId = transport.scheduleOnce(() => {
               try {
-                this.releasePlayingNote(pressId, followedByConsecutiveSameNote);
+                this.releasePlayingNote(pressId);
               } catch (err) {
                 console.error('[PlaybackEngine] note release callback failed (skipped):', err);
               }

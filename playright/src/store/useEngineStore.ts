@@ -871,10 +871,22 @@ export const useEngineStore = create<EngineState>((set) => {
       set({ expectedMidiNotes: notes });
     },
     setPlayingMidiNotes: (notes) => {
-      set({ playingMidiNotes: notes });
+      // Bail on no-op updates: play mode syncs after every transport event,
+      // and a fresh-but-identical array would re-render the 88-key keyboard.
+      set((state) =>
+        state.playingMidiNotes.length === notes.length &&
+        state.playingMidiNotes.every((midi, index) => midi === notes[index])
+          ? state
+          : { playingMidiNotes: notes },
+      );
     },
     setPlayingPlaybackNotes: (notes) => {
-      set({ playingPlaybackNotes: notes });
+      set((state) =>
+        state.playingPlaybackNotes.length === notes.length &&
+        state.playingPlaybackNotes.every((note, index) => note === notes[index])
+          ? state
+          : { playingPlaybackNotes: notes },
+      );
     },
   },
 };

@@ -1625,10 +1625,9 @@ export function syncSheetMusicPlaybackVisuals(
   } = options;
 
   try {
-    resetGraphicalNotes(highlightedNotes);
-
     const cursor = osmd.cursor;
     if (!cursor || !visualIndex) {
+      resetGraphicalNotes(highlightedNotes);
       cursorOffsetRef.current = -1;
       safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide(no-visualIndex)', () =>
         cursor?.hide(),
@@ -1636,9 +1635,14 @@ export function syncSheetMusicPlaybackVisuals(
       return [];
     }
 
+    // The cursor is invisible in play mode; moving it only maintains the
+    // internal offset. Walking the iterator + cursor.update() per sync was
+    // pure overhead on dense bars, so only do it when the step actually moved.
     const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
-    moveCursorToOffset(osmd, offset, cursorOffsetRef);
-    safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide', () => cursor.hide());
+    if (cursorOffsetRef.current !== offset) {
+      moveCursorToOffset(osmd, offset, cursorOffsetRef);
+      safeOsmdCall('syncSheetMusicPlaybackVisuals:cursor.hide', () => cursor.hide());
+    }
 
     const seen = new Set<GraphicalNote>();
     const toHighlight: GraphicalNote[] = [];
@@ -1672,8 +1676,20 @@ export function syncSheetMusicPlaybackVisuals(
       }
     }
 
-    if (toHighlight.length > 0) {
-      highlightGraphicalNotes(toHighlight);
+    // Incremental recolor: only notes leaving the lit set are reset and only
+    // notes entering it are colored. Reset-all + recolor-all per sync was the
+    // dominant play-mode CPU cost (each setColor rewrites SVG attributes on
+    // noteheads, stems, flags, beams, ties, and ledger lines).
+    const stillLit = new Set(toHighlight);
+    const previouslyLit = new Set(highlightedNotes);
+    const toReset = highlightedNotes.filter((gNote) => !stillLit.has(gNote));
+    const toColor = toHighlight.filter((gNote) => !previouslyLit.has(gNote));
+
+    if (toReset.length > 0) {
+      resetGraphicalNotes(toReset);
+    }
+    if (toColor.length > 0) {
+      highlightGraphicalNotes(toColor);
     }
 
     // Scroll on the CURRENT step's notes, not the sounding notes. The step index
