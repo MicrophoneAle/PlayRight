@@ -11,6 +11,7 @@ import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { FingeringMode, Hand, ManualFingeringMap, ManualHandOverrideMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
+import { ParseWarningsPanel } from './ParseWarningsPanel.tsx';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
 import { ShortcutsMenu } from './ShortcutsMenu.tsx';
 import { AccountSection } from './AccountSection.tsx';
@@ -49,6 +50,7 @@ export function Lid() {
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
   const loadScript = useEngineStore((state) => state.actions.loadScript);
+  const setParseWarnings = useEngineStore((state) => state.actions.setParseWarnings);
   const setShiftMode = useEngineStore((state) => state.actions.setShiftMode);
   const setSheetScrollMode = useEngineStore((state) => state.actions.setSheetScrollMode);
   const setAutoFingering = useEngineStore((state) => state.actions.setAutoFingering);
@@ -418,15 +420,12 @@ export function Lid() {
           scoreId,
           manualFingerings: {},
         }, scoreTiming);
-
-        if (warnings.length > 0) {
-          alert(warnings.join('\n\n'));
-        }
+        setParseWarnings(warnings);
 
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', loadedScript);
       } catch (error) {
         console.error('🚨 PARSE FAILED:', error);
-        alert('Failed to load piece: ' + (error as Error).message);
+        setParseWarnings(['Failed to load piece: ' + (error as Error).message]);
       }
     })();
 
@@ -455,13 +454,10 @@ export function Lid() {
         scoreId: saved.id,
         manualFingerings: saved.manual_fingerings,
       }, scoreTiming);
-
-      if (warnings.length > 0) {
-        alert(warnings.join('\n\n'));
-      }
+      setParseWarnings(warnings);
     } catch (error) {
       console.error('🚨 PARSE FAILED:', error);
-      alert('Failed to load piece: ' + (error as Error).message);
+      setParseWarnings(['Failed to load piece: ' + (error as Error).message]);
     }
   };
 
@@ -636,6 +632,7 @@ export function Lid() {
       />
 
       {collapseButton}
+      <ParseWarningsPanel />
 
       {!collapsed ? (
     <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">

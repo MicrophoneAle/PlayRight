@@ -275,6 +275,8 @@ interface EngineState {
   playMode: boolean;
   tempoFactor: number;
   headerCollapsed: boolean;
+  /** Non-fatal parse notices for the current piece; shown in a dismissible panel. */
+  parseWarnings: string[];
   currentStepIndex: number;
   totalSteps: number;
   expectedMidiNotes: number[];
@@ -341,6 +343,7 @@ interface EngineState {
     setPlayMode: (enabled: boolean) => void;
     setTempoFactor: (factor: number) => void;
     toggleHeaderCollapsed: () => void;
+    setParseWarnings: (warnings: string[]) => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
     setPlayingMidiNotes: (notes: number[]) => void;
@@ -378,6 +381,7 @@ export const useEngineStore = create<EngineState>((set) => {
   playMode: readStoredPlayMode(),
   tempoFactor: readStoredTempoFactor(),
   headerCollapsed: false,
+  parseWarnings: [],
   currentStepIndex: 0,
   totalSteps: 0,
   expectedMidiNotes: [],
@@ -410,6 +414,7 @@ export const useEngineStore = create<EngineState>((set) => {
         expectedMidiNotes: [],
         playingMidiNotes: [],
         playingPlaybackNotes: [],
+        parseWarnings: [],
       });
     },
     clearScript: () => {
@@ -429,6 +434,7 @@ export const useEngineStore = create<EngineState>((set) => {
         expectedMidiNotes: [],
         playingMidiNotes: [],
         playingPlaybackNotes: [],
+        parseWarnings: [],
       });
     },
     setManualFinger: (onset, hand, midi, finger, userId) => {
@@ -843,6 +849,9 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     toggleHeaderCollapsed: () => {
       set((state) => ({ headerCollapsed: !state.headerCollapsed }));
+    },
+    setParseWarnings: (warnings) => {
+      set({ parseWarnings: warnings });
     },
     setStepIndex: (index) => {
       const state = useEngineStore.getState();
