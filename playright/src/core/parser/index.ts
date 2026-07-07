@@ -3,7 +3,6 @@ import { MusicXMLIngestor } from './MusicXMLIngestor.ts';
 import { MusicXMLMapper, mergePlaybackScripts } from './MusicXMLMapper.ts';
 import {
   assertSupportedScoreFormat,
-  collectGraceNoteWarnings,
   collectParseWarnings,
 } from './MusicXMLParseChecks.ts';
 import { extractScoreTiming, MusicXMLNormalizer, resolveCanonicalDivisionsPerQuarter } from './MusicXMLNormalizer.ts';
@@ -17,7 +16,6 @@ export class MusicXMLParser {
     const { partElements, warnings: normalizeWarnings } =
       MusicXMLNormalizer.normalize(raw);
     const flatElements = partElements.flat();
-    const graceNoteWarnings = collectGraceNoteWarnings(flatElements);
     const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flatElements);
     const { tempoBpm } = extractScoreTiming(raw);
     const mapped =
@@ -39,7 +37,7 @@ export class MusicXMLParser {
         divisionsPerQuarter: canonicalDivisionsPerQuarter,
         tempoBpm,
       },
-      warnings: [...warnings, ...normalizeWarnings, ...graceNoteWarnings],
+      warnings: [...warnings, ...normalizeWarnings],
     };
   }
 }

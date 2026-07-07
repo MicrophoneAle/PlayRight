@@ -1,4 +1,4 @@
-import type { NormalizedElement, NormalizedNote } from './MusicXMLNormalizer.ts';
+import type { NormalizedElement } from './MusicXMLNormalizer.ts';
 
 type RawRecord = Record<string, unknown>;
 
@@ -103,24 +103,6 @@ export function assertSupportedScoreFormat(rawXmlObj: unknown): void {
       'This score uses score-timewise MusicXML, which PlayRight does not support. Please re-export the file as score-partwise.',
     );
   }
-}
-
-export function collectGraceNoteWarnings(elements: NormalizedElement[]): string[] {
-  const graceNotes = elements.filter(
-    (element): element is NormalizedNote => element.type === 'note' && element.isGrace,
-  );
-
-  if (graceNotes.length === 0) {
-    return [];
-  }
-
-  const measures = [...new Set(graceNotes.map((note) => note.measureNumber))].sort(
-    (left, right) => left - right,
-  );
-
-  return [
-    `This score contains ${graceNotes.length} grace note(s) in measure(s) ${measures.join(', ')}. PlayRight does not play or finger grace notes; they are skipped and do not advance the timeline.`,
-  ];
 }
 
 export function collectParseWarnings(rawXmlObj: unknown): string[] {

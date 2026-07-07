@@ -30,10 +30,6 @@ function countGraceTagsInXml(xml: string): number {
   return (xml.match(/<grace[\s/>]/g) ?? []).length;
 }
 
-function graceWarningFor(result: ReturnType<typeof parseMusicXmlToScript>): string | undefined {
-  return result.warnings.find((warning) => warning.includes('grace note'));
-}
-
 function graceNotesInMeasure(
   elements: ReturnType<typeof MusicXMLNormalizer.normalize>['partElements'][number],
   measureNumber: number,
@@ -46,25 +42,13 @@ function graceNotesInMeasure(
 
 describe('asset grace note diagnostics', () => {
   it.each(ASSETS)(
-    '$name: grace detection warning and skip behavior',
-    ({ path, expectedGraceCount, expectedGraceMeasures }) => {
+    '$name: grace tags in XML do not surface a load disclaimer',
+    ({ path, expectedGraceCount }) => {
       const xml = readFileSync(path, 'utf8');
       expect(countGraceTagsInXml(xml)).toBe(expectedGraceCount);
 
       const result = parseMusicXmlToScript(xml);
-      const graceWarning = graceWarningFor(result);
-
-      if (expectedGraceCount === 0) {
-        expect(graceWarning).toBeUndefined();
-        return;
-      }
-
-      expect(graceWarning).toBeDefined();
-      expect(graceWarning).toContain(`${expectedGraceCount} grace note`);
-      expect(graceWarning).toContain('does not play or finger grace notes');
-      for (const measure of expectedGraceMeasures) {
-        expect(graceWarning).toContain(String(measure));
-      }
+      expect(result.warnings.some((warning) => /grace note/i.test(warning))).toBe(false);
     },
   );
 

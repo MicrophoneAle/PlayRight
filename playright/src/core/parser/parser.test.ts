@@ -1036,14 +1036,20 @@ describe('parseMusicXmlToScript defensive fixes', () => {
     expect(script).toHaveLength(1);
     expect(script[0].onset).toBe(0);
     expect(script[0].notes[0]).toMatchObject({ pitch: 'D4', midi: 62 });
+    expect(script[0].graceBefore).toEqual([
+      {
+        midi: 60,
+        pitch: 'C4',
+        hand: 'R',
+        kind: 'appoggiatura',
+      },
+    ]);
   });
 
-  it('warns with count and measure when grace notes are skipped', () => {
+  it('does not warn when grace notes are present', () => {
     const { warnings } = parseMusicXmlToScript(GRACE_THEN_PITCHED);
 
-    expect(
-      warnings.some((warning) => /1 grace note.*measure\(s\) 1/i.test(warning)),
-    ).toBe(true);
+    expect(warnings.some((warning) => /grace note/i.test(warning))).toBe(false);
   });
 
   it('advances a full measure for measure rests without duration', () => {

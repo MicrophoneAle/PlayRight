@@ -46,9 +46,9 @@ export interface StepOrder {
   measureNumber: number;
   notes: ScriptNote[];
   /**
-   * Grace note(s) immediately preceding this step's note/chord. Metadata only:
-   * not played, not fingered, and does not advance onset - rides on the main
-   * note/chord it precedes.
+   * Grace note(s) immediately preceding this step's note/chord. Play-mode
+   * metadata: scheduled in PlaybackEngine, not fingered in practice/program.
+   * Does not advance onset — rides on the main note/chord it precedes.
    */
   graceBefore?: GraceNoteInfo[];
 }
