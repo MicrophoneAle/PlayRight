@@ -45,6 +45,8 @@ When play mode is enabled in Settings:
 - **Fermatas** — Fermata-marked notes hold for **2×** their normal played duration. When the score places a fermata on a short pickup into an immediately following sustained chord (e.g. Constant Moderato measure 8), the extended hold applies to that chord step. Transport events use integer ticks so fractional fermata offsets still fire; seek and step advance release lingering notes.
 - **Keyboard in play mode** — Keys show green while a note is held and grey while it is sounding; scope labels and purple scope highlights are hidden. Computer piano keys are disabled.
 - **Transport** — Pause clears sounding highlights; stop returns to the beginning; **Replay** appears after the piece finishes.
+- **Steady tempo on long pieces** — Playback schedules notes in a rolling window (~24 quarter-note beats ahead) instead of the entire score upfront, keeping the Tone transport timeline bounded on dense pieces. Tone.js audio-node disposal is guaranteed under sustained load so finished voices do not accumulate and gradually slow playback.
+- **Efficient visuals** — Sheet highlights diff incrementally (only changed noteheads recolor), cursor walks only when the step moves, and live sync is coalesced to one update per animation frame so transport callbacks stay off the critical path.
 
 ### Keyboard shortcuts
 
@@ -189,15 +191,15 @@ playright/
 | `PracticeEngine.ts` | Step progression, chords, pause/stop, one-hand notes and two-hand finger input |
 | `FingeringProgramEngine.ts` | Program-mode MIDI-walk finger capture, cross-hand assignments, sheet click-jump (`seekToStep`), live reprogram on complete steps, refinger overwrite, step advance, and highlight sync |
 | `programStepGuard.ts` | Allows only the program engine to change step index while program mode is active |
-| `PlaybackEngine.ts` | Play mode transport scheduling, per-note press/release tracking, auto-end and replay |
+| `PlaybackEngine.ts` | Play mode rolling-window transport scheduling, per-note press/release tracking, auto-end and replay |
 | `playbackTiming.ts` | Musical timing helpers (onsets, durations, articulation gap, piece end) |
 | `playingMidiPressTracker.ts` | Tracks overlapping presses by unique id (same pitch repeated consecutively) |
-| `AudioEngine.ts` | Tone.js sampler scheduling and release handling |
+| `AudioEngine.ts` | Tone.js sampler scheduling, release handling, and idle-time audio-node disposal under load |
 | `InputManager.ts` | Keyboard → MIDI mapping for the active scope; two-hand finger routing |
 | `scopeShift.ts` / `scopeAlign.ts` | Scope movement and alignment to the current step |
 | `twoHandMapping.ts` | Finger key → hand/finger mapping for two-hand mode |
 | `fingeringPredictor.ts` | Auto-fingering from score geometry and hand-span settings |
-| `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll; play-mode duration-aligned highlights |
+| `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll; play-mode incremental highlights, visual dedupe, and rAF-coalesced sync |
 | `parser/` | MusicXML/MXL → practice script (ties, chords, timing) |
 | `scoreLibrary.ts` | Supabase CRUD for saved scores and manual fingerings |
 
@@ -215,6 +217,8 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 - [x] Program mode with stable step progression, full-step highlights, sheet click-jump refingering, Supabase autosave, and auto-advance after re-finger
 - [x] Cross-hand program assignments (MIDI-walk, physical-hand progress, practice matching via `playingHand`)
 - [x] Live program reprogramming: finger presses on complete steps overwrite fingerings in pitch order without a sheet click
+- [x] In-sequence auto-fingering rule and cross-phrase seeding for phrase-boundary transitions
+- [x] Play mode performance: rolling transport scheduling, Tone.js disposal under load, incremental highlights, rAF-coalesced sheet sync, line-scroll anti-wiggle
 
 ## Checkpoints
 
@@ -222,6 +226,7 @@ Annotated git tags mark stable milestones:
 
 | Tag | Description |
 |-----|-------------|
+| `checkpoint-play-performance` | Play mode steady tempo on long/dense scores: rolling schedule window, rIC audio-node disposal, incremental highlight diff + visual dedupe, rAF-coalesced sheet sync off transport callbacks |
 | `checkpoint-hand-scroll-ui` | Hand-independent sheet scroll across LH/RH/two-hand; stable collapsible header; scrollable settings panel; keyboard shortcuts and header layout polish |
 | `checkpoint-scroll-top-staff` | Scroll anchored to treble staff top / highest line note with robust fallback and top buffer |
 | `checkpoint-fermata-playback` | Fermata playback fixed: 2× hold, carry-forward into abutting chords (Constant Moderato m8–9), integer Transport ticks, seek/release cleanup |
