@@ -1526,10 +1526,46 @@ function scrollContainerForPlayback(
     return;
   }
 
-  // Prefer the treble-anchored top, but fall back to the system bounds (and
-  // ultimately the note element) so a failed DOM stave lookup never disables
-  // scrolling. Before this fallback existed, a null treble anchor silently
-  // stopped scrolling in every mode even though highlighting still worked.
+  const currentSystemKey = scrollState.current.systemKey;
+
+  // Same line: hold the committed anchor WITHOUT any layout reads. The anchor
+  // scroll position was computed when the line was entered; recomputing it
+  // per tick (full-system bounds scan -> forced reflows) was heavy enough to
+  // starve the audio scheduler on dense bars. Skip micro-drift and never
+  // restart an in-flight animation toward the same anchor, so a busy bar of
+  // highlight ticks cannot make the viewport wiggle either.
+  if (currentSystemKey !== null && systemKey === currentSystemKey) {
+    const anchor = scrollState.current.lineScrollTop;
+    if (
+      anchor !== null &&
+      Math.abs(container.scrollTop - anchor) >= REANCHOR_MIN_DRIFT_PX &&
+      !isScrollAnimationActive(container)
+    ) {
+      animateScrollTop(container, anchor, scrollMode);
+    }
+    return;
+  }
+
+  const isNewStaffLine = currentSystemKey !== null;
+
+  // Flap guard: an active bar can briefly resolve its notes back to the
+  // line we just scrolled away from (cross-line highlight matching). Do not
+  // bounce back within the settle window - the committed line wins.
+  const now = performance.now();
+  if (
+    isNewStaffLine &&
+    systemKey === scrollState.current.previousSystemKey &&
+    scrollState.current.switchedAt !== undefined &&
+    now - scrollState.current.switchedAt < LINE_SWITCH_SETTLE_MS
+  ) {
+    return;
+  }
+
+  // New line (or first anchor): compute the anchor once. Prefer the
+  // treble-anchored top, but fall back to the system bounds (and ultimately
+  // the note element) so a failed DOM stave lookup never disables scrolling.
+  // Before this fallback existed, a null treble anchor silently stopped
+  // scrolling in every mode even though highlighting still worked.
   const anchorTop =
     playbackScrollAnchorTop(notes, scrollVisualIndex) ??
     getNotesSystemBounds(notes)?.top ??
@@ -1547,48 +1583,15 @@ function scrollContainerForPlayback(
   );
 
   const lineTop = anchorTop - containerRect.top + scrollTop;
-  const currentSystemKey = scrollState.current.systemKey;
-  const isNewStaffLine =
-    currentSystemKey !== null && systemKey !== currentSystemKey;
-  const needsAnchor = currentSystemKey === null;
-
-  if (isNewStaffLine || needsAnchor) {
-    // Flap guard: an active bar can briefly resolve its notes back to the
-    // line we just scrolled away from (cross-line highlight matching). Do not
-    // bounce back within the settle window - the committed line wins.
-    const now = performance.now();
-    if (
-      isNewStaffLine &&
-      systemKey === scrollState.current.previousSystemKey &&
-      scrollState.current.switchedAt !== undefined &&
-      now - scrollState.current.switchedAt < LINE_SWITCH_SETTLE_MS
-    ) {
-      return;
-    }
-
-    const target = Math.min(Math.max(0, lineTop - padding), maxScrollTop);
-    scrollState.current = {
-      systemKey,
-      lineScrollTop: target,
-      previousSystemKey: currentSystemKey,
-      switchedAt: now,
-    };
-    if (Math.abs(target - scrollTop) >= 1) {
-      animateScrollTop(container, target, scrollMode);
-    }
-    return;
-  }
-
-  // Same line: hold the committed anchor. Skip micro-drift and never restart
-  // an in-flight animation toward the same anchor (animateScrollTop dedupes),
-  // so a busy bar of highlight ticks cannot make the viewport wiggle.
-  const anchor = scrollState.current.lineScrollTop;
-  if (
-    anchor !== null &&
-    Math.abs(scrollTop - anchor) >= REANCHOR_MIN_DRIFT_PX &&
-    !isScrollAnimationActive(container)
-  ) {
-    animateScrollTop(container, anchor, scrollMode);
+  const target = Math.min(Math.max(0, lineTop - padding), maxScrollTop);
+  scrollState.current = {
+    systemKey,
+    lineScrollTop: target,
+    previousSystemKey: currentSystemKey,
+    switchedAt: now,
+  };
+  if (Math.abs(target - scrollTop) >= 1) {
+    animateScrollTop(container, target, scrollMode);
   }
 }
 

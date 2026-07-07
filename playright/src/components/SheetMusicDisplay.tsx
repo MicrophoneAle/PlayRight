@@ -248,6 +248,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     systemKey: null,
     lineScrollTop: null,
   });
+  /** Pending rAF that coalesces playback visual syncs to one per frame. */
+  const playbackSyncFrameRef = useRef<number | null>(null);
   const sheetPointerStartRef = useRef<{
     x: number;
     y: number;
@@ -271,7 +273,35 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   // It must NEVER throw: an escaping exception propagates into Tone's
   // event-draining loop and permanently freezes step advancement. A failed
   // sync is one skipped visual frame; the next store change retries.
+  //
+  // During live playback the sync is COALESCED onto animation frames instead
+  // of running synchronously: dense bars fire dozens of press/release store
+  // updates per second, and doing OSMD/DOM work (setColor, cursor moves,
+  // layout reads for scroll) inside each transport callback starved Tone's
+  // scheduling lookahead - the audible "piece suddenly slows down" bug. One
+  // sync per frame reads the latest store state, so nothing is lost.
   const syncPracticeVisuals = () => {
+    const state = useEngineStore.getState();
+    if (state.playMode && state.isPlaybackActive && !state.isPlaybackPaused) {
+      if (playbackSyncFrameRef.current !== null) {
+        return;
+      }
+      playbackSyncFrameRef.current = requestAnimationFrame(() => {
+        playbackSyncFrameRef.current = null;
+        try {
+          syncPracticeVisualsUnsafe();
+        } catch (err) {
+          console.warn('[SheetMusicDisplay] visual sync failed (frame skipped):', err);
+        }
+      });
+      return;
+    }
+
+    if (playbackSyncFrameRef.current !== null) {
+      cancelAnimationFrame(playbackSyncFrameRef.current);
+      playbackSyncFrameRef.current = null;
+    }
+
     try {
       syncPracticeVisualsUnsafe();
     } catch (err) {
@@ -658,6 +688,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       pendingPlaybackResizeRef.current = false;
       safeRenderRef.current = null;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+      if (playbackSyncFrameRef.current !== null) {
+        cancelAnimationFrame(playbackSyncFrameRef.current);
+        playbackSyncFrameRef.current = null;
+      }
       resizeObserver?.disconnect();
       osmdRef.current = null;
       container.innerHTML = "";
