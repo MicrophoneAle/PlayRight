@@ -1,5 +1,3 @@
-import type { NormalizedElement } from './MusicXMLNormalizer.ts';
-
 type RawRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is RawRecord {
