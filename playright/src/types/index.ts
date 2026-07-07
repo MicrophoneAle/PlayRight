@@ -115,10 +115,6 @@ export function isFinger(value: number): value is Finger {
   return Number.isInteger(value) && value >= 1 && value <= 5;
 }
 
-export function manualFingeringFinger(value: ManualFingeringValue): Finger {
-  return typeof value === 'number' ? value : value.finger;
-}
-
 export function resolveManualAssignment(
   onset: number,
   notatedHand: Hand,

@@ -77,10 +77,6 @@ const BLACKS_BETWEEN_WHITES: ReadonlyArray<{
 const isBlackKey = (midi: number): boolean =>
   [1, 3, 6, 8, 10].includes(midi % 12);
 
-export function isBlackKeyMidi(midi: number): boolean {
-  return isBlackKey(midi);
-}
-
 export function isWhiteRowCode(code: string): boolean {
   return (
     (CORE_WHITE_PHYSICALS as readonly string[]).includes(code) ||
@@ -257,24 +253,6 @@ function assignHighExtensions(
   }
 }
 
-export function getCoreAnchorMidis(
-  scopeStart: number,
-): {
-  lowWhite: number | undefined;
-  highWhite: number | undefined;
-  lowBlack: number | undefined;
-  highBlack: number | undefined;
-} {
-  const map = getDynamicKeyMap(scopeStart);
-
-  return {
-    lowWhite: map.KeyA,
-    highWhite: map.Semicolon,
-    lowBlack: map.KeyQ ?? map.Tab,
-    highBlack: map.BracketLeft,
-  };
-}
-
 function shiftAlongRow(midi: number, steps: number, wantBlack: boolean): number | null {
   if (steps === 0) {
     return midi;
@@ -297,10 +275,6 @@ function shiftAlongRow(midi: number, steps: number, wantBlack: boolean): number 
   }
 
   return current;
-}
-
-export function isMidiInCoreScope(midi: number, scopeStart: number): boolean {
-  return midi >= scopeStart && midi <= scopeStart + SCOPE_SIZE - 1;
 }
 
 export function getDisplayScopeMidiBounds(scopeStart: number): {
@@ -472,45 +446,6 @@ export function getEffectiveKeyMap(
   }
 
   return effective;
-}
-
-export function normalizeScopePosition(
-  scopeStart: number,
-  transpose: number,
-): { scopeStartMidi: number; scopeTranspose: number } {
-  const maxScopeStart = PIANO_END_MIDI - (SCOPE_SIZE - 1);
-  let start = scopeStart;
-  let offset = transpose;
-
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const map = getEffectiveKeyMap(start, offset);
-    const midis = Object.values(map);
-    if (midis.length === 0) {
-      break;
-    }
-
-    const maxMidi = Math.max(...midis);
-    const minMidi = Math.min(...midis);
-
-    if (maxMidi > PIANO_END_MIDI && start < maxScopeStart) {
-      start += 1;
-      offset -= 1;
-      continue;
-    }
-
-    if (minMidi < PIANO_START_MIDI && start > PIANO_START_MIDI) {
-      start -= 1;
-      offset += 1;
-      continue;
-    }
-
-    break;
-  }
-
-  return {
-    scopeStartMidi: Math.max(PIANO_START_MIDI, Math.min(start, maxScopeStart)),
-    scopeTranspose: offset,
-  };
 }
 
 export function formatKeyCode(code: string): string {

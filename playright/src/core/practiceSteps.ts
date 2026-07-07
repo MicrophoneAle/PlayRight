@@ -99,11 +99,6 @@ export function getExpectedNoteForFinger(
   );
 }
 
-/** @deprecated Use fingeringKey(onset, notatedHand, midi) for program assignment tracking. */
-export function programAssignmentKey(hand: Hand, midi: number): string {
-  return `${hand}:${midi}`;
-}
-
 /** Step notes sorted ascending by MIDI (stable tie-break: L before R). */
 export function programStepNotesAscendingMidi(step: StepOrder): ScriptNote[] {
   return [...step.notes].sort((left, right) => {
@@ -144,22 +139,6 @@ export function programCurrentNote(
   for (const note of programStepNotesAscendingMidi(step)) {
     const key = fingeringKey(step.onset, note.hand, note.midi);
     if (!assigned.has(key)) {
-      return note;
-    }
-  }
-
-  return null;
-}
-
-/**
- * @deprecated Use programCurrentNote for MIDI-walk program mode.
- */
-export function programNextUnassignedNote(
-  step: StepOrder,
-  assigned: ReadonlySet<string>,
-): ScriptNote | null {
-  for (const note of programStepNotesAscendingMidi(step)) {
-    if (!assigned.has(fingeringKey(step.onset, note.hand, note.midi))) {
       return note;
     }
   }

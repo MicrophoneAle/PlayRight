@@ -29,8 +29,11 @@ function safeOsmdCall(label: string, fn: () => void): void {
   try {
     fn();
   } catch (err) {
-    // DIAGNOSTIC (temporary): prefixed so a browser dump shows exactly which
-    // wrapped OSMD call still hits a stale node after the index-rebuild fix.
+    // Permanent guard, not open investigation scaffolding: the stale-node/
+    // resize/fermata-freeze bug this protects against is fixed (checkpoint
+    // 55d3c82, regression coverage in constant-moderato-fermata.test.ts).
+    // The [DIAG:staleNode] label stays so a browser console dump still
+    // identifies exactly which wrapped OSMD call hit a stale reference.
     console.warn(`[DIAG:staleNode] ${label} failed (stale OSMD reference, skipped):`, err);
   }
 }
@@ -437,13 +440,6 @@ function resolveStepGraphicalNotes(
   if (indexed.length > 0) {
     return indexed;
   }
-
-  // DIAGNOSTIC (temporary): the pre-built index had nothing for this step.
-  console.warn('[DIAG:runtimeScanFallback] indexed step empty, runtime scan', {
-    stepIndex,
-    stepCursorOffset: visualIndex.stepCursorOffsets[stepIndex] ?? null,
-    practiceNoteCount: practiceNotes.length,
-  });
 
   if (practiceNotes.length === 0) {
     return [];
@@ -858,22 +854,6 @@ export function buildPracticeVisualIndex(
       script[stepIndex].measureNumber,
     );
   }
-
-  // DIAGNOSTIC (temporary): full-coverage report on every index build.
-  const emptyStepIndices = stepGraphicalNotes
-    .map((notes, index) => (notes.length === 0 ? index : -1))
-    .filter((index) => index >= 0);
-  console.warn('[DIAG:buildPracticeVisualIndex] complete', {
-    totalSteps: script.length,
-    emptyStepCount: emptyStepIndices.length,
-    firstEmptyStepIndex: emptyStepIndices[0] ?? null,
-    lastEmptyStepIndex: emptyStepIndices[emptyStepIndices.length - 1] ?? null,
-    isContiguousToEnd:
-      emptyStepIndices.length > 0 &&
-      emptyStepIndices[emptyStepIndices.length - 1] === script.length - 1 &&
-      emptyStepIndices.length === script.length - emptyStepIndices[0],
-    emptyStepIndicesSample: emptyStepIndices.slice(0, 30),
-  });
 
   osmd.cursor.reset();
   return { stepCursorOffsets, stepGraphicalNotes, stepMeasureNumbers };
@@ -1592,15 +1572,6 @@ export function syncSheetMusicPlaybackVisuals(
     scrollMode,
     scrollVisualIndex,
   } = options;
-
-  // DIAGNOSTIC (temporary)
-  console.warn('[DIAG:syncPlayback] enter', {
-    scrollStepIndex,
-    visualIndexIsNull: visualIndex === null,
-    activeNotesCount: activeNotes.length,
-    priorHighlightedCount: highlightedNotes.length,
-    indexedNotesForThisStep: visualIndex?.stepGraphicalNotes[scrollStepIndex]?.length ?? null,
-  });
 
   try {
     resetGraphicalNotes(highlightedNotes);

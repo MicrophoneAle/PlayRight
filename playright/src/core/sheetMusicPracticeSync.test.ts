@@ -392,7 +392,12 @@ describe('grace notehead highlighting', () => {
     const g5 = mockGraphicalNote(79, 1);
     const allNotes = [c4, graceE5, fSharp5, b4, g5];
 
-    const { graceBefore: _omit, ...strippedGraceStep } = graceStep;
+    const strippedGraceStep: StepOrder = {
+      order: graceStep.order,
+      onset: graceStep.onset,
+      measureNumber: graceStep.measureNumber,
+      notes: graceStep.notes,
+    };
     const script: PlaybackScript = [
       {
         order: 0,

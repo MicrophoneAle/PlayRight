@@ -369,33 +369,18 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexGenerationRef.current = generation;
     cursorOffsetRef.current = -1;
 
-    // DIAGNOSTIC (temporary)
-    console.warn('[DIAG:scheduleVisualIndexBuild] scheduled', { generation });
-
     requestAnimationFrame(() => {
       if (generation !== visualIndexGenerationRef.current) {
-        console.warn('[DIAG:scheduleVisualIndexBuild] rAF BAILED (generation superseded)', {
-          generation,
-          currentGeneration: visualIndexGenerationRef.current,
-        });
         return;
       }
 
       const osmd = osmdRef.current;
       const state = useEngineStore.getState();
       if (!osmd || !osmdReadyRef.current || !state.script) {
-        console.warn('[DIAG:scheduleVisualIndexBuild] rAF BAILED (osmd/script not ready)', {
-          generation,
-          hasOsmd: !!osmd,
-          osmdReady: osmdReadyRef.current,
-          hasScript: !!state.script,
-        });
         visualIndexRef.current = null;
         scrollVisualIndexRef.current = null;
         return;
       }
-
-      console.warn('[DIAG:scheduleVisualIndexBuild] rAF RUNNING build', { generation });
 
       try {
         const displayEngineMode = getDisplayEngineMode(
@@ -416,14 +401,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         );
 
         if (generation !== visualIndexGenerationRef.current) {
-          console.warn('[DIAG:scheduleVisualIndexBuild] build DISCARDED (generation superseded post-build)', {
-            generation,
-            currentGeneration: visualIndexGenerationRef.current,
-          });
           return;
         }
 
-        console.warn('[DIAG:scheduleVisualIndexBuild] build COMPLETE, syncing visuals', { generation });
         syncPracticeVisuals();
       } catch (err) {
         console.error("[SheetMusicDisplay] Practice visual index build failed:", err);
@@ -583,17 +563,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         return;
       }
 
-      // DIAGNOSTIC (temporary)
-      {
-        const diagState = useEngineStore.getState();
-        console.warn('[DIAG:safeRender] enter', {
-          rebuildIndex,
-          isPlaybackActive: diagState.isPlaybackActive,
-          isPlaybackPaused: diagState.isPlaybackPaused,
-          currentStepIndex: diagState.currentStepIndex,
-        });
-      }
-
       try {
         applyCompactSheetLayout(osmd);
         osmd.render();
@@ -629,16 +598,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
 
         if (rebuildIndex || playbackRunning) {
-          console.warn('[DIAG:safeRender] branch -> scheduleVisualIndexBuild', {
-            rebuildIndex,
-            playbackRunning,
-          });
           scheduleVisualIndexBuild();
         } else {
-          console.warn('[DIAG:safeRender] branch -> syncPracticeVisuals (NO index rebuild)', {
-            rebuildIndex,
-            playbackRunning,
-          });
           syncPracticeVisuals();
         }
       } catch (err) {
@@ -669,17 +630,6 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           const state = useEngineStore.getState();
           const playbackRunning =
             state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
-
-          // DIAGNOSTIC (temporary)
-          console.warn('[DIAG:resizeObserver] fired', {
-            containerWidth: width,
-            containerHeight: height,
-            lastRenderedWidth: lastRendered?.width,
-            lastRenderedHeight: lastRendered?.height,
-            isSelfInducedResize,
-            playbackRunning,
-            currentStepIndex: state.currentStepIndex,
-          });
 
           if (isSelfInducedResize) {
             // Our own render (osmd.render(), marginTop/measure-number
