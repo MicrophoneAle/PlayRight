@@ -197,30 +197,9 @@ function stripPedalDirections(xml: string): string {
   );
 }
 
-/**
- * Strip arpeggiate/non-arpeggiate roll markings from the display copy.
- * Deliberate workaround: OSMD's roll-glyph rendering on complex chords (a
- * fermata-held, tied chord with a reversed/down-direction roll - seen on the
- * constant-moderato measure-9 fermata chord) can throw a stale "deferred DOM
- * Node could not be resolved" error during render/reCalculate, and that
- * throw mid-playback is what froze step advancement. Playback timing already
- * ignores roll timing entirely (arpeggiated chords play as plain simultaneous
- * chords - see the parser/PlaybackEngine, which are untouched by this), so
- * the roll glyph carries no functional meaning here. Only the self-closing
- * notation markers are removed; the chord tones and every other notation
- * stay intact and still render as a normal (non-rolled) chord.
- */
-function stripArpeggiateMarkings(xml: string): string {
-  return xml
-    .replace(/<arpeggiate\b[^>]*\/>/g, '')
-    .replace(/<arpeggiate\b[^>]*>[\s\S]*?<\/arpeggiate>/g, '')
-    .replace(/<non-arpeggiate\b[^>]*\/>/g, '')
-    .replace(/<non-arpeggiate\b[^>]*>[\s\S]*?<\/non-arpeggiate>/g, '');
-}
-
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
 function prepareMusicXmlForDisplay(xml: string): string {
-  return stripArpeggiateMarkings(stripPedalDirections(xml)).replace(
+  return stripPedalDirections(xml).replace(
     /<technical>([\s\S]*?)<\/technical>/g,
     (block, inner) => {
       const fingeringPattern = /<fingering(\s[^>]*)?>([^<]*)<\/fingering>/g;
