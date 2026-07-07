@@ -538,9 +538,6 @@ export class PracticeEngine {
     const { script, currentStepIndex, actions } = useEngineStore.getState();
     const nextIndex = currentStepIndex + 1;
 
-    // Hit-based advance: fermata steps move on as soon as all targets are
-    // struck (no play-mode hold or timeline shift). releaseFermataNotesForStep
-    // only cleans up sustained audio before loading the next step.
     this.releaseFermataNotesForStep(currentStepIndex);
     actions.setStepIndex(nextIndex);
 

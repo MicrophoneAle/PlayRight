@@ -8,10 +8,6 @@ import type {
   StepOrder,
 } from '../types/index.ts';
 import { fingeringKey, resolveManualAssignment } from '../types/index.ts';
-import {
-  buildFermataPlaybackContext,
-  stepHasPlaybackFermataHold,
-} from './playbackTiming.ts';
 import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
 
 export interface TwoHandStepNoteInfo {
@@ -40,38 +36,6 @@ export function getPracticeNotes(
 
   return step.notes.filter((note) => note.hand === activeHand);
 }
-
-/**
- * Practice mode is hit-based: a step advances when every required note is
- * struck, not on a wall clock. Extended fermata holds and timeline shifts are
- * play-mode-only (see playbackTiming). When this returns true, the UI may show
- * a sustain cue; advance timing is intentionally unchanged.
- *
- * Uses score `hasFermata` marks and carry-forward steps (fermata weight that
- * play mode applies to the abutting next sonority). Unlike play-mode hold
- * detection, delegating pickup steps still show a cue because the fermata is
- * engraved on that step.
- */
-export function stepHasPracticeFermataIndicator(
-  script: PlaybackScript,
-  stepIndex: number,
-  divisionsPerQuarter: number,
-): boolean {
-  const step = script[stepIndex];
-  if (!step) {
-    return false;
-  }
-
-  if (step.notes.some((note) => note.hasFermata)) {
-    return true;
-  }
-
-  const context = buildFermataPlaybackContext(script, divisionsPerQuarter);
-  return context.carryForwardSteps.has(stepIndex);
-}
-
-/** Play-mode fermata hold detection (timing/audio). Re-exported for PracticeEngine cleanup. */
-export { stepHasPlaybackFermataHold };
 
 /** During play mode, every note in the step is shown; otherwise practice filtering applies. */
 export function getDisplayNotesForStep(

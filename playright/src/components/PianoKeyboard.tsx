@@ -18,7 +18,6 @@ import {
   programAssignmentProgress,
   programStepNotesAscendingMidi,
   programTargetMidis,
-  stepHasPracticeFermataIndicator,
   type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
 import { getFingerMappingFromKeyboard } from '../core/twoHandMapping.ts';
@@ -208,7 +207,6 @@ export function PianoKeyboard() {
   const engineMode = useEngineStore((state) => state.engineMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
   const script = useEngineStore((state) => state.script);
-  const scoreTiming = useEngineStore((state) => state.scoreTiming);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const totalSteps = useEngineStore((state) => state.totalSteps);
   const manualFingerings = useEngineStore((state) => state.manualFingerings);
@@ -646,20 +644,6 @@ export function PianoKeyboard() {
     (oneHandExpectedCoverage.outsideDisplayScope.length > 0 ||
       oneHandExpectedCoverage.missingPhysicalKey.length > 0);
 
-  const showPracticeFermataCue =
-    !playMode &&
-    !isProgramMode &&
-    isPracticeActive &&
-    script !== null &&
-    scoreTiming !== null &&
-    currentStepIndex >= 0 &&
-    currentStepIndex < script.length &&
-    stepHasPracticeFermataIndicator(
-      script,
-      currentStepIndex,
-      scoreTiming.divisionsPerQuarter,
-    );
-
   return (
     <div className="relative">
       {isProgramMode ? (
@@ -687,14 +671,6 @@ export function PianoKeyboard() {
           <span className="ml-2 text-amber-200/80">
             Assign each note in pitch order before advancing
           </span>
-        </div>
-      ) : null}
-      {showPracticeFermataCue ? (
-        <div
-          className="mb-1 rounded border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-center text-[11px] text-violet-100"
-          role="status"
-        >
-          Fermata — sustain this chord; practice still advances when every note is struck
         </div>
       ) : null}
       {showOneHandCoverageNotice ? (
