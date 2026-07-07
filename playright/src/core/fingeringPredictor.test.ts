@@ -5,10 +5,13 @@ import {
   applyManualFingerings,
   assignChordFingers,
   CONSECUTIVE_SAME_FINGER_PENALTY,
+  CROSSING_ONTO_BLACK_COST,
   fingerPhrase,
   HOME_POSITION,
   LEGAL_CROSSING_COST,
   type NoteEvent,
+  OUT_OF_SEQUENCE_MAX_INTERVAL,
+  OUT_OF_SEQUENCE_PENALTY,
   PHRASE_MAX_FRAME_SPAN,
   PHRASE_MIN_ONSET_GAP_DIVISIONS,
   predictFingering,
@@ -163,6 +166,81 @@ describe('fingerPhrase', () => {
     const fingers = await fingerPhrase(phrase, 'R');
     expect(fingers[0]).toBe(fingers[4]);
     expect(fingers[0]).not.toBe(1);
+  });
+});
+
+describe('in-sequence finger ordering (out-of-sequence penalty)', () => {
+  it('penalizes RH finger reversals against pitch direction within a hand position', () => {
+    // RH ascending small step with a lower finger (not thumb) is out of sequence.
+    expect(transitionCost('R', 3, 68, 2, 71)).toBeGreaterThanOrEqual(
+      OUT_OF_SEQUENCE_PENALTY,
+    );
+    // RH descending small step with a higher finger (not via thumb crossing).
+    expect(transitionCost('R', 3, 73, 5, 71)).toBeGreaterThanOrEqual(
+      OUT_OF_SEQUENCE_PENALTY,
+    );
+    // In-sequence equivalents stay cheap.
+    expect(transitionCost('R', 3, 68, 4, 71)).toBeLessThan(1000);
+    expect(transitionCost('R', 5, 73, 3, 71)).toBeLessThan(1000);
+  });
+
+  it('penalizes LH finger reversals mirrored (ascending pitch wants lower fingers)', () => {
+    // LH ascending small step must move toward the thumb (lower finger).
+    expect(transitionCost('L', 2, 56, 3, 59)).toBeGreaterThanOrEqual(
+      OUT_OF_SEQUENCE_PENALTY,
+    );
+    expect(transitionCost('L', 3, 59, 2, 56)).toBeGreaterThanOrEqual(
+      OUT_OF_SEQUENCE_PENALTY,
+    );
+    expect(transitionCost('L', 3, 56, 2, 59)).toBeLessThan(1000);
+  });
+
+  it('exempts legal thumb crossings and repositioning leaps', () => {
+    // RH thumb-under on an ascending step onto a white key stays cheap.
+    expect(transitionCost('R', 3, 71, 1, 72)).toBeLessThanOrEqual(
+      LEGAL_CROSSING_COST,
+    );
+    // Thumb-under onto a black key carries the crossing surcharge.
+    expect(transitionCost('R', 3, 66, 1, 68)).toBeGreaterThanOrEqual(
+      CROSSING_ONTO_BLACK_COST,
+    );
+    // A repositioning leap (> OUT_OF_SEQUENCE_MAX_INTERVAL) is exempt.
+    expect(
+      transitionCost('R', 4, 60, 2, 60 + OUT_OF_SEQUENCE_MAX_INTERVAL + 4),
+    ).toBeLessThan(OUT_OF_SEQUENCE_PENALTY);
+  });
+
+  it('never fingers three ascending notes as 3-2-4', async () => {
+    const midis = [66, 68, 71];
+    const phrase = midis.map((midi, stepIndex) =>
+      noteEvent(stepIndex, midi, stepIndex * 120),
+    );
+
+    const fingers = await fingerPhrase(phrase, 'R', 1, undefined, undefined, undefined, 0);
+    for (let index = 1; index < fingers.length; index += 1) {
+      const inSequence = fingers[index] > fingers[index - 1];
+      const thumbUnder = fingers[index] === 1 && fingers[index - 1] >= 3;
+      expect(inSequence || thumbUnder).toBe(true);
+    }
+  });
+
+  it('keeps chord assignments monotonic and unaffected by the melodic rule', () => {
+    const seventh: NoteEvent[] = [
+      noteEvent(0, 60, 0),
+      noteEvent(0, 64, 0),
+      noteEvent(0, 67, 0),
+      noteEvent(0, 71, 0),
+    ];
+
+    const right = assignChordFingers(seventh, 'R').filter(
+      (finger): finger is Finger => finger !== null,
+    );
+    const left = assignChordFingers(seventh, 'L').filter(
+      (finger): finger is Finger => finger !== null,
+    );
+
+    expect(isMonotonicFingers('R', right)).toBe(true);
+    expect(isMonotonicFingers('L', left)).toBe(true);
   });
 });
 

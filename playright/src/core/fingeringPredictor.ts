@@ -223,6 +223,28 @@ export const HIGH_REGISTER_MIDI_RH = 76;
 export const LOW_REGISTER_MIDI_LH = 48;
 export const REPEAT_PITCH_FINGER_MISMATCH = 5;
 export const RETURNING_PITCH_FINGER_MISMATCH = 2000;
+/**
+ * Superseding in-sequence rule: within one hand position, finger order must
+ * follow pitch direction (RH up = higher finger, LH up = lower finger).
+ * Heavy enough to outweigh any ML emission preference and the
+ * returning-pitch consistency penalty, so runs never come out as e.g.
+ * 3-2-4 ascending. Legal thumb crossings and repositioning leaps
+ * (> OUT_OF_SEQUENCE_MAX_INTERVAL semitones) are exempt. Non-crossing
+ * reversals through the thumb (pivots) get the smaller
+ * THUMB_PIVOT_REVERSAL_COST: a single pivot stays affordable, but chains of
+ * thumb pivots (the degenerate 1-x-1-x ladder) accumulate enough cost to
+ * lose to a proper in-sequence hand position.
+ */
+export const OUT_OF_SEQUENCE_PENALTY = 8000;
+export const THUMB_PIVOT_REVERSAL_COST = 4000;
+export const OUT_OF_SEQUENCE_MAX_INTERVAL = 5;
+/**
+ * Thumb-under onto a black key is classically avoided; without this
+ * surcharge the DP dodges the in-sequence rule by laddering cheap legal
+ * crossings through black-key thumbs (2026-07 sweep: chase RH gold fell
+ * 32/59 -> 22/59 until crossings onto black cost ~2000).
+ */
+export const CROSSING_ONTO_BLACK_COST = 2000;
 export const OCTAVE_PAIR_BONUS = 2.5;
 export const OPEN_FRAME_PAIR_BONUS = 250;
 export const GAP_DEVIATION_PENALTY_SCALE = 100;
@@ -341,9 +363,25 @@ export function transitionCost(
 
   if (expectedAscending !== actuallyAscending && interval !== 0) {
     if (isLegalCrossing(hand, fPrev, fCur, actuallyAscending)) {
-      cost = LEGAL_CROSSING_COST;
+      // Thumb-under onto a black key is classically avoided; surcharge it so
+      // the DP cannot ladder cheap crossings through black-key thumbs.
+      const thumbUnderOntoBlack = fCur === 1 && isBlackKey(pCur);
+      cost =
+        LEGAL_CROSSING_COST +
+        (thumbUnderOntoBlack ? CROSSING_ONTO_BLACK_COST : 0);
     } else {
       cost += CONTRACTION_BASE + CONTRACTION_PER_SEMITONE * absInterval;
+      // In-sequence rule: within a hand position (small interval), finger
+      // numbers must track pitch direction so runs never come out as e.g.
+      // 3-2-4 ascending. Repositioning leaps are exempt; non-crossing thumb
+      // reversals get the smaller pivot cost so a single pivot is usable but
+      // 1-x-1-x ladders lose to proper in-sequence fingering.
+      if (absInterval <= OUT_OF_SEQUENCE_MAX_INTERVAL) {
+        cost +=
+          fPrev === 1 || fCur === 1
+            ? THUMB_PIVOT_REVERSAL_COST
+            : OUT_OF_SEQUENCE_PENALTY;
+      }
     }
   } else if (
     hand === 'R' &&
