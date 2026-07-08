@@ -185,12 +185,12 @@ function ensureSheetTopClearance(container: HTMLElement): void {
 }
 
 /**
- * Strip pedal markings from the display copy. OSMD can throw while calculating
- * pedal brackets that span certain measure boundaries (calculateSinglePedal
- * reading undefined staffEntries), which half-completes rendering and leaves
- * everything after the crash without graphical notes. PlayRight does not use
- * pedal markings functionally, so removing them here costs nothing and removes
- * the crash at its source.
+ * Strip pedal markings from the display copy when OSMD cannot lay them out.
+ * OSMD can throw while calculating pedal brackets that span certain measure
+ * boundaries (calculateSinglePedal reading undefined staffEntries), which
+ * half-completes rendering and leaves everything after the crash without
+ * graphical notes. PlayRight does not use pedal markings in playback; this is
+ * a display-only fallback after a failed render, not the default path.
  */
 function stripPedalDirections(xml: string): string {
   return xml.replace(/<direction\b[^>]*>[\s\S]*?<\/direction>/g, (block) =>
@@ -199,8 +199,9 @@ function stripPedalDirections(xml: string): string {
 }
 
 /** Merge MusicXML alternate fingerings into one label, e.g. 2 + alt 3 → "2 (3)". */
-function prepareMusicXmlForDisplay(xml: string): string {
-  return stripPedalDirections(xml).replace(
+function prepareMusicXmlForDisplay(xml: string, stripPedals = false): string {
+  const base = stripPedals ? stripPedalDirections(xml) : xml;
+  return base.replace(
     /<technical>([\s\S]*?)<\/technical>/g,
     (block, inner) => {
       const fingeringPattern = /<fingering(\s[^>]*)?>([^<]*)<\/fingering>/g;
@@ -251,6 +252,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   });
   /** Pending rAF that coalesces playback visual syncs to one per frame. */
   const playbackSyncFrameRef = useRef<number | null>(null);
+  /** When true, display XML strips pedal directions after an OSMD render crash. */
+  const stripPedalsForDisplayRef = useRef(false);
   const sheetPointerStartRef = useRef<{
     x: number;
     y: number;
@@ -551,6 +554,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     lastRenderedSizeRef.current = null;
     scrollStateRef.current = { systemKey: null, lineScrollTop: null };
     visualIndexGenerationRef.current += 1;
+    stripPedalsForDisplayRef.current = false;
 
     // autoResize is off: this component's ResizeObserver is the ONLY render
     // authority. OSMD's internal window-resize handler re-renders behind our
@@ -567,7 +571,42 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     });
 
     osmdRef.current = osmd;
-    osmd.OnXMLRead = prepareMusicXmlForDisplay;
+    osmd.OnXMLRead = (xml) =>
+      prepareMusicXmlForDisplay(xml, stripPedalsForDisplayRef.current);
+
+    const completeAfterRender = (rebuildIndex: boolean) => {
+      osmdReadyRef.current = true;
+
+      if (!cursorsEnabledRef.current) {
+        osmd.enableOrDisableCursors(true);
+        cursorsEnabledRef.current = true;
+        osmd.render();
+      }
+
+      normalizeMeasureNumberPositions(container);
+      ensureSheetTopClearance(container);
+
+      lastRenderedSizeRef.current = {
+        width: container.clientWidth,
+        height: container.clientHeight,
+      };
+
+      const state = useEngineStore.getState();
+      const playbackRunning =
+        state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
+
+      if (rebuildIndex || playbackRunning) {
+        scheduleVisualIndexBuild();
+      } else {
+        syncPracticeVisuals();
+      }
+    };
+
+    const attemptRender = (rebuildIndex: boolean) => {
+      applyCompactSheetLayout(osmd);
+      osmd.render();
+      completeAfterRender(rebuildIndex);
+    };
 
     const safeRender = (rebuildIndex: boolean) => {
       if (cancelled || container.clientWidth === 0) {
@@ -575,46 +614,37 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       }
 
       try {
-        applyCompactSheetLayout(osmd);
-        osmd.render();
-        osmdReadyRef.current = true;
-
-        if (!cursorsEnabledRef.current) {
-          osmd.enableOrDisableCursors(true);
-          cursorsEnabledRef.current = true;
-          osmd.render();
-        }
-
-        normalizeMeasureNumberPositions(container);
-        ensureSheetTopClearance(container);
-
-        // Record the box size produced by this render so the ResizeObserver
-        // below can tell "the browser resized" apart from "our own render
-        // just nudged the layout by a few px" (svg marginTop, scrollbar
-        // toggling) - without this, self-induced resizes re-trigger
-        // safeRender forever and starve playback of main-thread time.
-        lastRenderedSizeRef.current = {
-          width: container.clientWidth,
-          height: container.clientHeight,
-        };
-
-        // A re-render replaces OSMD's SVG and every GraphicalNote object, so
-        // the visual index (which holds GraphicalNote references) must be
-        // rebuilt after any render that happens while playback is running.
-        // The resize path no longer renders mid-playback (it defers until
-        // playback stops), so this branch is defense-in-depth for any other
-        // caller that renders while the transport is live.
-        const state = useEngineStore.getState();
-        const playbackRunning =
-          state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
-
-        if (rebuildIndex || playbackRunning) {
-          scheduleVisualIndexBuild();
-        } else {
-          syncPracticeVisuals();
-        }
+        attemptRender(rebuildIndex);
       } catch (err) {
-        console.error("[SheetMusicDisplay] OSMD render failed:", err);
+        if (!stripPedalsForDisplayRef.current && musicXml) {
+          console.warn(
+            '[SheetMusicDisplay] OSMD render failed with pedal markings; retrying without pedals.',
+            err,
+          );
+          stripPedalsForDisplayRef.current = true;
+          void osmd
+            .load(musicXml)
+            .then(() => {
+              if (cancelled) {
+                return;
+              }
+
+              try {
+                attemptRender(rebuildIndex);
+              } catch (retryErr) {
+                console.error('[SheetMusicDisplay] OSMD render failed:', retryErr);
+              }
+            })
+            .catch((loadErr) => {
+              console.error(
+                '[SheetMusicDisplay] OSMD reload without pedals failed:',
+                loadErr,
+              );
+            });
+          return;
+        }
+
+        console.error('[SheetMusicDisplay] OSMD render failed:', err);
       }
     };
 
