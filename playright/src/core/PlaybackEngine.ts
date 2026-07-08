@@ -78,6 +78,7 @@ export class PlaybackEngine {
   private scheduledEventIds: number[] = [];
   private pendingPressTimeouts = new Set<ReturnType<typeof setTimeout>>();
   private playingPressTracker = new PlayingMidiPressTracker();
+  private readonly scheduledReleaseTickByPressId = new Map<number, number>();
   private isPlaying = false;
   private isPaused = false;
   private hasFinishedPiece = false;
@@ -366,6 +367,7 @@ export class PlaybackEngine {
   }
 
   private releasePlayingNote(pressId: number): void {
+    this.scheduledReleaseTickByPressId.delete(pressId);
     this.playingPressTracker.release(pressId);
     // No flushSync here even for consecutive same-note releases: the re-press
     // is deferred by PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS (~2 frames),
@@ -404,27 +406,11 @@ export class PlaybackEngine {
   }
 
   /** Fallback when an absolute release event was skipped during transport catch-up. */
-  private releasePriorStepNotes(currentStepIndex: number): void {
-    const priorNotes = this.playingPressTracker
-      .activeNotes()
-      .filter((note) => note.stepIndex < currentStepIndex);
-
-    if (priorNotes.length > 0) {
-      const releasedMidis = new Set<number>();
-      for (const note of priorNotes) {
-        if (!releasedMidis.has(note.midi)) {
-          this.audioEngine?.noteOff(note.midi);
-          releasedMidis.add(note.midi);
-        }
+  private releaseOverduePresses(transportTick: number): void {
+    for (const [pressId, releaseTick] of this.scheduledReleaseTickByPressId) {
+      if (releaseTick <= transportTick) {
+        this.releasePlayingNote(pressId);
       }
-    }
-
-    const changed = this.playingPressTracker.releaseMatching(
-      (note) => note.stepIndex < currentStepIndex,
-    );
-
-    if (changed) {
-      this.syncPlayingNotes();
     }
   }
 
@@ -477,6 +463,7 @@ export class PlaybackEngine {
 
   private clearPlayingNotes(): void {
     this.cancelPendingPressTimeouts();
+    this.scheduledReleaseTickByPressId.clear();
     this.playingPressTracker.clear();
     const { actions } = useEngineStore.getState();
     actions.setPlayingMidiNotes([]);
@@ -551,12 +538,13 @@ export class PlaybackEngine {
       }, graceAttackTime);
       this.scheduledEventIds.push(attackEventId);
 
-      const { text: graceReleaseTime } = safeTickTime(
+      const { text: graceReleaseTime, tick: graceReleaseTick } = safeTickTime(
         quartersToTicks(graceAttackQuarters + perGraceQuarters, ppq),
         graceAttackTick,
         'grace release',
         { stepIndex, graceIndex, midi: grace.midi },
       );
+      this.scheduledReleaseTickByPressId.set(pressId, graceReleaseTick);
       const releaseEventId = transport.scheduleOnce(() => {
         try {
           this.releasePlayingNote(pressId);
@@ -732,12 +720,13 @@ export class PlaybackEngine {
 
           if (!note.tiedToNext) {
             const releaseOnset = attackOnsetQuarters + playedQuarters;
-            const { text: releaseTime } = safeTickTime(
+            const { text: releaseTime, tick: releaseTick } = safeTickTime(
               quartersToTicks(releaseOnset, ppq),
               attackTick,
               'note release',
               { stepIndex, midi: note.midi, hand: note.hand },
             );
+            this.scheduledReleaseTickByPressId.set(pressId, releaseTick);
             const releaseEventId = transport.scheduleOnce(() => {
               try {
                 this.releasePlayingNote(pressId);
@@ -751,7 +740,7 @@ export class PlaybackEngine {
 
         const stepEventId = transport.scheduleOnce((time) => {
           try {
-            this.releasePriorStepNotes(stepIndex);
+            this.releaseOverduePresses(Math.round(getTransport().ticks));
             this.applyStepVisual(stepIndex);
 
             for (const { pressId, note, playedDuration } of stepPresses) {

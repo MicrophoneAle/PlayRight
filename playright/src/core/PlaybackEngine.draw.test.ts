@@ -232,6 +232,66 @@ describe('PlaybackEngine playback visuals', () => {
     vi.useRealTimers();
   });
 
+  it('keeps a longer prior-step highlight after a later step attacks', async () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'C3',
+            midi: 48,
+            hand: 'L',
+            finger: 1,
+            durationDivisions: 1920,
+          },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [
+          {
+            pitch: 'D4',
+            midi: 62,
+            hand: 'R',
+            finger: 1,
+            durationDivisions: 480,
+          },
+        ],
+      },
+    ];
+
+    useEngineStore.setState({ script });
+
+    const scheduled: Array<{ time: string; callback: (time: number) => void }> = [];
+    transportScheduleOnce.mockImplementation((callback, time) => {
+      scheduled.push({ time: String(time), callback });
+      return scheduled.length;
+    });
+
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+    } as never);
+
+    await engine.play();
+
+    const stepAttacks = scheduled
+      .filter(({ time }) => time === '0i' || time.endsWith('480i'))
+      .map(({ callback }) => callback);
+
+    stepAttacks[0]?.(0);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([48]);
+
+    stepAttacks[1]?.(0);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([48, 62]);
+  });
+
   it('resumes from step 0 after restart() (Restart then Play)', async () => {
     const script: PlaybackScript = [
       {
