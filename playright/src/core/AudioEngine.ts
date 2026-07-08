@@ -14,32 +14,8 @@ const audioContext = new Tone.Context({
 });
 Tone.setContext(audioContext);
 
-/**
- * Tone.js frees each finished note's audio nodes via requestIdleCallback
- * WITHOUT a timeout (OneShotSource._onended -> dispose). Play mode keeps the
- * main thread busy enough (transport ticks, visual syncs) that idle callbacks
- * can starve for the remainder of the piece, so every played note leaks a
- * stopped-but-still-connected Gain node into the WebAudio graph. The graph
- * and GC pressure then grow with every note and playback audibly degrades,
- * recovering only when something (e.g. a seek click) briefly idles the main
- * thread and the queued disposals flush. Wrapping rIC with a default timeout
- * guarantees disposal runs within ~100ms even under sustained load. Semantics
- * are otherwise unchanged, and an explicit caller timeout still wins.
- */
-if (
-  typeof window !== 'undefined' &&
-  typeof window.requestIdleCallback === 'function'
-) {
-  const nativeRequestIdleCallback = window.requestIdleCallback.bind(window);
-  window.requestIdleCallback = (
-    callback: IdleRequestCallback,
-    options?: IdleRequestOptions,
-  ) =>
-    nativeRequestIdleCallback(callback, {
-      ...options,
-      timeout: options?.timeout ?? 100,
-    });
-}
+// requestIdleCallback disposal patch lives in audioIdleCallbackPatch.ts (imported
+// first from main.tsx so it runs before any Tone module side effects).
 
 function midiToNote(midi: number): string {
   const octave = Math.floor(midi / 12) - 1;

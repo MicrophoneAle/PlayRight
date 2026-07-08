@@ -407,10 +407,18 @@ export class PlaybackEngine {
 
   /** Fallback when an absolute release event was skipped during transport catch-up. */
   private releaseOverduePresses(transportTick: number): void {
+    let changed = false;
+
     for (const [pressId, releaseTick] of this.scheduledReleaseTickByPressId) {
       if (releaseTick <= transportTick) {
-        this.releasePlayingNote(pressId);
+        this.scheduledReleaseTickByPressId.delete(pressId);
+        this.playingPressTracker.release(pressId);
+        changed = true;
       }
+    }
+
+    if (changed) {
+      this.syncPlayingNotes();
     }
   }
 

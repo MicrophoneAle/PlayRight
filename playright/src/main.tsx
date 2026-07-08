@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/react'
+import './core/audioIdleCallbackPatch.ts'
 import './index.css'
 import App from './App.tsx'
 import { practiceEngine } from './core/PracticeEngine.ts'
