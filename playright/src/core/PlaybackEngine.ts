@@ -17,10 +17,35 @@ import {
   quartersToTicks,
   scheduledPlaybackAttackQuarterNotes,
 } from './playbackTiming.ts';
+import type { FermataPlaybackContext } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
-import type { GraceNoteInfo, Hand, ScriptNote } from '../types/index.ts';
+import type { GraceNoteInfo, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+
+/**
+ * Whole-script derived timing data (fermata context/offsets, final-note keys,
+ * consecutive-same-note keys, per-step durations) used by every rolling
+ * schedule-window extension. These are pure functions of (script,
+ * divisionsPerQuarter) - they don't depend on which window is being
+ * scheduled - so recomputing them from scratch on every extension (up to
+ * several ms of synchronous work on longer scores, measured via
+ * schedule-window-cost-observe.temp.test.ts) is wasted main-thread time that
+ * lands inside the same Transport callback responsible for scheduling
+ * near-future note attacks, right before that callback reads transport.ticks
+ * to detect rolling-window lag. That read-after-heavy-work ordering made the
+ * lag detector partly measure its own computation time, baking a small but
+ * audible seam into nearly every window boundary.
+ */
+interface ScheduleDerivedData {
+  script: PlaybackScript;
+  divisionsPerQuarter: number;
+  finalNoteKeys: Set<string>;
+  fermataContext: FermataPlaybackContext;
+  fermataOffsets: number[];
+  consecutiveSameNoteKeys: Set<string>;
+  stepDurations: number[];
+}
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
   return Tone.getTransport();
@@ -85,6 +110,7 @@ export class PlaybackEngine {
   private storeSubscriptionInitialized = false;
   private nextUnscheduledStepIndex = 0;
   private lastScheduledAttackTick = -1;
+  private scheduleDerivedData: ScheduleDerivedData | null = null;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -137,11 +163,9 @@ export class PlaybackEngine {
     const startIndex = restartingFromEnd
       ? 0
       : Math.min(Math.max(currentStepIndex, 0), script.length - 1);
-    const finalNoteKeys = buildFinalNoteKeySet(script, scoreTiming.divisionsPerQuarter);
-    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+    const { fermataOffsets } = this.getScheduleDerivedData(
       script,
       scoreTiming.divisionsPerQuarter,
-      finalNoteKeys,
     );
     const startOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
       script[startIndex].onset,
@@ -261,11 +285,9 @@ export class PlaybackEngine {
     }
 
     const wasPlaying = this.isPlaying && !this.isPaused;
-    const finalNoteKeys = buildFinalNoteKeySet(script, scoreTiming.divisionsPerQuarter);
-    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+    const { fermataOffsets } = this.getScheduleDerivedData(
       script,
       scoreTiming.divisionsPerQuarter,
-      finalNoteKeys,
     );
     const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
       script[stepIndex].onset,
@@ -320,6 +342,7 @@ export class PlaybackEngine {
     this.stop();
     this.audioEngine = null;
     this.storeSubscriptionInitialized = false;
+    this.scheduleDerivedData = null;
   }
 
   private syncAfterPlayModeChange(playMode: boolean): void {
@@ -347,6 +370,54 @@ export class PlaybackEngine {
   private applyTransportBpm(baseTempoBpm: number): void {
     const { tempoFactor } = useEngineStore.getState();
     getTransport().bpm.value = baseTempoBpm * tempoFactor;
+  }
+
+  /** Compute (or reuse) whole-script timing data; see ScheduleDerivedData for why this is cached. */
+  private getScheduleDerivedData(
+    script: PlaybackScript,
+    divisionsPerQuarter: number,
+  ): ScheduleDerivedData {
+    const cached = this.scheduleDerivedData;
+    if (
+      cached &&
+      cached.script === script &&
+      cached.divisionsPerQuarter === divisionsPerQuarter
+    ) {
+      return cached;
+    }
+
+    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
+    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
+    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      fermataContext,
+    );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
+      script,
+      divisionsPerQuarter,
+      fermataOffsets,
+    );
+    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+      fermataContext,
+    );
+
+    const data: ScheduleDerivedData = {
+      script,
+      divisionsPerQuarter,
+      finalNoteKeys,
+      fermataContext,
+      fermataOffsets,
+      consecutiveSameNoteKeys,
+      stepDurations,
+    };
+    this.scheduleDerivedData = data;
+    return data;
   }
 
   private syncPlayingNotes(): void {
@@ -588,28 +659,23 @@ export class PlaybackEngine {
     const transport = getTransport();
     const { divisionsPerQuarter } = scoreTiming;
     const ppq = this.transportPpq();
-    const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
-    const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
-    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
-      script,
-      divisionsPerQuarter,
+    // Snapshot transport.ticks BEFORE any script-derived recomputation below.
+    // These structures are pure functions of (script, divisionsPerQuarter)
+    // and get cached by getScheduleDerivedData, but even a cache miss must
+    // not delay this read: reading ticks after doing that work would make
+    // the windowLagTicks lag detector further down partly measure this
+    // callback's own computation time instead of genuine external jank,
+    // baking a phantom seam into every window boundary.
+    const transportTicksAtEntry = transport.ticks;
+    const {
       finalNoteKeys,
       fermataContext,
-    );
-    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
-      script,
-      divisionsPerQuarter,
       fermataOffsets,
-    );
-    const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
-      script,
-      divisionsPerQuarter,
-      finalNoteKeys,
       consecutiveSameNoteKeys,
-      fermataContext,
-    );
+      stepDurations,
+    } = this.getScheduleDerivedData(script, divisionsPerQuarter);
 
-    const currentQuarters = transport.ticks / ppq;
+    const currentQuarters = transportTicksAtEntry / ppq;
     const anchorQuarters =
       fromStepIndex > 0
         ? scheduledPlaybackAttackQuarterNotes(
@@ -621,7 +687,7 @@ export class PlaybackEngine {
     const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
 
     const anchorTick = Math.round(quartersToTicks(anchorQuarters, ppq));
-    const transportNow = Math.round(transport.ticks);
+    const transportNow = Math.round(transportTicksAtEntry);
     // When a rolling-window extension fires slightly late, shift this window's
     // events forward together so inter-attack gaps stay at score tempo instead
     // of past-due attacks firing in a burst (audible speed-up/slow-down wobble).
@@ -641,7 +707,7 @@ export class PlaybackEngine {
     // few ticks ahead under load — tetoris step 639 et al.).
     let lastSafeAttackTick = this.lastScheduledAttackTick;
     if (lastSafeAttackTick < 0) {
-      lastSafeAttackTick = Math.max(-1, Math.round(transport.ticks) - 1);
+      lastSafeAttackTick = Math.max(-1, transportNow - 1);
     }
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
