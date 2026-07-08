@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Download, Trash2, X } from 'lucide-react';
 import { downloadMusicXml } from '../core/readScoreFile.ts';
@@ -16,6 +16,64 @@ interface ScoreLibraryPanelProps {
   onSelect: (id: string) => void;
   canDelete: boolean;
   userId: string | null;
+}
+
+type LibrarySortKey = 'date' | 'name' | 'length';
+type SortDirection = 'asc' | 'desc';
+type LibrarySortOption = `${LibrarySortKey}-${SortDirection}`;
+
+const LIBRARY_SORT_OPTIONS: Array<{ value: LibrarySortOption; label: string }> = [
+  { value: 'date-desc', label: 'Date (newest)' },
+  { value: 'date-asc', label: 'Date (oldest)' },
+  { value: 'name-asc', label: 'Name (A–Z)' },
+  { value: 'name-desc', label: 'Name (Z–A)' },
+  { value: 'length-asc', label: 'Length (shortest)' },
+  { value: 'length-desc', label: 'Length (longest)' },
+];
+
+function parseLibrarySortOption(option: LibrarySortOption): {
+  sortKey: LibrarySortKey;
+  sortDirection: SortDirection;
+} {
+  const [sortKey, sortDirection] = option.split('-') as [LibrarySortKey, SortDirection];
+  return { sortKey, sortDirection };
+}
+
+function sortLibraryEntries(
+  entries: LibraryEntry[],
+  sortKey: LibrarySortKey,
+  direction: SortDirection,
+): LibraryEntry[] {
+  const factor = direction === 'asc' ? 1 : -1;
+
+  return [...entries].sort((left, right) => {
+    let comparison = 0;
+
+    if (sortKey === 'date') {
+      const leftTime = new Date(left.created_at).getTime();
+      const rightTime = new Date(right.created_at).getTime();
+      comparison = Number.isFinite(leftTime) && Number.isFinite(rightTime)
+        ? leftTime - rightTime
+        : left.created_at.localeCompare(right.created_at);
+    } else if (sortKey === 'name') {
+      comparison = left.title.localeCompare(right.title, undefined, {
+        sensitivity: 'base',
+      });
+    } else {
+      comparison = left.title.length - right.title.length;
+      if (comparison === 0) {
+        comparison = left.title.localeCompare(right.title, undefined, {
+          sensitivity: 'base',
+        });
+      }
+    }
+
+    if (comparison !== 0) {
+      return comparison * factor;
+    }
+
+    return left.title.localeCompare(right.title, undefined, { sensitivity: 'base' });
+  });
 }
 
 function formatCreatedAt(createdAt: string): string {
@@ -47,6 +105,13 @@ export function ScoreLibraryPanel({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<LibraryEntry | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<LibrarySortOption>('date-desc');
+
+  const { sortKey, sortDirection } = parseLibrarySortOption(sortOption);
+  const sortedEntries = useMemo(
+    () => sortLibraryEntries(entries, sortKey, sortDirection),
+    [entries, sortKey, sortDirection],
+  );
 
   const loadEntries = useCallback(async () => {
     setLoading(true);
@@ -272,6 +337,31 @@ export function ScoreLibraryPanel({
           </button>
         </div>
 
+        {!loading && !notConfigured && userId && !fetchFailed && entries.length > 0 ? (
+          <div className="border-b border-zinc-800 px-4 py-2">
+            <label
+              htmlFor="score-library-sort"
+              className="mb-1.5 block text-xs text-zinc-500"
+            >
+              Sort by
+            </label>
+            <select
+              id="score-library-sort"
+              value={sortOption}
+              onChange={(event) =>
+                setSortOption(event.target.value as LibrarySortOption)
+              }
+              className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+            >
+              {LIBRARY_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         <div className="playright-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
           {downloadError ? (
             <div className="mb-2 flex items-start gap-2 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-300">
@@ -298,7 +388,7 @@ export function ScoreLibraryPanel({
             <p className="px-2 py-6 text-center text-sm text-zinc-500">No saved scores yet</p>
           ) : (
             <ul className="grid grid-cols-2 gap-1">
-              {entries.map((entry) => (
+              {sortedEntries.map((entry) => (
                 <li key={entry.id}>
                   <div className="flex items-stretch gap-1 rounded-md transition-colors hover:bg-zinc-800">
                     <button
