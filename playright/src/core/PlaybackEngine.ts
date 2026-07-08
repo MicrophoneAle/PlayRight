@@ -7,7 +7,7 @@ import {
   buildPlaybackFermataOffsetsByStep,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
-  isSamePitchReattack,
+  isRepeatedPlaybackAttack,
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
@@ -464,6 +464,12 @@ export class PlaybackEngine {
       if (!this.isPlaying || this.isPaused) {
         return;
       }
+      // The note's release can beat this deferred press (fast re-strike under
+      // jank, or a short played duration). Pressing after release would light
+      // a highlight with no release event left to ever turn it back off.
+      if (this.playingPressTracker.wasReleased(pressId)) {
+        return;
+      }
       this.pressPlayingNote(stepIndex, midi, hand, pressId);
     }, PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS);
     this.pendingPressTimeouts.add(timeoutId);
@@ -845,7 +851,7 @@ export class PlaybackEngine {
             for (const { pressId, note, playedDuration } of stepPresses) {
               engine.scheduleAttackRelease(note.midi, playedDuration, time);
 
-              if (isSamePitchReattack(script, stepIndex, note)) {
+              if (isRepeatedPlaybackAttack(script, stepIndex, note)) {
                 this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
               } else {
                 this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);

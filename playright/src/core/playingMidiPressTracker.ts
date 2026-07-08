@@ -5,6 +5,8 @@ export class PlayingMidiPressTracker {
   private activePressIds = new Set<number>();
   private pressIdToNote = new Map<number, PlayingPlaybackNote>();
   private nextPressId = 0;
+  /** pressIds released before their (possibly deferred) visual press ever fired. */
+  private releasedPressIds = new Set<number>();
 
   allocatePressId(): number {
     const pressId = this.nextPressId;
@@ -20,6 +22,12 @@ export class PlayingMidiPressTracker {
   release(pressId: number): void {
     this.activePressIds.delete(pressId);
     this.pressIdToNote.delete(pressId);
+    this.releasedPressIds.add(pressId);
+  }
+
+  /** True once this pressId has gone through release(), via any path (direct, overdue sweep, or tie-end releaseMatching). */
+  wasReleased(pressId: number): boolean {
+    return this.releasedPressIds.has(pressId);
   }
 
   activeNotes(): PlayingPlaybackNote[] {
@@ -48,6 +56,7 @@ export class PlayingMidiPressTracker {
   clear(): void {
     this.activePressIds.clear();
     this.pressIdToNote.clear();
+    this.releasedPressIds.clear();
     this.nextPressId = 0;
   }
 
