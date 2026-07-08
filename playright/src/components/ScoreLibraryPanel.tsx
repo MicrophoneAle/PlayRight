@@ -252,7 +252,7 @@ export function ScoreLibraryPanel({
       role="presentation"
     >
       <div
-        className="my-auto flex max-h-[min(32rem,calc(100vh-2rem))] w-full max-w-md flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+        className="my-auto flex max-h-[min(32rem,calc(100vh-2rem))] w-full max-w-2xl flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -297,7 +297,7 @@ export function ScoreLibraryPanel({
           ) : entries.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">No saved scores yet</p>
           ) : (
-            <ul className="flex flex-col gap-1">
+            <ul className="grid grid-cols-2 gap-1">
               {entries.map((entry) => (
                 <li key={entry.id}>
                   <div className="flex items-stretch gap-1 rounded-md transition-colors hover:bg-zinc-800">
