@@ -1,5 +1,7 @@
 import type { ManualFingeringMap } from '../types/index.ts';
 import { fingeringKey, isFinger } from '../types/index.ts';
+import { parseMusicXmlToScript } from './parser/index.ts';
+import { pieceEndQuarterNotes, quarterNotesToSeconds } from './playbackTiming.ts';
 import { getSupabase } from './supabaseClient.ts';
 
 export interface SavedScore {
@@ -15,6 +17,10 @@ export interface LibraryEntry {
   id: string;
   title: string;
   created_at: string;
+  /** Playback duration at the score's written tempo; null when XML could not be parsed. */
+  durationSeconds: number | null;
+  /** Highest measure number in the score; null when XML could not be parsed. */
+  measureCount: number | null;
 }
 
 const SCORE_SELECT_WITH_FINGERINGS =
@@ -92,6 +98,52 @@ function parseManualFingerings(value: unknown): ManualFingeringMap {
   return overrides;
 }
 
+/** Musical length for library sorting: playback duration with measure-count fallback. */
+export function deriveLibraryEntryMetrics(rawXml: string): {
+  durationSeconds: number | null;
+  measureCount: number | null;
+} {
+  try {
+    const { script, scoreTiming } = parseMusicXmlToScript(rawXml);
+    if (script.length === 0) {
+      return { durationSeconds: 0, measureCount: 0 };
+    }
+
+    const measureCount = script.reduce(
+      (max, step) => Math.max(max, step.measureNumber),
+      0,
+    );
+    const endQuarters = pieceEndQuarterNotes(
+      script,
+      scoreTiming.divisionsPerQuarter,
+    );
+    const durationSeconds = quarterNotesToSeconds(
+      endQuarters,
+      scoreTiming.tempoBpm,
+    );
+
+    return { durationSeconds, measureCount };
+  } catch {
+    return { durationSeconds: null, measureCount: null };
+  }
+}
+
+function mapLibraryRow(row: {
+  id: string;
+  title: string;
+  created_at: string;
+  raw_xml: string;
+}): LibraryEntry {
+  const { durationSeconds, measureCount } = deriveLibraryEntryMetrics(row.raw_xml);
+  return {
+    id: row.id,
+    title: row.title,
+    created_at: row.created_at,
+    durationSeconds,
+    measureCount,
+  };
+}
+
 export async function saveScoreToLibrary(
   title: string,
   rawXml: string,
@@ -153,7 +205,7 @@ export async function fetchScoreLibrary(
 
   const { data, error } = await supabase
     .from('scores')
-    .select('id, title, created_at')
+    .select('id, title, created_at, raw_xml')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
@@ -162,7 +214,7 @@ export async function fetchScoreLibrary(
     return null;
   }
 
-  return data ?? [];
+  return (data ?? []).map((row) => mapLibraryRow(row));
 }
 
 export async function fetchScoreById(

@@ -26,9 +26,21 @@ const LIBRARY_SORT_OPTIONS: Array<{ value: LibrarySortOption; label: string }> =
   { value: 'date-desc', label: 'Date (newest)' },
   { value: 'date-asc', label: 'Date (oldest)' },
   { value: 'name-asc', label: 'Name' },
-  { value: 'length-asc', label: 'Length (shortest)' },
-  { value: 'length-desc', label: 'Length (longest)' },
+  { value: 'length-asc', label: 'Duration (shortest)' },
+  { value: 'length-desc', label: 'Duration (longest)' },
 ];
+
+function libraryLengthSortValue(entry: LibraryEntry): number {
+  if (entry.durationSeconds !== null) {
+    return entry.durationSeconds;
+  }
+
+  if (entry.measureCount !== null) {
+    return entry.measureCount;
+  }
+
+  return -1;
+}
 
 function parseLibrarySortOption(option: LibrarySortOption): {
   sortKey: LibrarySortKey;
@@ -59,7 +71,7 @@ function sortLibraryEntries(
         sensitivity: 'base',
       });
     } else {
-      comparison = left.title.length - right.title.length;
+      comparison = libraryLengthSortValue(left) - libraryLengthSortValue(right);
       if (comparison === 0) {
         comparison = left.title.localeCompare(right.title, undefined, {
           sensitivity: 'base',
