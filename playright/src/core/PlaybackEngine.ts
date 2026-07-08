@@ -619,7 +619,16 @@ export class PlaybackEngine {
     const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
 
     let lastScheduledStep = fromStepIndex;
-    let lastSafeAttackTick = Math.max(this.lastScheduledAttackTick, Math.round(transport.ticks) - 1);
+    // Monotonic floor comes from the last scheduled *musical* attack. Only fall
+    // back to transport.ticks when seeking mid-piece (lastScheduledAttackTick
+    // reset to -1). Blending transport into every rolling-window extension
+    // caused clamps when the clock ran slightly ahead of the next chunk's
+    // anchor (extension fires at musical time, but transport.ticks can be a
+    // few ticks ahead under load — tetoris step 639 et al.).
+    let lastSafeAttackTick = this.lastScheduledAttackTick;
+    if (lastSafeAttackTick < 0) {
+      lastSafeAttackTick = Math.max(-1, Math.round(transport.ticks) - 1);
+    }
 
     for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
       try {
@@ -819,9 +828,9 @@ export class PlaybackEngine {
       'piece end',
       { scriptLength: script.length },
     );
-    const endEventId = transport.scheduleOnce(() => {
+    const endEventId = transport.scheduleOnce((time) => {
       try {
-        this.completePlayback();
+        this.completePlayback(time);
       } catch (err) {
         console.error('[PlaybackEngine] piece-end callback failed (skipped):', err);
       }
@@ -829,12 +838,16 @@ export class PlaybackEngine {
     this.scheduledEventIds.push(endEventId);
   }
 
-  private completePlayback(): void {
+  private completePlayback(time?: number): void {
     if (!this.isPlaying || this.isPaused) {
       return;
     }
 
-    getTransport().pause();
+    if (time !== undefined) {
+      getTransport().pause(time);
+    } else {
+      getTransport().pause();
+    }
     this.isPaused = true;
     this.hasFinishedPiece = true;
     this.clearPlayingNotes();
