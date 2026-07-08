@@ -25,8 +25,7 @@ type LibrarySortOption = `${LibrarySortKey}-${SortDirection}`;
 const LIBRARY_SORT_OPTIONS: Array<{ value: LibrarySortOption; label: string }> = [
   { value: 'date-desc', label: 'Date (newest)' },
   { value: 'date-asc', label: 'Date (oldest)' },
-  { value: 'name-asc', label: 'Name (A–Z)' },
-  { value: 'name-desc', label: 'Name (Z–A)' },
+  { value: 'name-asc', label: 'Name' },
   { value: 'length-asc', label: 'Length (shortest)' },
   { value: 'length-desc', label: 'Length (longest)' },
 ];
@@ -323,44 +322,45 @@ export function ScoreLibraryPanel({
         aria-modal="true"
         aria-labelledby="score-library-title"
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <h2 id="score-library-title" className="text-sm font-semibold text-zinc-100">
-            Saved Scores
-          </h2>
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <h2 id="score-library-title" className="shrink-0 text-sm font-semibold text-zinc-100">
+              Saved Scores
+            </h2>
+            {!loading && !notConfigured && userId && !fetchFailed && entries.length > 0 ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <label
+                  htmlFor="score-library-sort"
+                  className="shrink-0 text-xs text-zinc-500"
+                >
+                  Sort by
+                </label>
+                <select
+                  id="score-library-sort"
+                  value={sortOption}
+                  onChange={(event) =>
+                    setSortOption(event.target.value as LibrarySortOption)
+                  }
+                  className="w-32 shrink-0 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                >
+                  {LIBRARY_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close library"
-            className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            className="shrink-0 rounded-md p-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
             <X size={16} strokeWidth={2} aria-hidden />
           </button>
         </div>
-
-        {!loading && !notConfigured && userId && !fetchFailed && entries.length > 0 ? (
-          <div className="border-b border-zinc-800 px-4 py-2">
-            <label
-              htmlFor="score-library-sort"
-              className="mb-1.5 block text-xs text-zinc-500"
-            >
-              Sort by
-            </label>
-            <select
-              id="score-library-sort"
-              value={sortOption}
-              onChange={(event) =>
-                setSortOption(event.target.value as LibrarySortOption)
-              }
-              className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-            >
-              {LIBRARY_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
 
         <div className="playright-scrollbar min-h-0 flex-1 overflow-y-auto p-2">
           {downloadError ? (
