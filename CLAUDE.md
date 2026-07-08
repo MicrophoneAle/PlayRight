@@ -55,7 +55,7 @@ PlayRight/
 - **Manual fingering keys:** Always `onset:notatedHand:midi` via `fingeringKey()`. Crossovers persist as `{ finger, physicalHand }`; same-hand assignments are plain finger numbers.
 - **Supabase schema:** Do not alter `scores` or RLS in app code. Add/update SQL under `playright/supabase/` and document in README.
 - **Edit mode removed:** Fingering capture is program mode only; do not reintroduce a separate edit mode without explicit request.
-- **Legacy dead code:** `manualHandOverrides` / `setManualFingerCrossover` are inert (localStorage only)—do not wire them back without a deliberate migration plan.
+- **Cross-hand crossovers:** Persist as `{ finger, physicalHand }` on `onset:notatedHand:midi` via `manual_fingerings`. Legacy `manualHandOverrides` localStorage is migrated on score load (`manualHandOverrideMigration.ts`) and no longer rewrites `note.hand`.
 - **Deploy layout:** Vercel project root is `playright/`. OpenSheetMusicDisplay lives in the **repo root** `package.json`—CI/deploy must install root deps before building the app.
 - **Style / lint:**
   - TypeScript strict; use `.ts` / `.tsx` import extensions (e.g. `'../core/foo.ts'`).

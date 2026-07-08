@@ -18,7 +18,6 @@ import type { AudioEngine } from './AudioEngine.ts';
 import { FingeringProgramEngine } from './FingeringProgramEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
 import {
-  applyManualHandOverrides,
   prepareScriptWithFingering,
 } from './fingeringPredictor.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
@@ -36,7 +35,6 @@ import {
 import { useEngineStore } from '../store/useEngineStore.ts';
 import {
   fingeringKey,
-  manualHandOverrideKey,
   type Finger,
   type ManualFingeringMap,
 } from '../types/index.ts';
@@ -66,7 +64,6 @@ function resetStore(): void {
     isPlaybackActive: false,
     currentStepIndex: 0,
     manualFingerings: {},
-    manualHandOverrides: {},
     selectedFingeringNote: null,
     programAssignedKeys: [],
     programRefingerNoteIndex: null,
@@ -856,34 +853,6 @@ describe('FingeringProgramEngine', async () => {
     expect(afterFirstStep.manualFingerings[fingeringKey(960, 'R', 62)]).toBeUndefined();
     expect(unprogrammed?.finger).not.toBeNull();
     expect(unprogrammed?.fingerSource).not.toBe('manual');
-  });
-});
-
-describe('applyManualHandOverrides', async () => {
-  it('updates note hand before manual fingering is applied', async () => {
-    const script: PlaybackScript = [
-      {
-        order: 0,
-        onset: 0,
-        measureNumber: 1,
-        notes: [{ pitch: 'C3', midi: 48, hand: 'L', finger: null }],
-      },
-    ];
-
-    const withHands = applyManualHandOverrides(script, {
-      [manualHandOverrideKey(0, 48)]: 'R',
-    });
-    const prepared = await prepareScriptWithFingering(
-      withHands,
-      { [fingeringKey(0, 'R', 48)]: 2 as Finger },
-      false,
-      1,
-    );
-
-    const note = prepared[0].notes[0];
-    expect(note.hand).toBe('R');
-    expect(note.finger).toBe(2);
-    expect(note.fingerSource).toBe('manual');
   });
 });
 

@@ -4,12 +4,13 @@ import { useAuth } from '@clerk/react';
 import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
+import { migrateLegacyHandOverridesOnLoad } from '../core/manualHandOverrideMigration.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
-import { fetchScoreById, saveScoreToLibrary } from '../core/scoreLibrary.ts';
+import { fetchScoreById, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
-import type { FingeringMode, Hand, ManualFingeringMap, ManualHandOverrideMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
+import type { FingeringMode, Hand, ManualFingeringMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ParseWarningsPanel } from './ParseWarningsPanel.tsx';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -70,19 +71,28 @@ export function Lid() {
   const prepareScriptForLoad = async (
     script: PlaybackScript,
     manualFingerings: ManualFingeringMap = {},
-    manualHandOverrides: ManualHandOverrideMap = {},
+    scoreId: string | null = null,
     scoreTiming?: ScoreTiming | null,
+    userIdForMigration?: string | null,
   ) => {
+    const { manualFingerings: migratedFingerings, didMigrate } =
+      migrateLegacyHandOverridesOnLoad(script, manualFingerings, scoreId);
+
+    if (didMigrate && scoreId && userIdForMigration) {
+      void updateScoreManualFingerings(scoreId, userIdForMigration, migratedFingerings);
+    }
+
     const state = useEngineStore.getState();
-    return prepareScriptWithFingering(
+    const prepared = await prepareScriptWithFingering(
       script,
-      manualFingerings,
+      migratedFingerings,
       state.autoFingering,
       state.handSpan,
       state.overrideScoreFingerings,
-      manualHandOverrides,
       scoreTiming,
     );
+
+    return { script: prepared, manualFingerings: migratedFingerings };
   };
 
   const handSpanClass = (preset: HandSpanPreset) =>
@@ -404,7 +414,12 @@ export function Lid() {
         const text = await readMusicXmlFromFile(file);
         const { script, scoreTiming, warnings } = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
-        const loadedScript = await prepareScriptForLoad(script, {}, {}, scoreTiming);
+        const { script: loadedScript, manualFingerings } = await prepareScriptForLoad(
+          script,
+          {},
+          null,
+          scoreTiming,
+        );
         let scoreId: string | null = null;
 
         if (userId) {
@@ -418,7 +433,7 @@ export function Lid() {
 
         loadScript(loadedScript, text, title, {
           scoreId,
-          manualFingerings: {},
+          manualFingerings,
         }, scoreTiming);
         setParseWarnings(warnings);
 
@@ -444,15 +459,16 @@ export function Lid() {
 
     try {
       const { script, scoreTiming, warnings } = parseMusicXmlToScript(saved.raw_xml);
-      const loadedScript = await prepareScriptForLoad(
+      const { script: loadedScript, manualFingerings } = await prepareScriptForLoad(
         script,
         saved.manual_fingerings,
-        undefined,
+        saved.id,
         scoreTiming,
+        userId,
       );
       loadScript(loadedScript, saved.raw_xml, saved.title, {
         scoreId: saved.id,
-        manualFingerings: saved.manual_fingerings,
+        manualFingerings,
       }, scoreTiming);
       setParseWarnings(warnings);
     } catch (error) {

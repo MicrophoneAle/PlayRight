@@ -2,14 +2,12 @@
   Finger,
   Hand,
   ManualFingeringMap,
-  ManualHandOverrideMap,
   PlaybackScript,
   ScoreTiming,
   ScriptNote,
 } from '../types/index.ts';
 import {
   fingeringKey,
-  manualHandOverrideKey,
   resolveManualAssignment,
 } from '../types/index.ts';
 import { getMLFingerCosts } from './aiFingeringInference.ts';
@@ -1163,27 +1161,6 @@ export async function predictFingering(
   });
 }
 
-export function applyManualHandOverrides(
-  script: PlaybackScript,
-  overrides: ManualHandOverrideMap,
-): PlaybackScript {
-  if (Object.keys(overrides).length === 0) {
-    return script;
-  }
-
-  return script.map((step) => ({
-    ...step,
-    notes: step.notes.map((note) => {
-      const overrideHand = overrides[manualHandOverrideKey(step.onset, note.midi)];
-      if (overrideHand === undefined) {
-        return note;
-      }
-
-      return { ...note, hand: overrideHand };
-    }),
-  }));
-}
-
 export function applyManualFingerings(
   script: PlaybackScript,
   overrides: ManualFingeringMap,
@@ -1272,11 +1249,9 @@ export async function prepareScriptWithFingering(
   autoFingering: boolean,
   spanScale: number,
   overrideScore = false,
-  manualHandOverrides: ManualHandOverrideMap = {},
   scoreTiming?: ScoreTiming | null,
 ): Promise<PlaybackScript> {
-  const withHands = applyManualHandOverrides(script, manualHandOverrides);
-  const withManual = applyManualFingerings(withHands, manualFingerings);
+  const withManual = applyManualFingerings(script, manualFingerings);
 
   return applyFingeringSettings(
     withManual,

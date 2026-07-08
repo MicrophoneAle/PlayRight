@@ -13,13 +13,12 @@ import type {
   FingeringMode,
   Hand,
   ManualFingeringMap,
-  ManualHandOverrideMap,
   PlaybackScript,
   PlayingPlaybackNote,
   ScoreTiming,
   SelectedFingeringNote,
 } from '../types/index.ts';
-import { fingeringKey, manualHandOverrideKey } from '../types/index.ts';
+import { fingeringKey } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 export type SheetScrollMode = 'smooth' | 'instant';
@@ -29,7 +28,6 @@ const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
 const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
 const OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY = 'playright-override-score-fingerings';
 const FINGERING_MODE_STORAGE_KEY = 'playright-fingering-mode';
-const MANUAL_HAND_OVERRIDES_PREFIX = 'playright-hand-overrides:';
 const PLAY_MODE_STORAGE_KEY = 'playright-play-mode';
 const TEMPO_FACTOR_STORAGE_KEY = 'playright-tempo-factor';
 
@@ -144,7 +142,6 @@ function startFingeringProgramSession(): void {
 async function reprocessScriptFromRaw(
   rawXml: string | null,
   manualFingerings: ManualFingeringMap,
-  manualHandOverrides: ManualHandOverrideMap,
   autoFingering: boolean,
   handSpan: HandSpanPreset,
   overrideScoreFingerings: boolean,
@@ -160,56 +157,10 @@ async function reprocessScriptFromRaw(
     autoFingering,
     handSpan,
     overrideScoreFingerings,
-    manualHandOverrides,
     scoreTiming,
   );
 
   return { script, scoreTiming };
-}
-
-function readStoredHandOverrides(scoreId: string | null): ManualHandOverrideMap {
-  if (!scoreId || typeof window === 'undefined') {
-    return {};
-  }
-
-  try {
-    const raw = window.localStorage.getItem(`${MANUAL_HAND_OVERRIDES_PREFIX}${scoreId}`);
-    if (!raw) {
-      return {};
-    }
-
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {};
-    }
-
-    const result: ManualHandOverrideMap = {};
-    for (const [key, hand] of Object.entries(parsed)) {
-      if ((hand === 'L' || hand === 'R') && /^\d+:\d+$/.test(key)) {
-        result[key as keyof ManualHandOverrideMap] = hand;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-function persistHandOverrides(
-  scoreId: string | null,
-  manualHandOverrides: ManualHandOverrideMap,
-): void {
-  if (!scoreId || typeof window === 'undefined') {
-    return;
-  }
-
-  const storageKey = `${MANUAL_HAND_OVERRIDES_PREFIX}${scoreId}`;
-  if (Object.keys(manualHandOverrides).length === 0) {
-    window.localStorage.removeItem(storageKey);
-    return;
-  }
-
-  window.localStorage.setItem(storageKey, JSON.stringify(manualHandOverrides));
 }
 
 function persistManualFingerings(
@@ -236,7 +187,6 @@ function persistManualFingerings(
 export interface LoadScriptLibraryMeta {
   scoreId?: string | null;
   manualFingerings?: ManualFingeringMap;
-  manualHandOverrides?: ManualHandOverrideMap;
 }
 
 interface EngineState {
@@ -246,7 +196,6 @@ interface EngineState {
   scoreId: string | null;
   scoreTiming: ScoreTiming | null;
   manualFingerings: ManualFingeringMap;
-  manualHandOverrides: ManualHandOverrideMap;
   fingeringMode: FingeringMode;
   selectedFingeringNote: SelectedFingeringNote | null;
   /** Keys `${hand}:${midi}` assigned in the current program step (transient UI). */
@@ -313,14 +262,6 @@ interface EngineState {
       midi: number,
       userId?: string | null,
     ) => void;
-    setManualFingerCrossover: (
-      onset: number,
-      fromHand: Hand,
-      midi: number,
-      toHand: Hand,
-      finger: Finger,
-      userId?: string | null,
-    ) => void;
     setFingeringMode: (mode: FingeringMode) => void;
     setSelectedFingeringNote: (note: SelectedFingeringNote | null) => void;
     setProgramAssignedKeys: (keys: string[]) => void;
@@ -359,7 +300,6 @@ export const useEngineStore = create<EngineState>((set) => {
   scoreId: null,
   scoreTiming: null,
   manualFingerings: {},
-  manualHandOverrides: {},
   fingeringMode: 'off',
   selectedFingeringNote: null,
   programAssignedKeys: [],
@@ -401,9 +341,6 @@ export const useEngineStore = create<EngineState>((set) => {
         scoreId: library?.scoreId ?? null,
         scoreTiming: scoreTiming ?? null,
         manualFingerings: library?.manualFingerings ?? {},
-        manualHandOverrides:
-          library?.manualHandOverrides ??
-          readStoredHandOverrides(library?.scoreId ?? null),
         currentStepIndex: 0,
         totalSteps: script.length,
         isPracticeActive: false,
@@ -425,7 +362,6 @@ export const useEngineStore = create<EngineState>((set) => {
         scoreId: null,
         scoreTiming: null,
         manualFingerings: {},
-        manualHandOverrides: {},
         selectedFingeringNote: null,
         hasPracticeStarted: false,
         isPlaybackActive: false,
@@ -449,7 +385,6 @@ export const useEngineStore = create<EngineState>((set) => {
       void reprocessScriptFromRaw(
         state.rawXml,
         manualFingerings,
-        state.manualHandOverrides,
         state.autoFingering,
         state.handSpan,
         state.overrideScoreFingerings,
@@ -513,64 +448,22 @@ export const useEngineStore = create<EngineState>((set) => {
       const manualFingerings = { ...state.manualFingerings };
       delete manualFingerings[key];
 
-      const manualHandOverrides = { ...state.manualHandOverrides };
-      delete manualHandOverrides[manualHandOverrideKey(onset, midi)];
-
       persistManualFingerings(state.scoreId, manualFingerings, userId);
-      persistHandOverrides(state.scoreId, manualHandOverrides);
 
       void reprocessScriptFromRaw(
         state.rawXml,
         manualFingerings,
-        manualHandOverrides,
         state.autoFingering,
         state.handSpan,
         state.overrideScoreFingerings,
       ).then((reprocessed) => {
         if (!reprocessed) {
-          set({ manualFingerings, manualHandOverrides });
+          set({ manualFingerings });
           return;
         }
 
         set({
           manualFingerings,
-          manualHandOverrides,
-          script: reprocessed.script,
-          scoreTiming: reprocessed.scoreTiming,
-          totalSteps: reprocessed.script.length,
-        });
-      });
-    },
-    setManualFingerCrossover: (onset, fromHand, midi, toHand, finger, userId) => {
-      const state = useEngineStore.getState();
-      const manualFingerings = { ...state.manualFingerings };
-      delete manualFingerings[fingeringKey(onset, fromHand, midi)];
-      manualFingerings[fingeringKey(onset, toHand, midi)] = finger;
-
-      const manualHandOverrides = {
-        ...state.manualHandOverrides,
-        [manualHandOverrideKey(onset, midi)]: toHand,
-      };
-
-      persistManualFingerings(state.scoreId, manualFingerings, userId);
-      persistHandOverrides(state.scoreId, manualHandOverrides);
-
-      void reprocessScriptFromRaw(
-        state.rawXml,
-        manualFingerings,
-        manualHandOverrides,
-        state.autoFingering,
-        state.handSpan,
-        state.overrideScoreFingerings,
-      ).then((reprocessed) => {
-        if (!reprocessed) {
-          set({ manualFingerings, manualHandOverrides });
-          return;
-        }
-
-        set({
-          manualFingerings,
-          manualHandOverrides,
           script: reprocessed.script,
           scoreTiming: reprocessed.scoreTiming,
           totalSteps: reprocessed.script.length,
@@ -719,7 +612,6 @@ export const useEngineStore = create<EngineState>((set) => {
       void reprocessScriptFromRaw(
         state.rawXml,
         state.manualFingerings,
-        state.manualHandOverrides,
         state.autoFingering,
         state.handSpan,
         overrideScoreFingerings,

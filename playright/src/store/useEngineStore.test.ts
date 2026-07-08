@@ -53,7 +53,6 @@ function resetStore(): void {
     songTitle: null,
     scoreId: null,
     manualFingerings: {},
-    manualHandOverrides: {},
     fingeringMode: 'off',
     selectedFingeringNote: null,
     programAssignedKeys: [],
