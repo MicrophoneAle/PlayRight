@@ -85,4 +85,4 @@ PlayRight/
 - **Exclusions:** Do not read or analyze `node_modules/`, `dist/`, large bundled `.musicxml` assets, log dumps, or minified scripts unless the task explicitly requires it.
 - **Brevity:** Omit conversational fluff and lengthy post-code explanations. Let the code speak for itself.
 - **Verification:** After substantive changes, run `npm test` and `npm run build` from `playright/` (not the repo root).
-- **Checkpoints:** Stable milestones use annotated git tags (`checkpoint-*`); update README Checkpoints table when tagging. Latest: `checkpoint-play-performance` (rolling transport scheduling, rIC audio disposal, incremental play-mode visuals).
+- **Checkpoints:** Stable milestones use annotated git tags (`checkpoint-*`); update README Checkpoints table when tagging. Latest: `checkpoint-library-play-sync` (score library sort UI, play-mode visual duration sync, pedal display restore).
