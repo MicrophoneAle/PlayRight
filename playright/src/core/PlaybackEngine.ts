@@ -11,6 +11,7 @@ import {
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   pieceEndQuarterNotes,
+  PLAYBACK_SCHEDULE_AHEAD_QUARTERS,
   resolveNotePlaybackDurationQuarterNotes,
   quarterNotesToTickDuration,
   quartersToTicks,
@@ -70,8 +71,7 @@ const PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS = 40;
  */
 const GRACE_NOTE_DURATION_QUARTERS = 1 / 8;
 
-/** Pre-schedule this many quarter-note beats ahead of the transport. */
-export const PLAYBACK_SCHEDULE_AHEAD_QUARTERS = 24;
+export { PLAYBACK_SCHEDULE_AHEAD_QUARTERS } from './playbackTiming.ts';
 
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
@@ -430,6 +430,7 @@ export class PlaybackEngine {
     divisionsPerQuarter: number,
     ppq: number,
     finalNoteKeys: Set<string>,
+    windowLagTicks: number,
   ): void {
     const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
     const writtenQuarters = noteDurationQuarterNotes(
@@ -448,7 +449,7 @@ export class PlaybackEngine {
       durationOptions,
     );
     const { text: releaseTime } = safeTickTime(
-      quartersToTicks(releaseOnset, ppq),
+      quartersToTicks(releaseOnset, ppq) + windowLagTicks,
       attackTick,
       'tie-end release',
       { stepIndex, midi: note.midi, hand: note.hand },
@@ -510,6 +511,7 @@ export class PlaybackEngine {
     minTick: number,
     ppq: number,
     engine: AudioEngine,
+    windowLagTicks: number,
   ): void {
     const transport = getTransport();
     const windowStartQuarters = Math.max(
@@ -528,7 +530,7 @@ export class PlaybackEngine {
     graceNotes.forEach((grace, graceIndex) => {
       const graceAttackQuarters = windowStartQuarters + graceIndex * perGraceQuarters;
       const { text: graceAttackTime, tick: graceAttackTick } = safeTickTime(
-        quartersToTicks(graceAttackQuarters, ppq),
+        quartersToTicks(graceAttackQuarters, ppq) + windowLagTicks,
         previousGraceTick,
         'grace attack',
         { stepIndex, graceIndex, midi: grace.midi },
@@ -547,7 +549,7 @@ export class PlaybackEngine {
       this.scheduledEventIds.push(attackEventId);
 
       const { text: graceReleaseTime, tick: graceReleaseTick } = safeTickTime(
-        quartersToTicks(graceAttackQuarters + perGraceQuarters, ppq),
+        quartersToTicks(graceAttackQuarters + perGraceQuarters, ppq) + windowLagTicks,
         graceAttackTick,
         'grace release',
         { stepIndex, graceIndex, midi: grace.midi },
@@ -618,6 +620,18 @@ export class PlaybackEngine {
         : currentQuarters;
     const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
 
+    const anchorTick = Math.round(quartersToTicks(anchorQuarters, ppq));
+    const transportNow = Math.round(transport.ticks);
+    // When a rolling-window extension fires slightly late, shift this window's
+    // events forward together so inter-attack gaps stay at score tempo instead
+    // of past-due attacks firing in a burst (audible speed-up/slow-down wobble).
+    const windowLagTicks =
+      this.lastScheduledAttackTick < 0
+        ? 0
+        : Math.max(0, transportNow - anchorTick);
+    const laggedTicksFromQuarters = (quarterNotes: number): number =>
+      quartersToTicks(quarterNotes, ppq) + windowLagTicks;
+
     let lastScheduledStep = fromStepIndex;
     // Monotonic floor comes from the last scheduled *musical* attack. Only fall
     // back to transport.ticks when seeking mid-piece (lastScheduledAttackTick
@@ -644,7 +658,7 @@ export class PlaybackEngine {
         }
 
         const { text: attackTime, tick: attackTick } = safeTickTime(
-          quartersToTicks(attackOnsetQuarters, ppq),
+          laggedTicksFromQuarters(attackOnsetQuarters),
           lastSafeAttackTick,
           'step attack',
           { stepIndex, attackOnsetQuarters, fermataOffset: fermataOffsets[stepIndex] ?? 0 },
@@ -663,6 +677,7 @@ export class PlaybackEngine {
             lastSafeAttackTick,
             ppq,
             engine,
+            windowLagTicks,
           );
         }
         lastSafeAttackTick = attackTick;
@@ -706,6 +721,7 @@ export class PlaybackEngine {
                 divisionsPerQuarter,
                 ppq,
                 finalNoteKeys,
+                windowLagTicks,
               );
             }
             continue;
@@ -738,7 +754,7 @@ export class PlaybackEngine {
           if (!note.tiedToNext) {
             const releaseOnset = attackOnsetQuarters + playedQuarters;
             const { text: releaseTime, tick: releaseTick } = safeTickTime(
-              quartersToTicks(releaseOnset, ppq),
+              laggedTicksFromQuarters(releaseOnset),
               attackTick,
               'note release',
               { stepIndex, midi: note.midi, hand: note.hand },
@@ -799,12 +815,12 @@ export class PlaybackEngine {
         fermataOffsets[lastScheduledStep],
       );
       const { text: extensionTime } = safeTickTime(
-        quartersToTicks(triggerQuarters, ppq),
+        laggedTicksFromQuarters(triggerQuarters),
         lastSafeAttackTick,
         'schedule extension',
         { fromStepIndex: lastScheduledStep },
       );
-      const extensionEventId = transport.scheduleOnce(() => {
+      const extensionEventId = transport.scheduleOnce((_time) => {
         try {
           if (!this.isPlaying || this.isPaused) {
             return;
@@ -823,7 +839,7 @@ export class PlaybackEngine {
 
     const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
     const { text: pieceEndTime } = safeTickTime(
-      quartersToTicks(pieceEndQuarters, ppq),
+      laggedTicksFromQuarters(pieceEndQuarters),
       lastSafeAttackTick,
       'piece end',
       { scriptLength: script.length },

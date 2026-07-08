@@ -21,6 +21,9 @@ export function quarterNotesToSeconds(quarterNotes: number, bpm: number): number
   return quarterNotes * (60 / bpm);
 }
 
+/** Pre-schedule this many quarter-note beats ahead of the transport. */
+export const PLAYBACK_SCHEDULE_AHEAD_QUARTERS = 24;
+
 /** Smallest release gap (sixteenth-note feel at 4/4). */
 export const PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS = 0.02;
 
