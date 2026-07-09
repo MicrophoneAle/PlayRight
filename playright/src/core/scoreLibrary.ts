@@ -144,6 +144,28 @@ function mapLibraryRow(row: {
   };
 }
 
+const scoreLibraryCache = new Map<string, LibraryEntry[]>();
+
+export function readScoreLibraryCache(userId: string): LibraryEntry[] | undefined {
+  return scoreLibraryCache.get(userId);
+}
+
+export function removeScoreFromLibraryCache(userId: string, scoreId: string): void {
+  const cached = scoreLibraryCache.get(userId);
+  if (!cached) {
+    return;
+  }
+
+  scoreLibraryCache.set(
+    userId,
+    cached.filter((entry) => entry.id !== scoreId),
+  );
+}
+
+export function invalidateScoreLibraryCache(userId: string): void {
+  scoreLibraryCache.delete(userId);
+}
+
 export async function saveScoreToLibrary(
   title: string,
   rawXml: string,
@@ -183,6 +205,7 @@ export async function saveScoreToLibrary(
       return { ok: false, reason: fallback.error.message };
     }
 
+    invalidateScoreLibraryCache(userId);
     return { ok: true, id: fallback.data.id };
   }
 
@@ -191,12 +214,21 @@ export async function saveScoreToLibrary(
     return { ok: false, reason: error.message };
   }
 
+  invalidateScoreLibraryCache(userId);
   return { ok: true, id: data.id };
 }
 
 export async function fetchScoreLibrary(
   userId: string,
+  options: { force?: boolean } = {},
 ): Promise<LibraryEntry[] | null> {
+  if (!options.force) {
+    const cached = scoreLibraryCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+  }
+
   const supabase = getSupabase();
   if (!supabase) {
     console.error('[scoreLibrary] Failed to fetch library: Supabase not configured.');
@@ -214,7 +246,9 @@ export async function fetchScoreLibrary(
     return null;
   }
 
-  return (data ?? []).map((row) => mapLibraryRow(row));
+  const entries = (data ?? []).map((row) => mapLibraryRow(row));
+  scoreLibraryCache.set(userId, entries);
+  return entries;
 }
 
 export async function fetchScoreById(
@@ -331,5 +365,6 @@ export async function deleteScoreFromLibrary(
     return { ok: false, reason };
   }
 
+  removeScoreFromLibraryCache(userId, id);
   return { ok: true };
 }

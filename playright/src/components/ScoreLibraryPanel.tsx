@@ -6,8 +6,13 @@ import {
   deleteScoreFromLibrary,
   fetchScoreById,
   fetchScoreLibrary,
+  readScoreLibraryCache,
   type LibraryEntry,
 } from '../core/scoreLibrary.ts';
+import {
+  getScoreLibraryGridColumns,
+  moveScoreLibraryGridFocus,
+} from '../core/scoreLibraryGridNavigation.ts';
 import { isSupabaseConfigured } from '../core/supabaseClient.ts';
 
 interface ScoreLibraryPanelProps {
@@ -118,7 +123,9 @@ export function ScoreLibraryPanel({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState<LibrarySortOption>('date-desc');
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [gridColumns, setGridColumns] = useState(1);
   const entryRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const listRef = useRef<HTMLUListElement>(null);
 
   const { sortKey, sortDirection } = parseLibrarySortOption(sortOption);
   const sortedEntries = useMemo(
@@ -142,7 +149,6 @@ export function ScoreLibraryPanel({
   }, [isOpen, sortedEntries.length, sortOption]);
 
   const loadEntries = useCallback(async () => {
-    setLoading(true);
     setFetchFailed(false);
     setNotConfigured(false);
 
@@ -158,6 +164,15 @@ export function ScoreLibraryPanel({
       setLoading(false);
       return;
     }
+
+    const cached = readScoreLibraryCache(userId);
+    if (cached) {
+      setEntries(cached);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
 
     const data = await fetchScoreLibrary(userId);
     if (data === null) {
@@ -188,6 +203,26 @@ export function ScoreLibraryPanel({
 
     void loadEntries();
   }, [isOpen, loadEntries, userId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const list = listRef.current;
+    if (!list) {
+      return;
+    }
+
+    const updateColumns = () => {
+      setGridColumns(getScoreLibraryGridColumns(list.clientWidth));
+    };
+
+    updateColumns();
+    const observer = new ResizeObserver(updateColumns);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [isOpen, entries.length]);
 
   useEffect(() => {
     if (!deleteTarget) {
@@ -225,23 +260,35 @@ export function ScoreLibraryPanel({
         return;
       }
 
-      if (
-        event.key === 'ArrowDown' ||
-        event.key === 'ArrowRight'
-      ) {
+      if (event.key === 'ArrowDown') {
         event.preventDefault();
         setFocusedIndex((current) =>
-          Math.min(sortedEntries.length - 1, current + 1),
+          moveScoreLibraryGridFocus(current, 'down', sortedEntries.length, gridColumns),
         );
         return;
       }
 
-      if (
-        event.key === 'ArrowUp' ||
-        event.key === 'ArrowLeft'
-      ) {
+      if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setFocusedIndex((current) => Math.max(0, current - 1));
+        setFocusedIndex((current) =>
+          moveScoreLibraryGridFocus(current, 'up', sortedEntries.length, gridColumns),
+        );
+        return;
+      }
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setFocusedIndex((current) =>
+          moveScoreLibraryGridFocus(current, 'right', sortedEntries.length, gridColumns),
+        );
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setFocusedIndex((current) =>
+          moveScoreLibraryGridFocus(current, 'left', sortedEntries.length, gridColumns),
+        );
         return;
       }
 
@@ -261,7 +308,7 @@ export function ScoreLibraryPanel({
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [handleSelect, isOpen, deleteTarget, focusedIndex, onClose, sortedEntries]);
+  }, [gridColumns, handleSelect, isOpen, deleteTarget, focusedIndex, onClose, sortedEntries]);
 
   useEffect(() => {
     const entry = sortedEntries[focusedIndex];
@@ -486,7 +533,10 @@ export function ScoreLibraryPanel({
           ) : entries.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">No saved scores yet</p>
           ) : (
-            <ul className="grid grid-cols-1 gap-1 min-[520px]:grid-cols-2">
+            <ul
+              ref={listRef}
+              className="grid grid-cols-1 gap-1 min-[520px]:grid-cols-2"
+            >
               {sortedEntries.map((entry, index) => (
                 <li key={entry.id}>
                   <div

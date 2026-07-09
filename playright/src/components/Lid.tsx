@@ -8,7 +8,8 @@ import { migrateLegacyHandOverridesOnLoad } from '../core/manualHandOverrideMigr
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
-import { fetchScoreById, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
+import { fetchScoreById, fetchScoreLibrary, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
+import { isSupabaseConfigured } from '../core/supabaseClient.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { FingeringMode, Hand, ManualFingeringMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
 import { computeAnchorDropdownPosition, SETTINGS_PANEL_WIDTH } from '../core/anchorDropdownPosition.ts';
@@ -109,6 +110,12 @@ export function Lid() {
       : 'text-zinc-400 hover:text-zinc-200';
 
   const canManageLibrary = isAuthLoaded && isSignedIn && Boolean(userId);
+
+  useEffect(() => {
+    if (userId && isSupabaseConfigured()) {
+      void fetchScoreLibrary(userId);
+    }
+  }, [userId]);
 
   useEffect(() => {
     if (!settingsOpen) {
@@ -463,6 +470,7 @@ export function Lid() {
             console.error('[scoreLibrary] Failed to save score:', saved.reason);
           } else {
             scoreId = saved.id;
+            void fetchScoreLibrary(userId, { force: true });
           }
         }
 
@@ -537,6 +545,10 @@ export function Lid() {
     toggleHeaderCollapsed();
   };
 
+  const collapseButtonSpacer = (
+    <div className="w-[22px] shrink-0" aria-hidden="true" />
+  );
+
   const collapseButton = (
     <button
       type="button"
@@ -544,7 +556,7 @@ export function Lid() {
       aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand header' : 'Collapse header'}
       title={collapsed ? 'Expand header' : 'Collapse header'}
-      className={headerToggleClass}
+      className={`fixed left-3 top-[1.1875rem] z-50 sm:left-4 lg:left-6 ${headerToggleClass}`}
     >
       {collapsed ? (
         <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
@@ -691,6 +703,8 @@ export function Lid() {
 
       <ParseWarningsPanel />
 
+      {collapseButton}
+
       <header
         className={`flex shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm ${
           collapsed
@@ -699,12 +713,12 @@ export function Lid() {
         }`}
       >
         {collapsed ? (
-          collapseButton
+          collapseButtonSpacer
         ) : (
           <>
             <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6">
               <div className="flex min-w-0 items-center gap-1.5">
-                {collapseButton}
+                {collapseButtonSpacer}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
                   <Music2 size={18} strokeWidth={2} aria-hidden />
                 </div>
