@@ -8,16 +8,23 @@ const transportScheduleOnce = vi.hoisted(() =>
   }),
 );
 const transportStart = vi.hoisted(() => vi.fn());
+const transportPause = vi.hoisted(() => vi.fn());
+const transportTicks = vi.hoisted(() => ({ value: 0 }));
 const scheduleAttackRelease = vi.hoisted(() => vi.fn());
 
 vi.mock('tone', () => ({
   getTransport: () => ({
     PPQ: 480,
     bpm: { value: 120 },
-    ticks: 0,
+    get ticks() {
+      return transportTicks.value;
+    },
+    set ticks(value: number) {
+      transportTicks.value = value;
+    },
     start: transportStart,
     stop: vi.fn(),
-    pause: vi.fn(),
+    pause: transportPause,
     scheduleOnce: transportScheduleOnce,
     clear: vi.fn(),
     cancel: vi.fn(),
@@ -45,7 +52,9 @@ describe('PlaybackEngine playback visuals', () => {
   beforeEach(() => {
     transportScheduleOnce.mockClear();
     transportStart.mockClear();
+    transportPause.mockClear();
     scheduleAttackRelease.mockClear();
+    transportTicks.value = 0;
 
     const script: PlaybackScript = [
       {
@@ -389,5 +398,53 @@ describe('PlaybackEngine playback visuals', () => {
     engine.resume();
     expect(transportStart).toHaveBeenCalled();
     expect(useEngineStore.getState().isPlaybackPaused).toBe(false);
+  });
+
+  it('bumps the seek-target attack one tick forward when transport is parked on it', async () => {
+    const script: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 2,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 1, durationDivisions: 480 }],
+      },
+    ];
+
+    useEngineStore.setState({ script });
+
+    transportScheduleOnce.mockImplementation((callback, time) => {
+      if (String(time) === '0i') {
+        callback(0);
+      }
+      return transportScheduleOnce.mock.calls.length;
+    });
+
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease,
+      releaseAll: vi.fn(),
+    } as never);
+
+    await engine.play();
+    transportTicks.value = quartersToTicks(1, 480);
+    transportScheduleOnce.mockClear();
+    transportPause.mockClear();
+
+    engine.seekToStep(1);
+
+    expect(transportPause).toHaveBeenCalled();
+    const attackCalls = transportScheduleOnce.mock.calls.filter(
+      ([, time]) => String(time) === '481i',
+    );
+    expect(attackCalls.length).toBeGreaterThan(0);
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 });

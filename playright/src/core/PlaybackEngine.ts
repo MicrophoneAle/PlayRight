@@ -110,6 +110,8 @@ export class PlaybackEngine {
   private storeSubscriptionInitialized = false;
   private nextUnscheduledStepIndex = 0;
   private lastScheduledAttackTick = -1;
+  /** Step index whose attack must fire after a sheet seek (Tone skips same-tick events). */
+  private seekTargetStepIndex: number | null = null;
   private scheduleDerivedData: ScheduleDerivedData | null = null;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -297,14 +299,19 @@ export class PlaybackEngine {
 
     this.clearScheduledEvents();
     this.audioEngine?.releaseAll();
-    getTransport().ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
+    const transport = getTransport();
+    if (wasPlaying) {
+      transport.pause();
+    }
+    transport.ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
     this.hasFinishedPiece = false;
-    actions.setStepIndex(stepIndex);
+    this.seekTargetStepIndex = stepIndex;
     this.applyStepVisual(stepIndex);
+    this.scheduleFromStep(stepIndex);
+    this.seekTargetStepIndex = null;
 
     if (wasPlaying) {
-      this.scheduleFromStep(stepIndex);
-      getTransport().start();
+      transport.start();
       this.isPlaying = true;
       this.isPaused = false;
       actions.setPlaybackPaused(false);
@@ -312,10 +319,10 @@ export class PlaybackEngine {
     }
 
     if (this.isPlaying) {
-      this.scheduleFromStep(stepIndex);
+      // scheduleFromStep already ran above for paused mid-piece seeks.
     }
 
-    getTransport().pause();
+    transport.pause();
     this.isPaused = true;
     actions.setPlaybackPaused(true);
   }
@@ -729,12 +736,25 @@ export class PlaybackEngine {
           break;
         }
 
-        const { text: attackTime, tick: attackTick } = safeTickTime(
+        const { text: attackTime, tick: attackTickRaw } = safeTickTime(
           laggedTicksFromQuarters(attackOnsetQuarters),
           lastSafeAttackTick,
           'step attack',
           { stepIndex, attackOnsetQuarters, fermataOffset: fermataOffsets[stepIndex] ?? 0 },
         );
+        let attackTick = attackTickRaw;
+        let attackTimeText = attackTime;
+        // After a backward (or any) sheet seek the transport is parked exactly on
+        // the target attack tick; Tone's timeline often will not dispatch an
+        // event scheduled at the current tick, so bump the seek step one tick
+        // forward so the jump is audible and visuals stay in sync.
+        if (stepIndex === this.seekTargetStepIndex) {
+          const transportNow = Math.round(transportTicksAtEntry);
+          if (attackTick <= transportNow) {
+            attackTick = transportNow + 1;
+            attackTimeText = `${attackTick}i`;
+          }
+        }
 
         // Graces are scheduled before this step's attack/release events so
         // that, at the shared main-attack tick, the last grace's release
@@ -860,7 +880,7 @@ export class PlaybackEngine {
           } catch (err) {
             console.error('[PlaybackEngine] step attack callback failed (skipped):', err);
           }
-        }, attackTime);
+        }, attackTimeText);
 
         this.scheduledEventIds.push(stepEventId);
         lastScheduledStep = stepIndex + 1;

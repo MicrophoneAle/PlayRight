@@ -535,7 +535,12 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
 
-    scrollStateRef.current = { systemKey: null, lineScrollTop: null };
+    scrollStateRef.current = {
+      systemKey: null,
+      lineScrollTop: null,
+      previousSystemKey: null,
+      switchedAt: undefined,
+    };
     resetSheetMusicPlaybackVisualCache();
 
     if (state.isPlaybackActive) {
