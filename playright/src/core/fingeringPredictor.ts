@@ -9,6 +9,8 @@
 } from '../types/index.ts';
 import {
   fingeringKey,
+  graceFingeringKey,
+  resolveGraceManualAssignment,
   resolveManualAssignment,
 } from '../types/index.ts';
 import { getMLFingerCosts } from './aiFingeringInference.ts';
@@ -1302,6 +1304,29 @@ export function applyManualFingerings(
         fingerSource: 'manual' as const,
       };
     }),
+    ...(step.graceBefore
+      ? {
+          graceBefore: step.graceBefore.map((grace, graceIndex) => {
+            const assignment = resolveGraceManualAssignment(
+              step.onset,
+              grace.hand,
+              grace.midi,
+              graceIndex,
+              overrides,
+            );
+            if (assignment === null) {
+              return grace;
+            }
+
+            return {
+              ...grace,
+              finger: assignment.finger,
+              playingHand: assignment.physicalHand,
+              fingerSource: 'manual' as const,
+            };
+          }),
+        }
+      : {}),
   }));
 }
 
@@ -1321,6 +1346,17 @@ export function extractManualFingerings(
             : { finger: note.finger, physicalHand };
       }
     }
+
+    step.graceBefore?.forEach((grace, graceIndex) => {
+      if (grace.fingerSource === 'manual' && grace.finger !== undefined) {
+        const key = graceFingeringKey(step.onset, grace.hand, grace.midi, graceIndex);
+        const physicalHand = grace.playingHand ?? grace.hand;
+        overrides[key] =
+          physicalHand === grace.hand
+            ? grace.finger
+            : { finger: grace.finger, physicalHand };
+      }
+    });
   }
 
   return overrides;

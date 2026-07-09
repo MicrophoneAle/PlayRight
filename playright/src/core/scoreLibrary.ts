@@ -1,5 +1,5 @@
-import type { ManualFingeringMap } from '../types/index.ts';
-import { fingeringKey, isFinger } from '../types/index.ts';
+import type { ManualFingeringKey, ManualFingeringMap } from '../types/index.ts';
+import { fingeringKey, graceFingeringKey, isFinger } from '../types/index.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
 import { pieceEndQuarterNotes, quarterNotesToSeconds } from './playbackTiming.ts';
 import { getSupabase } from './supabaseClient.ts';
@@ -44,8 +44,12 @@ function isMissingManualFingeringsColumn(message: string): boolean {
   return message.includes('manual_fingerings');
 }
 
-/** Keys are onset:notatedHand:midi. Values are finger 1–5 or { finger, physicalHand } for crossovers. */
-function parseManualFingerings(value: unknown): ManualFingeringMap {
+/**
+ * Keys are onset:notatedHand:midi for a main note, or
+ * onset:notatedHand:midi:g{graceIndex} for a grace note. Values are finger
+ * 1–5 or { finger, physicalHand } for crossovers.
+ */
+export function parseManualFingerings(value: unknown): ManualFingeringMap {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
   }
@@ -58,7 +62,7 @@ function parseManualFingerings(value: unknown): ManualFingeringMap {
     }
 
     const parts = key.split(':');
-    if (parts.length !== 3) {
+    if (parts.length !== 3 && parts.length !== 4) {
       continue;
     }
 
@@ -75,7 +79,16 @@ function parseManualFingerings(value: unknown): ManualFingeringMap {
       continue;
     }
 
-    const stableKey = fingeringKey(onset, hand, midi);
+    let stableKey: ManualFingeringKey;
+    if (parts.length === 4) {
+      const graceMatch = /^g(\d+)$/.exec(parts[3]);
+      if (!graceMatch) {
+        continue;
+      }
+      stableKey = graceFingeringKey(onset, hand, midi, Number(graceMatch[1]));
+    } else {
+      stableKey = fingeringKey(onset, hand, midi);
+    }
 
     if (typeof raw === 'number' && isFinger(raw)) {
       overrides[stableKey] = raw;

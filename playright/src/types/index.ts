@@ -45,6 +45,8 @@ export interface GraceNoteInfo {
    * skipped until one exists (mirrors main-note chord-overflow filtering).
    */
   finger?: Finger;
+  /** Physical hand that plays this grace (crossovers); defaults to notated hand when unset. */
+  playingHand?: Hand;
   fingerSource?: 'score' | 'predicted' | 'manual';
 }
 
@@ -81,10 +83,19 @@ export interface PlayingPlaybackNote {
 }
 
 /**
- * Stable key for manual fingering overrides: onset:hand:midi (MusicXML divisions).
- * Pre-existing saves keyed by step index are not migrated and will not match after re-parse.
+ * Stable key for manual fingering overrides: onset:hand:midi (MusicXML divisions)
+ * for a main note, or onset:hand:midi:g{graceIndex} for a grace note preceding
+ * that onset. graceIndex is positional (graceBefore array index, engraved
+ * order) rather than derived from pitch, so it disambiguates even when two
+ * graces in the same run share both midi and hand. A grace can also share
+ * onset+hand+midi with its own main note (e.g. river-flows-in-you steps 84,
+ * 362, 397) - the trailing :g{n} is what keeps that pair from colliding into
+ * one key. Pre-existing saves keyed by step index are not migrated and will
+ * not match after re-parse.
  */
-export type ManualFingeringKey = `${number}:${Hand}:${number}`;
+export type ManualFingeringKey =
+  | `${number}:${Hand}:${number}`
+  | `${number}:${Hand}:${number}:g${number}`;
 
 export interface ManualFingeringAssignment {
   finger: Finger;
@@ -102,6 +113,16 @@ export function fingeringKey(
   midi: number,
 ): ManualFingeringKey {
   return `${onset}:${hand}:${midi}`;
+}
+
+/** Key for a grace note's manual fingering; graceIndex is its position in graceBefore, not derived from pitch. */
+export function graceFingeringKey(
+  onset: number,
+  hand: Hand,
+  midi: number,
+  graceIndex: number,
+): ManualFingeringKey {
+  return `${onset}:${hand}:${midi}:g${graceIndex}`;
 }
 
 /** Program captures fingers; edit reassigns a selected note (including cross-hand). */
@@ -125,6 +146,25 @@ export function resolveManualAssignment(
   map: ManualFingeringMap,
 ): ManualFingeringAssignment | null {
   const raw = map[fingeringKey(onset, notatedHand, midi)];
+  if (raw === undefined) {
+    return null;
+  }
+
+  if (typeof raw === 'number') {
+    return { finger: raw, physicalHand: notatedHand };
+  }
+
+  return raw;
+}
+
+export function resolveGraceManualAssignment(
+  onset: number,
+  notatedHand: Hand,
+  midi: number,
+  graceIndex: number,
+  map: ManualFingeringMap,
+): ManualFingeringAssignment | null {
+  const raw = map[graceFingeringKey(onset, notatedHand, midi, graceIndex)];
   if (raw === undefined) {
     return null;
   }
