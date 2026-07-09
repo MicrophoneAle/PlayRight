@@ -11,6 +11,7 @@ const GLOBAL_SHORTCUTS: KeyboardShortcut[] = [
   { keys: 'Space', description: 'Pause / Resume' },
   { keys: 'X', description: 'Stop and return to start' },
   { keys: 'Z', description: 'Toggle header' },
+  { keys: 'C', description: 'Open saved scores' },
 ];
 
 function formatDisplayKey(key: string): string {

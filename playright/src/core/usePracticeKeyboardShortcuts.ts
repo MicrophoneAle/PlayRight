@@ -29,6 +29,12 @@ export function usePracticeKeyboardShortcuts(): void {
         return;
       }
 
+      if (event.code === 'KeyC') {
+        event.preventDefault();
+        state.actions.toggleScoreLibrary();
+        return;
+      }
+
       if (state.playMode) {
         switch (event.code) {
           case 'Enter':

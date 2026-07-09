@@ -586,6 +586,10 @@ export class InputManager {
   }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
+    if (useEngineStore.getState().scoreLibraryOpen) {
+      return true;
+    }
+
     return (
       event.key === 'ArrowRight' ||
       event.code === 'Digit2' ||

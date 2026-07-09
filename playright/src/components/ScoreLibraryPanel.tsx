@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Download, Trash2, X } from 'lucide-react';
 import { downloadMusicXml } from '../core/readScoreFile.ts';
@@ -117,12 +117,29 @@ export function ScoreLibraryPanel({
   const [deleteTarget, setDeleteTarget] = useState<LibraryEntry | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState<LibrarySortOption>('date-desc');
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const entryRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const { sortKey, sortDirection } = parseLibrarySortOption(sortOption);
   const sortedEntries = useMemo(
     () => sortLibraryEntries(entries, sortKey, sortDirection),
     [entries, sortKey, sortDirection],
   );
+
+  useEffect(() => {
+    if (!isOpen) {
+      setFocusedIndex(0);
+      return;
+    }
+
+    setFocusedIndex((current) => {
+      if (sortedEntries.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, sortedEntries.length - 1);
+    });
+  }, [isOpen, sortedEntries.length, sortOption]);
 
   const loadEntries = useCallback(async () => {
     setLoading(true);
@@ -153,6 +170,14 @@ export function ScoreLibraryPanel({
     setLoading(false);
   }, [userId]);
 
+  const handleSelect = useCallback(
+    (id: string) => {
+      onSelect(id);
+      onClose();
+    },
+    [onClose, onSelect],
+  );
+
   useEffect(() => {
     if (!isOpen) {
       setDeleteTarget(null);
@@ -179,6 +204,73 @@ export function ScoreLibraryPanel({
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [deleteTarget, deletingId]);
+
+  useEffect(() => {
+    if (!isOpen || deleteTarget) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLSelectElement) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (sortedEntries.length === 0) {
+        return;
+      }
+
+      if (
+        event.key === 'ArrowDown' ||
+        event.key === 'ArrowRight'
+      ) {
+        event.preventDefault();
+        setFocusedIndex((current) =>
+          Math.min(sortedEntries.length - 1, current + 1),
+        );
+        return;
+      }
+
+      if (
+        event.key === 'ArrowUp' ||
+        event.key === 'ArrowLeft'
+      ) {
+        event.preventDefault();
+        setFocusedIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+
+      if (event.key === 'Enter') {
+        const entry = sortedEntries[focusedIndex];
+        if (!entry) {
+          return;
+        }
+
+        event.preventDefault();
+        handleSelect(entry.id);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, [handleSelect, isOpen, deleteTarget, focusedIndex, onClose, sortedEntries]);
+
+  useEffect(() => {
+    const entry = sortedEntries[focusedIndex];
+    if (!entry) {
+      return;
+    }
+
+    entryRowRefs.current.get(entry.id)?.scrollIntoView({ block: 'nearest' });
+  }, [focusedIndex, sortedEntries]);
 
   const handleDownloadClick = async (entry: LibraryEntry) => {
     if (!userId || downloadingId !== null) {
@@ -309,11 +401,6 @@ export function ScoreLibraryPanel({
       document.body,
     );
 
-  const handleSelect = (id: string) => {
-    onSelect(id);
-    onClose();
-  };
-
   if (!isOpen) {
     return deleteDialog;
   }
@@ -400,12 +487,26 @@ export function ScoreLibraryPanel({
             <p className="px-2 py-6 text-center text-sm text-zinc-500">No saved scores yet</p>
           ) : (
             <ul className="grid grid-cols-1 gap-1 min-[520px]:grid-cols-2">
-              {sortedEntries.map((entry) => (
+              {sortedEntries.map((entry, index) => (
                 <li key={entry.id}>
-                  <div className="flex items-stretch gap-1 rounded-md transition-colors hover:bg-zinc-800">
+                  <div
+                    ref={(element) => {
+                      if (element) {
+                        entryRowRefs.current.set(entry.id, element);
+                      } else {
+                        entryRowRefs.current.delete(entry.id);
+                      }
+                    }}
+                    className={`flex items-stretch gap-1 rounded-md transition-colors ${
+                      index === focusedIndex
+                        ? 'bg-zinc-800 ring-1 ring-violet-500'
+                        : 'hover:bg-zinc-800'
+                    }`}
+                  >
                     <button
                       type="button"
                       onClick={() => handleSelect(entry.id)}
+                      onMouseEnter={() => setFocusedIndex(index)}
                       className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2.5 text-left"
                     >
                       <span className="truncate text-sm font-medium text-zinc-100">

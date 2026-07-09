@@ -519,6 +519,10 @@ export function PianoKeyboard() {
     setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (useEngineStore.getState().scoreLibraryOpen) {
+        return;
+      }
+
       if (event.key === 'ArrowRight' || event.code === 'Digit2') {
         event.preventDefault();
         shiftScope('up');

@@ -29,7 +29,8 @@ export function Lid() {
     maxHeight: number;
   } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const isLibraryOpen = useEngineStore((state) => state.scoreLibraryOpen);
+  const setScoreLibraryOpen = useEngineStore((state) => state.actions.setScoreLibraryOpen);
   const collapsed = useEngineStore((state) => state.headerCollapsed);
   const toggleHeaderCollapsed = useEngineStore(
     (state) => state.actions.toggleHeaderCollapsed,
@@ -530,11 +531,28 @@ export function Lid() {
         : 'text-zinc-400 hover:text-zinc-200';
 
   const headerToggleClass =
-    'fixed left-3 top-5 z-50 inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100 sm:left-6 lg:left-8';
+    'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
 
   const toggleCollapsed = () => {
     toggleHeaderCollapsed();
   };
+
+  const collapseButton = (
+    <button
+      type="button"
+      onClick={toggleCollapsed}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? 'Expand header' : 'Collapse header'}
+      title={collapsed ? 'Expand header' : 'Collapse header'}
+      className={headerToggleClass}
+    >
+      {collapsed ? (
+        <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
+      ) : (
+        <ChevronUp size={10} strokeWidth={2.5} aria-hidden />
+      )}
+    </button>
+  );
 
   const playbackRunning = isPlaybackActive && !isPlaybackPaused;
 
@@ -661,23 +679,6 @@ export function Lid() {
     </div>
   ) : null;
 
-  const collapseButton = (
-    <button
-      type="button"
-      onClick={toggleCollapsed}
-      aria-expanded={!collapsed}
-      aria-label={collapsed ? 'Expand header' : 'Collapse header'}
-      title={collapsed ? 'Expand header' : 'Collapse header'}
-      className={headerToggleClass}
-    >
-      {collapsed ? (
-        <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
-      ) : (
-        <ChevronUp size={10} strokeWidth={2.5} aria-hidden />
-      )}
-    </button>
-  );
-
   return (
     <>
       <input
@@ -688,100 +689,109 @@ export function Lid() {
         onChange={handleFileUpload}
       />
 
-      {collapseButton}
       <ParseWarningsPanel />
 
-      {!collapsed ? (
-    <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-3 py-3 backdrop-blur-sm sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4">
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="w-[22px] shrink-0" aria-hidden />
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
-            <Music2 size={18} strokeWidth={2} aria-hidden />
-          </div>
-          <div className="min-w-0 text-left">
-            <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
-              PlayRight
-            </h1>
-            <div className="hidden text-xs leading-tight text-zinc-500 xl:block">
-              <span className="block">Keyboard-Controlled</span>
-              <span className="block">Piano Practice</span>
+      <header
+        className={`flex shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm ${
+          collapsed
+            ? 'items-center px-3 py-3 sm:px-4 lg:px-6'
+            : 'flex-col gap-3 px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4'
+        }`}
+      >
+        {collapsed ? (
+          collapseButton
+        ) : (
+          <>
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6">
+              <div className="flex min-w-0 items-center gap-1.5">
+                {collapseButton}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
+                  <Music2 size={18} strokeWidth={2} aria-hidden />
+                </div>
+                <div className="min-w-0 text-left">
+                  <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
+                    PlayRight
+                  </h1>
+                  <div className="hidden text-xs leading-tight text-zinc-500 xl:block">
+                    <span className="block">Keyboard-Controlled</span>
+                    <span className="block">Piano Practice</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex min-w-0 flex-1 items-center">
+                <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5 lg:max-w-md">
+                  <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
+                    Piece
+                  </span>
+                  <span className="truncate text-sm text-zinc-400">
+                    {songTitle ?? 'No Piece Loaded'}
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div className="flex min-w-0 flex-1 items-center">
-          <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5 lg:max-w-md">
-            <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
-              Piece
-            </span>
-            <span className="truncate text-sm text-zinc-400">
-              {songTitle ?? 'No Piece Loaded'}
-            </span>
-          </div>
-        </div>
-      </div>
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+              <button
+                type="button"
+                onClick={() => setScoreLibraryOpen(true)}
+                className={headerActionClass}
+              >
+                <Library size={15} strokeWidth={2} aria-hidden />
+                <span className="hidden sm:inline">Scores</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleImportClick}
+                disabled={!canManageLibrary}
+                title={canManageLibrary ? 'Import a MusicXML or MXL file' : 'Sign in to import songs'}
+                className={`${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <Upload size={15} strokeWidth={2} aria-hidden />
+                <span className="hidden sm:inline">Import</span>
+              </button>
+              {playControls}
 
-      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
-        <button
-          type="button"
-          onClick={() => setIsLibraryOpen(true)}
-          className={headerActionClass}
-        >
-          <Library size={15} strokeWidth={2} aria-hidden />
-          <span className="hidden sm:inline">Songs</span>
-        </button>
-        <button
-          type="button"
-          onClick={handleImportClick}
-          disabled={!canManageLibrary}
-          title={canManageLibrary ? 'Import a MusicXML or MXL file' : 'Sign in to import songs'}
-          className={`${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          <Upload size={15} strokeWidth={2} aria-hidden />
-          <span className="hidden sm:inline">Import</span>
-        </button>
-        {playControls}
+              {handToggle}
 
-        {handToggle}
+              <ShortcutsMenu
+                isOpen={shortcutsOpen}
+                onToggle={() => {
+                  setSettingsOpen(false);
+                  setShortcutsOpen((open) => !open);
+                }}
+                onClose={() => setShortcutsOpen(false)}
+              />
 
-        <ShortcutsMenu
-          isOpen={shortcutsOpen}
-          onToggle={() => {
-            setSettingsOpen(false);
-            setShortcutsOpen((open) => !open);
-          }}
-          onClose={() => setShortcutsOpen(false)}
-        />
+              <div className="relative" ref={settingsRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShortcutsOpen(false);
+                    setSettingsOpen((open) => !open);
+                  }}
+                  aria-expanded={settingsOpen}
+                  aria-haspopup="true"
+                  aria-label="Settings"
+                  className={`${headerActionClass} ${
+                    settingsOpen
+                      ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
+                      : ''
+                  }`}
+                >
+                  <Settings size={15} strokeWidth={2} aria-hidden />
+                </button>
+              </div>
 
-        <div className="relative" ref={settingsRef}>
-          <button
-            type="button"
-            onClick={() => {
-              setShortcutsOpen(false);
-              setSettingsOpen((open) => !open);
-            }}
-            aria-expanded={settingsOpen}
-            aria-haspopup="true"
-            aria-label="Settings"
-            className={`${headerActionClass} ${
-              settingsOpen
-                ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
-                : ''
-            }`}
-          >
-            <Settings size={15} strokeWidth={2} aria-hidden />
-          </button>
-        </div>
-
-        <AccountSection />
-      </div>
-    </header>
-      ) : null}
+              <AccountSection />
+            </div>
+          </>
+        )}
+      </header>
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel
         isOpen={isLibraryOpen}
-        onClose={() => setIsLibraryOpen(false)}
+        onClose={() => setScoreLibraryOpen(false)}
         onSelect={handleSelectFromLibrary}
         canDelete={canManageLibrary}
         userId={userId ?? null}

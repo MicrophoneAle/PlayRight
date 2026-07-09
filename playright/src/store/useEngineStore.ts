@@ -228,6 +228,8 @@ interface EngineState {
   playModeFingeringsVisible: boolean;
   tempoFactor: number;
   headerCollapsed: boolean;
+  /** True while the saved scores library modal is open. */
+  scoreLibraryOpen: boolean;
   /** Non-fatal parse notices for the current piece; shown in a dismissible panel. */
   parseWarnings: string[];
   currentStepIndex: number;
@@ -291,6 +293,8 @@ interface EngineState {
     togglePlayModeFingeringsVisible: () => void;
     setTempoFactor: (factor: number) => void;
     toggleHeaderCollapsed: () => void;
+    setScoreLibraryOpen: (open: boolean) => void;
+    toggleScoreLibrary: () => void;
     setParseWarnings: (warnings: string[]) => void;
     setStepIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
@@ -330,6 +334,7 @@ export const useEngineStore = create<EngineState>((set) => {
   playModeFingeringsVisible: false,
   tempoFactor: readStoredTempoFactor(),
   headerCollapsed: false,
+  scoreLibraryOpen: false,
   parseWarnings: [],
   currentStepIndex: 0,
   totalSteps: 0,
@@ -766,6 +771,12 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     toggleHeaderCollapsed: () => {
       set((state) => ({ headerCollapsed: !state.headerCollapsed }));
+    },
+    setScoreLibraryOpen: (open) => {
+      set({ scoreLibraryOpen: open });
+    },
+    toggleScoreLibrary: () => {
+      set((state) => ({ scoreLibraryOpen: !state.scoreLibraryOpen }));
     },
     setParseWarnings: (warnings) => {
       set({ parseWarnings: warnings });
