@@ -1,9 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Keyboard } from 'lucide-react';
+import { computeAnchorDropdownPosition } from '../core/anchorDropdownPosition.ts';
 import { getKeyboardShortcuts } from '../core/keyboardShortcuts.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+
+const SHORTCUTS_PANEL_WIDTH = 288;
 
 interface ShortcutsMenuProps {
   isOpen: boolean;
@@ -21,6 +24,7 @@ export function ShortcutsMenu({
   const [menuPosition, setMenuPosition] = useState<{
     top: number;
     right: number;
+    maxHeight: number;
   } | null>(null);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const engineMode = useEngineStore((state) => state.engineMode);
@@ -65,19 +69,24 @@ export function ShortcutsMenu({
       }
 
       const rect = menuRef.current.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + 8,
-        right: window.innerWidth - rect.right,
-      });
+      setMenuPosition(
+        computeAnchorDropdownPosition(rect, {
+          panelWidth: SHORTCUTS_PANEL_WIDTH,
+        }),
+      );
     };
 
     updatePosition();
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
+    window.visualViewport?.addEventListener('resize', updatePosition);
+    window.visualViewport?.addEventListener('scroll', updatePosition);
 
     return () => {
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
+      window.visualViewport?.removeEventListener('resize', updatePosition);
+      window.visualViewport?.removeEventListener('scroll', updatePosition);
     };
   }, [isOpen]);
 
@@ -85,32 +94,35 @@ export function ShortcutsMenu({
     isOpen && menuPosition ? (
       <div
         ref={panelRef}
-        className="fixed z-[200] w-72 rounded-lg border border-zinc-700 p-3 shadow-2xl"
+        className="fixed z-[200] flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border border-zinc-700 shadow-2xl"
         style={{
           top: menuPosition.top,
           right: menuPosition.right,
+          maxHeight: menuPosition.maxHeight,
           backgroundColor: '#09090b',
         }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
+        <p className="mb-2 shrink-0 px-3 pt-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
           Shortcuts
         </p>
-        <ul className="flex flex-col gap-2.5">
-          {shortcuts.map((shortcut) => (
-            <li
-              key={`${shortcut.keys}-${shortcut.description}`}
-              className="flex items-start justify-between gap-4 text-xs"
-            >
-              <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200">
-                {shortcut.keys}
-              </span>
-              <span className="text-right text-zinc-400">
-                {shortcut.description}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="playright-popup-scroll playright-scrollbar min-h-0 flex-1 px-3 pb-3">
+          <ul className="flex flex-col gap-2.5">
+            {shortcuts.map((shortcut) => (
+              <li
+                key={`${shortcut.keys}-${shortcut.description}`}
+                className="flex items-start justify-between gap-4 text-xs"
+              >
+                <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200">
+                  {shortcut.keys}
+                </span>
+                <span className="text-right text-zinc-400">
+                  {shortcut.description}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     ) : null;
 

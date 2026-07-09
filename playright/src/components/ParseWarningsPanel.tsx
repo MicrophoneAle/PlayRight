@@ -38,7 +38,7 @@ export function ParseWarningsPanel() {
           <X size={15} strokeWidth={2} aria-hidden />
         </button>
       </div>
-      <ul className="max-h-64 space-y-2 overflow-y-auto px-4 py-3">
+      <ul className="playright-popup-scroll playright-scrollbar max-h-64 space-y-2 px-4 py-3">
         {warnings.map((warning, index) => (
           <li
             key={`${index}-${warning.slice(0, 40)}`}

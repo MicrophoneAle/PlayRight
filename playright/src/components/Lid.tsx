@@ -11,6 +11,7 @@ import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.t
 import { fetchScoreById, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { FingeringMode, Hand, ManualFingeringMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
+import { computeAnchorDropdownPosition } from '../core/anchorDropdownPosition.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ParseWarningsPanel } from './ParseWarningsPanel.tsx';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -144,39 +145,36 @@ export function Lid() {
       }
 
       const rect = settingsRef.current.getBoundingClientRect();
-      const menuGap = 8;
-      const bottomInset = 16;
-      const top = rect.bottom + menuGap;
-      const maxHeight = Math.max(
-        160,
-        window.innerHeight - top - bottomInset,
+      setSettingsMenuPosition(
+        computeAnchorDropdownPosition(rect, {
+          panelWidth: 240,
+        }),
       );
-      setSettingsMenuPosition({
-        top,
-        right: window.innerWidth - rect.right,
-        maxHeight,
-      });
     };
 
     updatePosition();
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
+    window.visualViewport?.addEventListener('resize', updatePosition);
+    window.visualViewport?.addEventListener('scroll', updatePosition);
 
     return () => {
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
+      window.visualViewport?.removeEventListener('resize', updatePosition);
+      window.visualViewport?.removeEventListener('scroll', updatePosition);
     };
   }, [settingsOpen]);
 
   const settingsCheckboxClass =
     'h-4 w-4 shrink-0 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-40';
-  const settingsRowClass = 'flex items-center justify-between gap-2 pr-3';
+  const settingsRowClass = 'flex items-center justify-between gap-2';
   const settingsLabelClass = 'min-w-0 truncate text-xs text-zinc-400';
 
   const settingsPanel = settingsOpen && settingsMenuPosition ? (
     <div
       ref={settingsPanelRef}
-      className="fixed z-[200] flex w-60 flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 py-3 pl-3 pr-0 shadow-2xl"
+      className="fixed z-[200] flex w-60 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl"
       style={{
         top: settingsMenuPosition.top,
         right: settingsMenuPosition.right,
@@ -185,10 +183,10 @@ export function Lid() {
       }}
       onMouseDown={(event) => event.stopPropagation()}
     >
-      <p className="mb-2 shrink-0 pr-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
+      <p className="mb-2 shrink-0 px-3 pt-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
         Settings
       </p>
-      <div className="playright-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain">
+      <div className="playright-popup-scroll playright-scrollbar flex min-h-0 flex-1 flex-col gap-3 px-3 pb-3">
         <div className={settingsRowClass}>
           <label
             htmlFor="play-mode-toggle"

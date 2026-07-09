@@ -70,3 +70,12 @@ button:focus-visible {
   height: 0;
   width: 0;
 }
+
+/* Scrollable popup body: reserve gutter so scrollbars are not clipped by rounded shells. */
+.playright-popup-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
