@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   CursorType,
   OpenSheetMusicDisplay,
@@ -130,7 +130,14 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.MeasureNumberLabelOffset = 2;
 }
 
-const SHEET_TOP_CLEARANCE_PX = 16;
+const SHEET_TOP_CLEARANCE_EXPANDED_PX = 16;
+const SHEET_TOP_CLEARANCE_COLLAPSED_PX = 8;
+
+function getSheetTopClearancePx(headerCollapsed: boolean): number {
+  return headerCollapsed
+    ? SHEET_TOP_CLEARANCE_COLLAPSED_PX
+    : SHEET_TOP_CLEARANCE_EXPANDED_PX;
+}
 
 const SCORE_CONTENT_TOP_SELECTORS = [
   '.vf-stave',
@@ -170,7 +177,10 @@ function getScoreContentTop(svg: SVGSVGElement): number {
 }
 
 /** Keep the topmost engraved content (stems, fingerings, measure numbers) inside view. */
-function ensureSheetTopClearance(container: HTMLElement): void {
+function ensureSheetTopClearance(
+  container: HTMLElement,
+  headerCollapsed: boolean,
+): void {
   const svg = container.querySelector('svg');
   if (!svg) {
     return;
@@ -181,8 +191,9 @@ function ensureSheetTopClearance(container: HTMLElement): void {
   const containerTop = container.getBoundingClientRect().top;
   const contentTop = getScoreContentTop(svg);
   const gap = contentTop - containerTop;
+  const clearancePx = getSheetTopClearancePx(headerCollapsed);
 
-  svg.style.marginTop = `${SHEET_TOP_CLEARANCE_PX - gap}px`;
+  svg.style.marginTop = `${clearancePx - gap}px`;
 }
 
 /**
@@ -272,6 +283,16 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const isPlaybackPaused = useEngineStore((state) => state.isPlaybackPaused);
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
+  const headerCollapsed = useEngineStore((state) => state.headerCollapsed);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container || !osmdReadyRef.current) {
+      return;
+    }
+
+    ensureSheetTopClearance(container, headerCollapsed);
+  }, [headerCollapsed]);
 
   // This runs inside zustand subscribers and React effects, which in play
   // mode execute synchronously inside PlaybackEngine's Tone.js transport
@@ -608,7 +629,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       }
 
       normalizeMeasureNumberPositions(container);
-      ensureSheetTopClearance(container);
+      ensureSheetTopClearance(
+        container,
+        useEngineStore.getState().headerCollapsed,
+      );
 
       lastRenderedSizeRef.current = {
         width: container.clientWidth,
@@ -828,7 +852,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       onPointerDown={handleSheetPointerDown}
       onPointerUp={handleSheetPointerSeek}
       onPointerCancel={clearSheetPointerStart}
-      className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-4 pb-2 pt-4 [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      className={`min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-4 pb-2 ${
+        headerCollapsed ? 'pt-1' : 'pt-4'
+      } [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden`}
     />
   );
 }
