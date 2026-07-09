@@ -10,7 +10,12 @@ import type {
   ScriptNote,
   StepOrder,
 } from '../types/index.ts';
-import { fingeringKey, resolveManualAssignment } from '../types/index.ts';
+import {
+  fingeringKey,
+  graceFingeringKey,
+  resolveGraceManualAssignment,
+  resolveManualAssignment,
+} from '../types/index.ts';
 import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
 
 /**
@@ -40,6 +45,8 @@ export interface TwoHandStepNoteInfo {
   midi: number;
   finger: Finger | null;
   fingerSource?: ScriptNote['fingerSource'];
+  /** Position in graceBefore when this entry is a grace note; undefined for a main note. */
+  graceIndex?: number;
 }
 
 /**
@@ -340,6 +347,50 @@ export function programCurrentNote(
   return null;
 }
 
+/** Program-mode capture target: a grace note (own graceIndex) or a main step note. */
+export type ProgramCaptureTarget =
+  | { kind: 'main'; note: ScriptNote }
+  | { kind: 'grace'; graceIndex: number; note: GraceNoteInfo };
+
+/**
+ * First unassigned position to capture for this step's program-mode walk:
+ * graces are captured before mains (graceIndex order), then the lowest
+ * unassigned main note by ascending MIDI (programCurrentNote's rule). Null
+ * once every grace and every main note has a manual fingering.
+ */
+export function programCurrentTarget(
+  step: StepOrder,
+  manualFingerings: ManualFingeringMap,
+): ProgramCaptureTarget | null {
+  const graceBefore = step.graceBefore ?? [];
+  for (let graceIndex = 0; graceIndex < graceBefore.length; graceIndex += 1) {
+    const grace = graceBefore[graceIndex];
+    const key = graceFingeringKey(step.onset, grace.hand, grace.midi, graceIndex);
+    if (manualFingerings[key] === undefined) {
+      return { kind: 'grace', graceIndex, note: grace };
+    }
+  }
+
+  const mainNote = programCurrentNote(step, manualFingerings);
+  return mainNote ? { kind: 'main', note: mainNote } : null;
+}
+
+/**
+ * Full capture-walk order for a step's refinger pass: every grace (graceIndex
+ * order), then every main note (ascending MIDI, programStepNotesAscendingMidi's
+ * order) — same order programCurrentTarget assigns in, so reprogramming from
+ * index 0 revisits the step exactly as it was first captured.
+ */
+export function programStepAllTargetsOrdered(step: StepOrder): ProgramCaptureTarget[] {
+  const graceTargets: ProgramCaptureTarget[] = (step.graceBefore ?? []).map(
+    (grace, graceIndex) => ({ kind: 'grace', graceIndex, note: grace }),
+  );
+  const mainTargets: ProgramCaptureTarget[] = programStepNotesAscendingMidi(step).map(
+    (note) => ({ kind: 'main', note }),
+  );
+  return [...graceTargets, ...mainTargets];
+}
+
 /**
  * @deprecated Per-hand chord targeting; use programCurrentNote for MIDI-walk program mode.
  */
@@ -359,34 +410,47 @@ export function programTargetNote(
   return candidates[0] ?? null;
 }
 
-/** Next note to assign, or the first note when reprogramming a complete step. */
-export function programActiveTargetNote(
+/**
+ * Next capture target (grace or main note) to assign, or the first target
+ * (grace before main, same order as programStepAllTargetsOrdered) when
+ * reprogramming a complete step.
+ */
+export function programActiveTarget(
   step: StepOrder,
   manualFingerings: ManualFingeringMap,
   reprogramNoteIndex: number | null,
-): ScriptNote | null {
+): ProgramCaptureTarget | null {
   if (reprogramNoteIndex !== null) {
-    const ascending = programStepNotesAscendingMidi(step);
-    return ascending[reprogramNoteIndex] ?? null;
+    return programStepAllTargetsOrdered(step)[reprogramNoteIndex] ?? null;
   }
 
-  const unassigned = programCurrentNote(step, manualFingerings);
+  const unassigned = programCurrentTarget(step, manualFingerings);
   if (unassigned !== null) {
     return unassigned;
   }
 
   if (isProgramStepComplete(step, manualFingerings)) {
-    return programStepNotesAscendingMidi(step)[0] ?? null;
+    return programStepAllTargetsOrdered(step)[0] ?? null;
   }
 
   return null;
 }
 
-/** Step is complete when every note in the step has a manual fingering assignment. */
+/** Step is complete when every grace note AND every main note has a manual fingering assignment. */
 export function isProgramStepComplete(
   step: StepOrder,
   manualFingerings: ManualFingeringMap,
 ): boolean {
+  const gracesComplete = (step.graceBefore ?? []).every(
+    (grace, graceIndex) =>
+      manualFingerings[
+        graceFingeringKey(step.onset, grace.hand, grace.midi, graceIndex)
+      ] !== undefined,
+  );
+  if (!gracesComplete) {
+    return false;
+  }
+
   return step.notes.every(
     (note) =>
       manualFingerings[fingeringKey(step.onset, note.hand, note.midi)] !== undefined,
@@ -421,6 +485,23 @@ export function programAssignmentProgress(
     }
   }
 
+  (step.graceBefore ?? []).forEach((grace, graceIndex) => {
+    const assignment = resolveGraceManualAssignment(
+      step.onset,
+      grace.hand,
+      grace.midi,
+      graceIndex,
+      manualFingerings,
+    );
+    if (assignment) {
+      assignedCounts[assignment.physicalHand] += 1;
+    } else if (grace.hand === 'L') {
+      unassignedNotatedL += 1;
+    } else {
+      unassignedNotatedR += 1;
+    }
+  });
+
   return {
     needed: {
       L: assignedCounts.L + unassignedNotatedL,
@@ -430,10 +511,17 @@ export function programAssignmentProgress(
   };
 }
 
-/** Every MIDI in the current step, for program-mode highlighting (all notes to assign). */
+/** Every MIDI in the current step, for program-mode highlighting (all graces + main notes to assign). */
 export function programStepExpectedMidis(step: StepOrder): number[] {
   const midis: number[] = [];
   const seen = new Set<number>();
+
+  for (const grace of step.graceBefore ?? []) {
+    if (!seen.has(grace.midi)) {
+      seen.add(grace.midi);
+      midis.push(grace.midi);
+    }
+  }
 
   for (const note of step.notes) {
     if (!seen.has(note.midi)) {
@@ -445,13 +533,13 @@ export function programStepExpectedMidis(step: StepOrder): number[] {
   return midis;
 }
 
-/** Midis of the next note to assign by ascending MIDI (at most one). */
+/** Midis of the next capture target (grace or main note) to assign (at most one). */
 export function programTargetMidis(
   step: StepOrder,
   manualFingerings: ManualFingeringMap,
 ): Set<number> {
-  const next = programCurrentNote(step, manualFingerings);
-  return next ? new Set([next.midi]) : new Set();
+  const next = programCurrentTarget(step, manualFingerings);
+  return next ? new Set([next.note.midi]) : new Set();
 }
 
 function buildTwoHandFingerToPhysicalKeyMap(): Map<string, string> {
@@ -527,6 +615,51 @@ export function buildTwoHandStepNotesByMidi(
   }
 
   for (const note of script[stepIndex].notes) {
+    const existing = byMidi.get(note.midi) ?? [];
+    existing.push({
+      hand: note.hand,
+      midi: note.midi,
+      finger: note.finger,
+      fingerSource: note.fingerSource,
+    });
+    byMidi.set(note.midi, existing);
+  }
+
+  return byMidi;
+}
+
+/**
+ * Step notes AND graces grouped by MIDI, for program-mode key/finger-label
+ * display: unlike practice mode's single-position walk, program mode shows
+ * every target in the step at once (assigned or not). Graces are tagged with
+ * graceIndex so a grace sharing onset+hand+midi with its own main note (e.g.
+ * river-flows-in-you step 84) renders as a distinct entry, not a merged one.
+ */
+export function buildTwoHandStepNotesByMidiForProgram(
+  script: PlaybackScript | null,
+  stepIndex: number,
+): Map<number, TwoHandStepNoteInfo[]> {
+  const byMidi = new Map<number, TwoHandStepNoteInfo[]>();
+
+  if (!script || stepIndex < 0 || stepIndex >= script.length) {
+    return byMidi;
+  }
+
+  const step = script[stepIndex];
+
+  step.graceBefore?.forEach((grace, graceIndex) => {
+    const existing = byMidi.get(grace.midi) ?? [];
+    existing.push({
+      hand: grace.hand,
+      midi: grace.midi,
+      finger: grace.finger ?? null,
+      fingerSource: grace.fingerSource,
+      graceIndex,
+    });
+    byMidi.set(grace.midi, existing);
+  });
+
+  for (const note of step.notes) {
     const existing = byMidi.get(note.midi) ?? [];
     existing.push({
       hand: note.hand,
@@ -776,6 +909,30 @@ export function buildTwoHandPhysicalKeysByMidi(
       existing.push(physicalKey);
     }
     keysByMidi.set(note.midi, existing);
+  }
+
+  return keysByMidi;
+}
+
+/** Physical key labels per MIDI for program mode: every step target (graces + mains), not one position. */
+export function buildTwoHandPhysicalKeysByMidiForProgram(
+  script: PlaybackScript | null,
+  stepIndex: number,
+): Map<number, string[]> {
+  const keysByMidi = new Map<number, string[]>();
+
+  if (!script || stepIndex < 0 || stepIndex >= script.length) {
+    return keysByMidi;
+  }
+
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+  const step = script[stepIndex];
+
+  for (const grace of step.graceBefore ?? []) {
+    appendPhysicalKeyForNote(keysByMidi, grace, fingerToKey);
+  }
+  for (const note of step.notes) {
+    appendPhysicalKeyForNote(keysByMidi, note, fingerToKey);
   }
 
   return keysByMidi;

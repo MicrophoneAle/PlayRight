@@ -14,16 +14,16 @@ import {
   buildTwoHandExpectedMidisForPosition,
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandPhysicalKeysByMidiForPosition,
+  buildTwoHandPhysicalKeysByMidiForProgram,
   buildTwoHandPhysicalKeysByMidiFromPlayback,
   buildTwoHandStepNotesByMidi,
   buildTwoHandStepNotesByMidiForPosition,
+  buildTwoHandStepNotesByMidiForProgram,
   buildTwoHandStepNotesByMidiFromPlayback,
   practicePositionFromGraceCursor,
   buildProgramAssignedKeys,
-  programActiveTargetNote,
+  programActiveTarget,
   programAssignmentProgress,
-  programStepNotesAscendingMidi,
-  programTargetMidis,
   type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
 import { getFingerMappingFromKeyboard } from '../core/twoHandMapping.ts';
@@ -279,19 +279,18 @@ export function PianoKeyboard() {
     return buildProgramAssignedKeys(script[currentStepIndex], manualFingerings);
   }, [isProgramMode, script, currentStepIndex, manualFingerings]);
 
-  const programTargetMidiSet = useMemo(() => {
+  const programNextTarget = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
-      return new Set<number>();
+      return null;
     }
 
-    if (programRefingerNoteIndex !== null) {
-      const ascending = programStepNotesAscendingMidi(script[currentStepIndex]);
-      const note = ascending[programRefingerNoteIndex];
-      return note ? new Set([note.midi]) : new Set();
-    }
-
-    return programTargetMidis(script[currentStepIndex], manualFingerings);
+    const step = script[currentStepIndex];
+    return programActiveTarget(step, manualFingerings, programRefingerNoteIndex);
   }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
+
+  const programTargetMidiSet = useMemo(() => {
+    return programNextTarget ? new Set([programNextTarget.note.midi]) : new Set<number>();
+  }, [programNextTarget]);
 
   const inPositionAwarePractice =
     isPracticeActive && !playMode && !isProgramMode && script !== null;
@@ -330,6 +329,10 @@ export function PianoKeyboard() {
       );
     }
 
+    if (isProgramMode) {
+      return buildTwoHandStepNotesByMidiForProgram(script, currentStepIndex);
+    }
+
     if (inPositionAwarePractice) {
       return buildTwoHandStepNotesByMidiForPosition(
         script,
@@ -341,6 +344,7 @@ export function PianoKeyboard() {
   }, [
     showFingeringHints,
     showPlayFingerings,
+    isProgramMode,
     script,
     inPositionAwarePractice,
     currentStepIndex,
@@ -361,6 +365,10 @@ export function PianoKeyboard() {
       );
     }
 
+    if (isProgramMode) {
+      return buildTwoHandPhysicalKeysByMidiForProgram(script, currentStepIndex);
+    }
+
     if (inPositionAwarePractice) {
       return buildTwoHandPhysicalKeysByMidiForPosition(
         script,
@@ -372,6 +380,7 @@ export function PianoKeyboard() {
   }, [
     showFingeringHints,
     showPlayFingerings,
+    isProgramMode,
     script,
     inPositionAwarePractice,
     currentStepIndex,
@@ -413,15 +422,6 @@ export function PianoKeyboard() {
       fingeringKey(selectedNote.onset, selectedNote.hand, selectedNote.midi),
     );
   }, [manualFingerings, selectedNote]);
-
-  const programNextNote = useMemo(() => {
-    if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
-      return null;
-    }
-
-    const step = script[currentStepIndex];
-    return programActiveTargetNote(step, manualFingerings, programRefingerNoteIndex);
-  }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
 
   const programProgress = useMemo(() => {
     if (!isProgramMode || !script || currentStepIndex < 0 || currentStepIndex >= script.length) {
@@ -655,20 +655,33 @@ export function PianoKeyboard() {
           }
 
           const step = script?.[currentStepIndex];
-          const noteKey =
-            step && programNextNote
-              ? fingeringKey(step.onset, programNextNote.hand, programNextNote.midi)
-              : null;
-          const isProgramTarget =
-            isProgramMode &&
-            programNextNote?.midi === midi &&
-            note.hand === programNextNote.hand &&
-            noteKey !== null &&
-            !programAssignedSet.has(noteKey);
+          const isProgramTarget = (() => {
+            if (!isProgramMode || !step || !programNextTarget) {
+              return false;
+            }
+            if (
+              programNextTarget.note.midi !== midi ||
+              note.hand !== programNextTarget.note.hand
+            ) {
+              return false;
+            }
+            if (programNextTarget.kind === 'grace') {
+              return note.graceIndex === programNextTarget.graceIndex;
+            }
+            if (note.graceIndex !== undefined) {
+              return false;
+            }
+            const noteKey = fingeringKey(
+              step.onset,
+              programNextTarget.note.hand,
+              programNextTarget.note.midi,
+            );
+            return !programAssignedSet.has(noteKey);
+          })();
 
           return (
             <button
-              key={`${note.hand}:${note.finger}:${index}`}
+              key={`${note.hand}:${note.graceIndex ?? 'main'}:${note.finger}:${index}`}
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
@@ -680,6 +693,7 @@ export function PianoKeyboard() {
                   : ''
               } ${isProgramTarget ? 'animate-pulse ring-2 ring-amber-400' : ''}`}
             >
+              {note.graceIndex !== undefined ? 'g' : ''}
               {note.finger ?? (isProgramMode ? '•' : '?')}
             </button>
           );
@@ -738,9 +752,11 @@ export function PianoKeyboard() {
               {programProgress.assignedCounts.R}/{programProgress.needed.R}
             </span>
           ) : null}
-          {programNextNote ? (
+          {programNextTarget ? (
             <span>
-              Next: {programNextNote.hand} {programNextNote.pitch ?? `MIDI ${programNextNote.midi}`}
+              Next: {programNextTarget.note.hand}{' '}
+              {programNextTarget.kind === 'grace' ? '(grace) ' : ''}
+              {programNextTarget.note.pitch ?? `MIDI ${programNextTarget.note.midi}`}
             </span>
           ) : null}
           {script && currentStepIndex + 1 < totalSteps ? (

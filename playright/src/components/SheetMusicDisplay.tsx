@@ -16,7 +16,7 @@ import type { GraphicalNote } from "opensheetmusicdisplay";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
 import { fingeringProgramEngine } from "../core/FingeringProgramEngine.ts";
-import { getDisplayEngineMode, getDisplayNotesForStep, getPlayablePracticeNotesForPosition, practicePositionFromGraceCursor, programStepExpectedMidis } from "../core/practiceSteps.ts";
+import { getDisplayEngineMode, getDisplayNotesForStep, getPlayablePracticeNotesForPosition, practicePositionFromGraceCursor, programActiveTarget, programStepExpectedMidis } from "../core/practiceSteps.ts";
 import type { ScriptNote } from "../types/index.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
@@ -395,14 +395,21 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     // Program mode: mirror the keyboard — derive highlights from the current step
     // directly so the staff stays green even when store expectedMidiNotes is stale.
     let expectedMidiNotes = state.expectedMidiNotes;
+    // Program mode's capture target (grace or main) drives which glyph the
+    // sheet highlights, reusing the same stepGraceGraphicalNotes lookup
+    // practice mode uses — a grace target lights only its own glyph, a main
+    // target falls back to the step's main-glyph highlight below.
+    let programGraceCursor: number | null = null;
     if (state.fingeringMode === 'program' && step) {
       practiceNotes = getDisplayNotesForStep(step, false, 'two-hand', state.activeHand);
       expectedMidiNotes = programStepExpectedMidis(step);
+      const target = programActiveTarget(step, state.manualFingerings, state.programRefingerNoteIndex);
+      programGraceCursor = target?.kind === 'grace' ? target.graceIndex : null;
     }
 
     highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
-      graceCursor: state.fingeringMode === 'program' ? null : state.practiceGraceCursor,
+      graceCursor: state.fingeringMode === 'program' ? programGraceCursor : state.practiceGraceCursor,
       visualIndex: visualIndexRef.current,
       expectedMidiNotes,
       practiceNotes,

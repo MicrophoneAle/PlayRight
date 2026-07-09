@@ -18,7 +18,7 @@ import type {
   ScoreTiming,
   SelectedFingeringNote,
 } from '../types/index.ts';
-import { fingeringKey } from '../types/index.ts';
+import { fingeringKey, graceFingeringKey } from '../types/index.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 export type SheetScrollMode = 'smooth' | 'instant';
@@ -261,6 +261,7 @@ interface EngineState {
       finger: Finger,
       physicalHand: Hand,
       userId?: string | null,
+      graceIndex?: number,
     ) => void;
     clearManualFinger: (
       onset: number,
@@ -418,15 +419,19 @@ export const useEngineStore = create<EngineState>((set) => {
         });
       });
     },
-    setManualFingerInProgram: (onset, hand, midi, finger, physicalHand, userId) => {
+    setManualFingerInProgram: (onset, hand, midi, finger, physicalHand, userId, graceIndex) => {
       set((state) => {
         const value =
           physicalHand === hand
             ? finger
             : { finger, physicalHand };
+        const key =
+          graceIndex !== undefined
+            ? graceFingeringKey(onset, hand, midi, graceIndex)
+            : fingeringKey(onset, hand, midi);
         const manualFingerings = {
           ...state.manualFingerings,
-          [fingeringKey(onset, hand, midi)]: value,
+          [key]: value,
         };
 
         persistManualFingerings(state.scoreId, manualFingerings, userId);
@@ -438,6 +443,26 @@ export const useEngineStore = create<EngineState>((set) => {
         const script = state.script.map((step) => {
           if (step.onset !== onset) {
             return step;
+          }
+
+          if (graceIndex !== undefined) {
+            if (!step.graceBefore) {
+              return step;
+            }
+
+            return {
+              ...step,
+              graceBefore: step.graceBefore.map((grace, index) =>
+                index === graceIndex && grace.hand === hand && grace.midi === midi
+                  ? {
+                      ...grace,
+                      finger,
+                      playingHand: physicalHand,
+                      fingerSource: 'manual' as const,
+                    }
+                  : grace,
+              ),
+            };
           }
 
           return {

@@ -2,15 +2,16 @@ import type { AudioEngine } from './AudioEngine.ts';
 import {
   buildProgramAssignedKeys,
   isProgramStepComplete,
-  programCurrentNote,
+  programCurrentTarget,
+  programStepAllTargetsOrdered,
   programStepExpectedMidis,
-  programStepNotesAscendingMidi,
 } from './practiceSteps.ts';
+import type { ProgramCaptureTarget } from './practiceSteps.ts';
 import { runWithProgramStepIndexWrite } from './programStepGuard.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 import type { StepOrder } from '../types/index.ts';
-import { fingeringKey } from '../types/index.ts';
+import { fingeringKey, graceFingeringKey } from '../types/index.ts';
 
 const logProgramAdvance = (...args: unknown[]): void => {
   if (import.meta.env.DEV) {
@@ -124,16 +125,19 @@ export class FingeringProgramEngine {
     this.syncExpectedNotes();
 
     const refingerIndex = useEngineStore.getState().programRefingerNoteIndex;
-    const ascending = programStepNotesAscendingMidi(step);
+    const ordered = programStepAllTargetsOrdered(step);
     const refingerTarget =
-      refingerIndex !== null ? (ascending[refingerIndex] ?? null) : null;
+      refingerIndex !== null ? (ordered[refingerIndex] ?? null) : null;
 
     logProgramAdvance('syncCurrentStepState', {
       stepIndex: currentStepIndex,
       uiStep: currentStepIndex + 1,
       nextStepIndex: currentStepIndex + 1 < script.length ? currentStepIndex + 1 : null,
       assignedKeys: [...this.assignedKeysForStep(step)],
-      next: refingerTarget?.pitch ?? programCurrentNote(step, manualFingerings)?.pitch ?? null,
+      next:
+        refingerTarget?.note.pitch ??
+        programCurrentTarget(step, manualFingerings)?.note.pitch ??
+        null,
       refingerNoteIndex: refingerIndex,
     });
   }
@@ -208,9 +212,9 @@ export class FingeringProgramEngine {
       return;
     }
 
-    const nextNote = programCurrentNote(step, state.manualFingerings);
+    const nextTarget = programCurrentTarget(step, state.manualFingerings);
 
-    if (nextNote === null) {
+    if (nextTarget === null) {
       if (isProgramStepComplete(step, state.manualFingerings)) {
         if (state.programRefingerNoteIndex === null) {
           logProgramAdvance('reprogram pass started on complete step', {
@@ -237,7 +241,7 @@ export class FingeringProgramEngine {
       return;
     }
 
-    this.assignFingerToNote(step, stepIndex, nextNote, mapping, userId);
+    this.assignFingerToNote(step, stepIndex, nextTarget, mapping, userId);
 
     const afterAssign = useEngineStore.getState();
     const stepAfter = afterAssign.script![stepIndex];
@@ -245,8 +249,11 @@ export class FingeringProgramEngine {
     logProgramAdvance('press assigned', {
       stepIndex,
       uiStep: stepIndex + 1,
-      target: fingeringKey(step.onset, nextNote.hand, nextNote.midi),
-      pitch: nextNote.pitch,
+      target:
+        nextTarget.kind === 'grace'
+          ? graceFingeringKey(step.onset, nextTarget.note.hand, nextTarget.note.midi, nextTarget.graceIndex)
+          : fingeringKey(step.onset, nextTarget.note.hand, nextTarget.note.midi),
+      pitch: nextTarget.note.pitch,
       physicalHand: mapping.hand,
       assignedKeys: [...this.assignedKeysForStep(stepAfter)],
       complete,
@@ -269,8 +276,8 @@ export class FingeringProgramEngine {
       return;
     }
 
-    const ascending = programStepNotesAscendingMidi(step);
-    const target = ascending[refingerIndex];
+    const ordered = programStepAllTargetsOrdered(step);
+    const target = ordered[refingerIndex];
     if (!target) {
       actions.setProgramRefingerNoteIndex(null);
       return;
@@ -279,7 +286,7 @@ export class FingeringProgramEngine {
     this.assignFingerToNote(step, stepIndex, target, mapping, userId);
 
     const nextRefingerIndex = refingerIndex + 1;
-    if (nextRefingerIndex >= ascending.length) {
+    if (nextRefingerIndex >= ordered.length) {
       logProgramAdvance('refinger pass complete — advancing', {
         stepIndex,
         uiStep: stepIndex + 1,
@@ -293,10 +300,11 @@ export class FingeringProgramEngine {
   private assignFingerToNote(
     step: StepOrder,
     stepIndex: number,
-    note: StepOrder['notes'][number],
+    target: ProgramCaptureTarget,
     mapping: FingerMapping,
     userId?: string | null,
   ): void {
+    const { note } = target;
     useEngineStore.getState().actions.setManualFingerInProgram(
       step.onset,
       note.hand,
@@ -304,6 +312,7 @@ export class FingeringProgramEngine {
       mapping.finger,
       mapping.hand,
       userId,
+      target.kind === 'grace' ? target.graceIndex : undefined,
     );
 
     const afterAssign = useEngineStore.getState();

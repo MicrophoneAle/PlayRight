@@ -10,7 +10,7 @@ import {
   programStepExpectedMidis,
   stepHasAnyPracticeContent,
 } from './practiceSteps.ts';
-import { fingeringKey } from '../types/index.ts';
+import { fingeringKey, graceFingeringKey } from '../types/index.ts';
 
 const graceStep: StepOrder = {
   order: 1,
@@ -29,14 +29,10 @@ const script = [graceStep];
  * v2 policy (Phase 1): grace notes are practice-mode walk positions, gated
  * through getPracticeNotesForPosition / buildPracticePositions rather than
  * getPracticeNotes (which stays main-step-only, unchanged - see below).
- * Program mode (isProgramStepComplete, programStepExpectedMidis) still
- * excludes graceBefore: capturing a grace's fingering needs a disambiguating
- * persistence key (a grace shares its main step's onset, and today's
- * onset:hand:midi key would collide with the main note) that hasn't been
- * built yet. That's Phase 3, deliberately deferred - flipping these two
- * functions now would silently corrupt persisted fingerings on any piece
- * with a grace sharing its main note's pitch, so this is a scope boundary,
- * not an oversight.
+ * Program mode (isProgramStepComplete, programStepExpectedMidis) now also
+ * includes graceBefore (Phase 3): graceFingeringKey's onset:hand:midi:g{n}
+ * suffix disambiguates a grace from a main note that shares its onset+hand
+ * +midi, so capture/completion can require every grace to be assigned too.
  */
 describe('practice mode grace policy (v2 - Phase 1)', () => {
   it('getPracticeNotes stays main-step-only; grace notes are separate walk positions', () => {
@@ -110,20 +106,28 @@ describe('practice mode grace policy (v2 - Phase 1)', () => {
     expect(stepHasAnyPracticeContent([oneHandLh], 0, 'one-hand', 'R')).toBe(true);
   });
 
-  it('isProgramStepComplete ignores graceBefore metadata (Phase 3, deferred)', () => {
-    const manualFingerings = Object.fromEntries(
+  it('isProgramStepComplete requires every grace AND every main note to be assigned (Phase 3)', () => {
+    const mainOnlyFingerings = Object.fromEntries(
       graceStep.notes.map((note) => [
         fingeringKey(graceStep.onset, note.hand, note.midi),
         1 as const,
       ]),
     );
 
-    expect(isProgramStepComplete(graceStep, manualFingerings)).toBe(true);
+    // Main notes assigned, grace not yet assigned -> incomplete.
+    expect(isProgramStepComplete(graceStep, mainOnlyFingerings)).toBe(false);
+
+    const grace = graceStep.graceBefore![0];
+    const withGrace = {
+      ...mainOnlyFingerings,
+      [graceFingeringKey(graceStep.onset, grace.hand, grace.midi, 0)]: 1 as const,
+    };
+    expect(isProgramStepComplete(graceStep, withGrace)).toBe(true);
   });
 
-  it('programStepExpectedMidis lists only main-note midis (Phase 3, deferred)', () => {
+  it('programStepExpectedMidis lists grace AND main-note midis (Phase 3)', () => {
     expect(programStepExpectedMidis(graceStep).sort((a, b) => a - b)).toEqual([
-      71, 78,
+      71, 76, 78,
     ]);
   });
 });
