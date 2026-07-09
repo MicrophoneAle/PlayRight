@@ -18,7 +18,7 @@ export function ParseWarningsPanel() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-4 right-4 z-[70] w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl"
+      className="fixed bottom-4 left-4 right-4 z-[70] mx-auto w-auto max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl sm:left-auto sm:right-4"
     >
       <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2.5">
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-400">

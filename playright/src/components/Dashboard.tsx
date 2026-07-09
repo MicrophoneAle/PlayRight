@@ -51,7 +51,7 @@ export function Dashboard() {
             <div className="shrink-0 py-0.5 text-center">
               {script ? (
                 <>
-                  <p className="text-sm font-medium leading-tight text-zinc-300">
+                  <p className="text-xs font-medium leading-tight text-zinc-300 sm:text-sm">
                     {isComplete
                       ? 'Piece complete'
                       : `Step ${practiceStepNumber} of ${practiceStepTotal}${

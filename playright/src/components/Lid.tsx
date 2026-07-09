@@ -11,7 +11,7 @@ import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.t
 import { fetchScoreById, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { FingeringMode, Hand, ManualFingeringMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
-import { computeAnchorDropdownPosition } from '../core/anchorDropdownPosition.ts';
+import { computeAnchorDropdownPosition, SETTINGS_PANEL_WIDTH } from '../core/anchorDropdownPosition.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { ParseWarningsPanel } from './ParseWarningsPanel.tsx';
 import { ScoreLibraryPanel } from './ScoreLibraryPanel.tsx';
@@ -147,7 +147,7 @@ export function Lid() {
       const rect = settingsRef.current.getBoundingClientRect();
       setSettingsMenuPosition(
         computeAnchorDropdownPosition(rect, {
-          panelWidth: 240,
+          panelWidth: SETTINGS_PANEL_WIDTH,
         }),
       );
     };
@@ -171,10 +171,13 @@ export function Lid() {
   const settingsRowClass = 'flex items-center justify-between gap-2';
   const settingsLabelClass = 'min-w-0 truncate text-xs text-zinc-400';
 
+  const headerActionClass =
+    'inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 sm:px-3.5';
+
   const settingsPanel = settingsOpen && settingsMenuPosition ? (
     <div
       ref={settingsPanelRef}
-      className="fixed z-[200] flex w-60 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl"
+      className="fixed z-[200] flex w-[min(18rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl"
       style={{
         top: settingsMenuPosition.top,
         right: settingsMenuPosition.right,
@@ -527,7 +530,7 @@ export function Lid() {
         : 'text-zinc-400 hover:text-zinc-200';
 
   const headerToggleClass =
-    'fixed left-8 z-50 top-[calc(1rem+(3.5rem-1.375rem)/2)] inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
+    'fixed left-3 top-5 z-50 inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100 sm:left-6 lg:left-8';
 
   const toggleCollapsed = () => {
     toggleHeaderCollapsed();
@@ -536,7 +539,7 @@ export function Lid() {
   const playbackRunning = isPlaybackActive && !isPlaybackPaused;
 
   const playControls = playMode ? (
-    <>
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
       <button
         type="button"
         onClick={() => {
@@ -553,22 +556,25 @@ export function Lid() {
           void playbackEngine.play();
         }}
         disabled={!script}
-        className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label={
+          playbackRunning ? 'Pause playback' : isPlaybackFinished ? 'Replay' : 'Play'
+        }
+        className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-2.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3.5"
       >
         {playbackRunning ? (
           <>
             <Pause size={15} strokeWidth={2} aria-hidden />
-            Pause
+            <span className="hidden sm:inline">Pause</span>
           </>
         ) : isPlaybackFinished ? (
           <>
             <RotateCcw size={15} strokeWidth={2} aria-hidden />
-            Replay
+            <span className="hidden sm:inline">Replay</span>
           </>
         ) : (
           <>
             <Play size={15} strokeWidth={2} aria-hidden />
-            Play
+            <span className="hidden sm:inline">Play</span>
           </>
         )}
       </button>
@@ -577,46 +583,50 @@ export function Lid() {
           type="button"
           onClick={() => void playbackEngine.restart()}
           disabled={!script || !isPlaybackActive}
-          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Restart playback"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[6.25rem] sm:px-3.5"
         >
           <RotateCcw size={15} strokeWidth={2} aria-hidden />
-          Restart
+          <span className="hidden sm:inline">Restart</span>
         </button>
       )}
-    </>
+    </div>
   ) : (
-    <>
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
       <button
         type="button"
         onClick={() => practiceEngine.start()}
         disabled={!script || isPracticeActive || fingeringMode === 'program'}
-        className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label="Start practice"
+        className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 px-2.5 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50 sm:px-3.5"
       >
         <Play size={15} strokeWidth={2} aria-hidden />
-        Start
+        <span className="hidden sm:inline">Start</span>
       </button>
       {isPracticeActive ? (
         <button
           type="button"
           onClick={() => practiceEngine.pause()}
           disabled={fingeringMode === 'program'}
-          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Pause practice"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[6.25rem] sm:px-3.5"
         >
           <Pause size={15} strokeWidth={2} aria-hidden />
-          Pause
+          <span className="hidden sm:inline">Pause</span>
         </button>
       ) : (
         <button
           type="button"
           onClick={() => practiceEngine.restart()}
           disabled={!script || !hasPracticeStarted || fingeringMode === 'program'}
-          className="inline-flex min-w-[6.25rem] items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Restart practice"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[6.25rem] sm:px-3.5"
         >
           <RotateCcw size={15} strokeWidth={2} aria-hidden />
-          Restart
+          <span className="hidden sm:inline">Restart</span>
         </button>
       )}
-    </>
+    </div>
   );
 
   const handToggle = script && (engineMode === 'one-hand' || engineMode === 'two-hand') ? (
@@ -682,9 +692,9 @@ export function Lid() {
       <ParseWarningsPanel />
 
       {!collapsed ? (
-    <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-4 backdrop-blur-sm">
-      <div className="ml-2 flex min-w-0 flex-1 items-center gap-4">
-        <div className="flex min-w-0 items-center gap-1.5 h-14">
+    <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-3 py-3 backdrop-blur-sm sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6">
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className="w-[22px] shrink-0" aria-hidden />
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
             <Music2 size={18} strokeWidth={2} aria-hidden />
@@ -693,7 +703,7 @@ export function Lid() {
             <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">
               PlayRight
             </h1>
-            <div className="text-xs leading-tight text-zinc-500">
+            <div className="hidden text-xs leading-tight text-zinc-500 xl:block">
               <span className="block">Keyboard-Controlled</span>
               <span className="block">Piano Practice</span>
             </div>
@@ -701,8 +711,8 @@ export function Lid() {
         </div>
 
         <div className="flex min-w-0 flex-1 items-center">
-          <div className="flex w-full max-w-md items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-4 py-2.5">
-            <span className="shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600">
+          <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5 lg:max-w-md">
+            <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
               Piece
             </span>
             <span className="truncate text-sm text-zinc-400">
@@ -712,24 +722,24 @@ export function Lid() {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
         <button
           type="button"
           onClick={() => setIsLibraryOpen(true)}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          className={headerActionClass}
         >
           <Library size={15} strokeWidth={2} aria-hidden />
-          Songs
+          <span className="hidden sm:inline">Songs</span>
         </button>
         <button
           type="button"
           onClick={handleImportClick}
           disabled={!canManageLibrary}
           title={canManageLibrary ? 'Import a MusicXML or MXL file' : 'Sign in to import songs'}
-          className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
         >
           <Upload size={15} strokeWidth={2} aria-hidden />
-          Import
+          <span className="hidden sm:inline">Import</span>
         </button>
         {playControls}
 
@@ -754,10 +764,10 @@ export function Lid() {
             aria-expanded={settingsOpen}
             aria-haspopup="true"
             aria-label="Settings"
-            className={`inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+            className={`${headerActionClass} ${
               settingsOpen
                 ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
-                : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
+                : ''
             }`}
           >
             <Settings size={15} strokeWidth={2} aria-hidden />

@@ -4,6 +4,10 @@ export interface AnchorDropdownPosition {
   maxHeight: number;
 }
 
+/** Match popup shell widths used in Settings / Shortcuts menus. */
+export const SETTINGS_PANEL_WIDTH = 288;
+export const SHORTCUTS_PANEL_WIDTH = 320;
+
 export interface ViewportSize {
   width: number;
   height: number;

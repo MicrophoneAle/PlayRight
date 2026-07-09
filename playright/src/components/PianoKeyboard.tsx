@@ -724,27 +724,27 @@ export function PianoKeyboard() {
     <div className="relative">
       {isProgramMode ? (
         <div
-          className="mb-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-center text-[11px] text-amber-100"
+          className="mb-1 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-center text-[11px] text-amber-100"
           role="status"
         >
           Program step {currentStepIndex + 1} / {totalSteps}
           {programProgress ? (
-            <span className="ml-2">
+            <span>
               LH {programProgress.assignedCounts.L}/{programProgress.needed.L} · RH{' '}
               {programProgress.assignedCounts.R}/{programProgress.needed.R}
             </span>
           ) : null}
           {programNextNote ? (
-            <span className="ml-2">
+            <span>
               Next: {programNextNote.hand} {programNextNote.pitch ?? `MIDI ${programNextNote.midi}`}
             </span>
           ) : null}
           {script && currentStepIndex + 1 < totalSteps ? (
-            <span className="ml-2 text-amber-200/70">
+            <span className="text-amber-200/70">
               Upcoming step {currentStepIndex + 2}
             </span>
           ) : null}
-          <span className="ml-2 text-amber-200/80">
+          <span className="text-amber-200/80">
             Assign each note in pitch order before advancing
           </span>
         </div>

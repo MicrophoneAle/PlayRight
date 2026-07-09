@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Keyboard } from 'lucide-react';
-import { computeAnchorDropdownPosition } from '../core/anchorDropdownPosition.ts';
+import {
+  computeAnchorDropdownPosition,
+  SHORTCUTS_PANEL_WIDTH,
+} from '../core/anchorDropdownPosition.ts';
 import { getKeyboardShortcuts } from '../core/keyboardShortcuts.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
-
-const SHORTCUTS_PANEL_WIDTH = 288;
 
 interface ShortcutsMenuProps {
   isOpen: boolean;
@@ -94,7 +95,7 @@ export function ShortcutsMenu({
     isOpen && menuPosition ? (
       <div
         ref={panelRef}
-        className="fixed z-[200] flex w-72 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-lg border border-zinc-700 shadow-2xl"
+        className="fixed z-[200] flex w-[min(20rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-zinc-700 shadow-2xl"
         style={{
           top: menuPosition.top,
           right: menuPosition.right,
@@ -111,12 +112,12 @@ export function ShortcutsMenu({
             {shortcuts.map((shortcut) => (
               <li
                 key={`${shortcut.keys}-${shortcut.description}`}
-                className="flex items-start justify-between gap-4 text-xs"
+                className="flex flex-col gap-1.5 text-xs min-[420px]:flex-row min-[420px]:items-start min-[420px]:justify-between min-[420px]:gap-4"
               >
-                <span className="shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200">
+                <span className="w-fit shrink-0 rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-zinc-200">
                   {shortcut.keys}
                 </span>
-                <span className="text-right text-zinc-400">
+                <span className="min-w-0 text-zinc-400 min-[420px]:text-right">
                   {shortcut.description}
                 </span>
               </li>
@@ -135,7 +136,7 @@ export function ShortcutsMenu({
           aria-expanded={isOpen}
           aria-haspopup="true"
           aria-label="Keyboard shortcuts"
-          className={`inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+          className={`inline-flex items-center justify-center rounded-lg border px-2.5 py-2 text-sm font-medium transition-colors sm:px-3 ${
             isOpen
               ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
               : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
