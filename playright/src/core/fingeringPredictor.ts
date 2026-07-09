@@ -276,7 +276,17 @@ export const PHRASE_START_BIAS = 1.5;
 export const REGISTER_BIAS_WEIGHT = 0.9;
 export const HIGH_REGISTER_MIDI_RH = 76;
 export const LOW_REGISTER_MIDI_LH = 48;
-export const REPEAT_PITCH_FINGER_MISMATCH = 5;
+export const REPEAT_PITCH_FINGER_MISMATCH = 2200;
+/**
+ * Max onset gap (score divisions) between same-pitch notes still treated as one
+ * short repeat run for finger-consistency enforcement.
+ */
+export const REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS = 480;
+/**
+ * Do not force finger cohesion across very long repeated-note passages (e.g.
+ * extended tremolo); only the most recent short run is reinforced.
+ */
+export const REPEAT_PITCH_RUN_MAX_LENGTH = 12;
 export const RETURNING_PITCH_FINGER_MISMATCH = 2000;
 /**
  * Superseding in-sequence rule: within one hand position, finger order must
@@ -604,6 +614,167 @@ function copyFirstFingerMap(source: Map<number, Finger>): Map<number, Finger> {
   return new Map(source);
 }
 
+function shortSamePitchFollow(
+  notes: NoteEvent[],
+  index: number,
+): { active: boolean; anchorIndex: number | null } {
+  if (index === 0) {
+    return { active: false, anchorIndex: null };
+  }
+
+  const current = notes[index];
+
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const previous = notes[i];
+    if (previous.midi !== current.midi) {
+      continue;
+    }
+
+    const onsetGap = current.onset - previous.onset;
+    if (onsetGap > 0 && onsetGap <= REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS) {
+      let contiguous = true;
+      for (let j = i + 1; j < index; j += 1) {
+        if (notes[j].midi !== current.midi) {
+          contiguous = false;
+          break;
+        }
+      }
+
+      if (contiguous) {
+        return { active: true, anchorIndex: i };
+      }
+    }
+
+    break;
+  }
+
+  return { active: false, anchorIndex: null };
+}
+
+function fingerAtAnchor(
+  dp: Partial<Record<Finger, DpCell>>[],
+  anchorIndex: number,
+  fromIndex: number,
+  fromFinger: Finger,
+): Finger | null {
+  let finger = fromFinger;
+
+  for (let i = fromIndex; i > anchorIndex; i -= 1) {
+    const cell = dp[i][finger];
+    if (!cell?.backFinger) {
+      return null;
+    }
+
+    finger = cell.backFinger;
+  }
+
+  return finger;
+}
+
+function samePitchRunLength(notes: NoteEvent[], index: number): number {
+  let run = 1;
+  let cursor = index;
+
+  while (cursor > 0) {
+    const current = notes[cursor];
+    let previousIndex: number | null = null;
+
+    for (let i = cursor - 1; i >= 0; i -= 1) {
+      if (notes[i].midi !== current.midi) {
+        continue;
+      }
+
+      const onsetGap = current.onset - notes[i].onset;
+      if (onsetGap > 0 && onsetGap <= REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS) {
+        let contiguous = true;
+        for (let j = i + 1; j < cursor; j += 1) {
+          if (notes[j].midi !== current.midi) {
+            contiguous = false;
+            break;
+          }
+        }
+
+        if (contiguous) {
+          previousIndex = i;
+        }
+      }
+
+      break;
+    }
+
+    if (previousIndex === null) {
+      break;
+    }
+
+    run += 1;
+    cursor = previousIndex;
+  }
+
+  return run;
+}
+
+function nextDifferentPitchIndex(
+  notes: NoteEvent[],
+  index: number,
+): number | null {
+  for (let i = index + 1; i < notes.length; i += 1) {
+    if (notes[i].midi !== notes[index].midi) {
+      return i;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Chord-seeded repeat runs may be hard-locked only when the run's exit to the
+ * next different pitch is not a small in-position ascent (RH) / descent (LH),
+ * which would force an out-of-sequence thumb-side exit from the anchor finger.
+ */
+function allowsRunRootHardLock(
+  hand: Hand,
+  notes: NoteEvent[],
+  index: number,
+): boolean {
+  const nextIndex = nextDifferentPitchIndex(notes, index);
+  if (nextIndex === null) {
+    return true;
+  }
+
+  const interval = signedInterval(hand, notes[index].midi, notes[nextIndex].midi);
+  const absInterval = Math.abs(interval);
+  if (absInterval > OUT_OF_SEQUENCE_MAX_INTERVAL) {
+    return true;
+  }
+
+  return interval <= 0;
+}
+
+function runRootAuthoredAnchor(notes: NoteEvent[], index: number): Finger | null {
+  if (!shortSamePitchFollow(notes, index).active) {
+    return null;
+  }
+
+  let cursor = index;
+  while (true) {
+    const follow = shortSamePitchFollow(notes, cursor);
+    if (!follow.active || follow.anchorIndex === null) {
+      return null;
+    }
+
+    const anchor = notes[follow.anchorIndex];
+    if (anchor.authoredFinger !== null) {
+      return anchor.authoredFinger;
+    }
+
+    if (follow.anchorIndex === 0) {
+      return null;
+    }
+
+    cursor = follow.anchorIndex;
+  }
+}
+
 export async function fingerPhrase(
   notes: NoteEvent[],
   hand: Hand,
@@ -668,6 +839,17 @@ export async function fingerPhrase(
         continue;
       }
 
+      const repeatFollow = shortSamePitchFollow(notes, index);
+      const inShortRepeatRun =
+        repeatFollow.active &&
+        repeatFollow.anchorIndex !== null &&
+        note.authoredFinger === null &&
+        samePitchRunLength(notes, index) <= REPEAT_PITCH_RUN_MAX_LENGTH;
+      const anchorNote =
+        repeatFollow.anchorIndex !== null
+          ? notes[repeatFollow.anchorIndex]
+          : null;
+
       const prevAllowed = allowedFingers(notes[index - 1]);
       let bestCell: DpCell | null = null;
 
@@ -675,6 +857,22 @@ export async function fingerPhrase(
         const prevCell = dp[index - 1][fPrev];
         if (prevCell === undefined) {
           continue;
+        }
+
+        let anchorFinger: Finger | null = null;
+        const runRootAuthored = inShortRepeatRun
+          ? runRootAuthoredAnchor(notes, index)
+          : null;
+        if (inShortRepeatRun && anchorNote !== null) {
+          anchorFinger =
+            runRootAuthored ??
+            anchorNote.authoredFinger ??
+            fingerAtAnchor(
+              dp,
+              repeatFollow.anchorIndex!,
+              index - 1,
+              fPrev,
+            );
         }
 
         const transition = transitionCost(
@@ -686,16 +884,30 @@ export async function fingerPhrase(
           spanScale,
         );
 
+        let repeatPitchPenalty = 0;
+        if (inShortRepeatRun && anchorFinger !== null && finger !== anchorFinger) {
+          if (
+            runRootAuthored !== null &&
+            allowsRunRootHardLock(hand, notes, index)
+          ) {
+            continue;
+          }
+          repeatPitchPenalty = REPEAT_PITCH_FINGER_MISMATCH;
+        }
+
         let returningPenalty = 0;
         if (
           note.authoredFinger === null &&
           prevCell.firstFingerByMidi.has(note.midi) &&
-          prevCell.firstFingerByMidi.get(note.midi) !== finger
+          prevCell.firstFingerByMidi.get(note.midi) !== finger &&
+          !repeatFollow.active
         ) {
           returningPenalty = RETURNING_PITCH_FINGER_MISMATCH;
         }
 
-        const total = prevCell.cost + transition + local + returningPenalty;
+        const total =
+          prevCell.cost + transition + local + returningPenalty + repeatPitchPenalty;
+
         const nextCell: DpCell = {
           cost: total,
           backFinger: fPrev,

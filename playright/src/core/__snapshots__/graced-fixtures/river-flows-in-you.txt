@@ -76,13 +76,13 @@ m7 R midi73 -> 3
 m7 L midi50 -> 1
 m7 L midi57 -> 5
 m7 L midi64 -> 3
-m7 R midi73 -> 2
-m7 R midi74 -> 3
-m8 R midi76 -> 1
+m7 R midi73 -> 3
+m7 R midi74 -> 1
+m8 R midi76 -> 3
 m8 L midi45 -> 1
 m8 L midi52 -> 5
 m8 L midi61 -> 2
-m8 R midi74 -> 4
+m8 R midi74 -> 1
 m8 R midi73 -> 3
 m8 R midi71 -> 2
 m8 L midi52 -> 5

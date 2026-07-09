@@ -180,10 +180,10 @@ m23 R midi75 -> 5
 m23 R midi73 -> 4
 m24 L midi57 -> 5
 m24 L midi64 -> 1
-m24 R midi73 -> 1
+m24 R midi73 -> 4
 m24 L midi57 -> 5
 m24 L midi64 -> 1
-m24 R midi75 -> 2
+m24 R midi75 -> 1
 m24 R midi71 -> 1
 m24 R midi76 -> 3
 m25 L midi59 -> 3

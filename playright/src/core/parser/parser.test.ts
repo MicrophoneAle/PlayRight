@@ -4,6 +4,10 @@ import { parseMusicXmlToScript } from './index.ts';
 import { MINIMAL_MUSICXML } from './__fixtures__/minimal.musicxml.ts';
 import { TIE_AND_SYNC_MUSICXML } from './__fixtures__/tieAndSync.musicxml.ts';
 import { MOMS_LIKE_THESE_MUSICXML } from './__fixtures__/momsLikeThese.musicxml.ts';
+import {
+  ARTICULATIONS_MUSICXML,
+  STRONG_ACCENT_MUSICXML,
+} from './__fixtures__/articulations.musicxml.ts';
 
 async function unzipScoreXmlFromMxlBuffer(buffer: ArrayBuffer): Promise<string> {
   const archive = await JSZip.loadAsync(buffer);
@@ -191,6 +195,54 @@ describe('parseMusicXmlToScript', () => {
           step.notes[0].pitch === 'D5',
       ),
     ).toBe(false);
+  });
+
+  it('parses staccato, accent, plain, and combined articulations without changing timing', () => {
+    const { script } = parseMusicXmlToScript(ARTICULATIONS_MUSICXML);
+
+    expect(script).toHaveLength(4);
+    expect(script.map((step) => step.onset)).toEqual([0, 480, 960, 1440]);
+    expect(script.every((step) => step.notes[0].durationDivisions === 480)).toBe(
+      true,
+    );
+
+    const c4 = script[0].notes[0];
+    const d4 = script[1].notes[0];
+    const e4 = script[2].notes[0];
+    const f4 = script[3].notes[0];
+
+    expect(c4).toMatchObject({
+      pitch: 'C4',
+      hasStaccato: true,
+    });
+    expect(c4.hasAccent).toBeFalsy();
+
+    expect(d4).toMatchObject({
+      pitch: 'D4',
+      hasAccent: true,
+    });
+    expect(d4.hasStaccato).toBeFalsy();
+
+    expect(e4).toMatchObject({ pitch: 'E4' });
+    expect(e4.hasStaccato).toBeFalsy();
+    expect(e4.hasAccent).toBeFalsy();
+
+    expect(f4).toMatchObject({
+      pitch: 'F4',
+      hasStaccato: true,
+      hasAccent: true,
+    });
+  });
+
+  it('maps strong-accent to hasAccent', () => {
+    const { script } = parseMusicXmlToScript(STRONG_ACCENT_MUSICXML);
+    const g4 = script[0].notes[0];
+
+    expect(g4).toMatchObject({
+      pitch: 'G4',
+      hasAccent: true,
+    });
+    expect(g4.hasStaccato).toBeFalsy();
   });
 
   it('merges a multi-measure tie into one long note at the first onset', () => {

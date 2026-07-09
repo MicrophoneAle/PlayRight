@@ -11,6 +11,8 @@ const ScriptNoteSchema = z.object({
   durationDivisions: z.number().int().nonnegative().optional(),
   tiedToNext: z.boolean().optional(),
   hasFermata: z.boolean().optional(),
+  hasStaccato: z.boolean().optional(),
+  hasAccent: z.boolean().optional(),
 });
 
 /** Mirrors {@link GraceNoteInfo} */

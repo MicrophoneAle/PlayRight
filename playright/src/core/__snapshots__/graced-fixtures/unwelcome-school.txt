@@ -1117,7 +1117,7 @@ m46 L midi57 -> 1
 m46 R midi69 -> 3
 m46 R midi71 -> 4
 m46 L midi45 -> 5
-m46 R midi72 -> 5
+m46 R midi72 -> 1
 m46 L midi52 -> 3
 m46 L midi57 -> 1
 m46 R midi72 -> 1

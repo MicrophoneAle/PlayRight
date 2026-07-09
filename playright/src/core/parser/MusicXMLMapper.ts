@@ -258,6 +258,8 @@ function createScriptNote(
     ),
     ...(element.isTieStart ? { tiedToNext: true } : {}),
     ...(element.hasFermata ? { hasFermata: true } : {}),
+    ...(element.hasStaccato ? { hasStaccato: true } : {}),
+    ...(element.hasAccent ? { hasAccent: true } : {}),
     ...(finger !== null ? { fingerSource: 'score' as const } : {}),
   };
 }

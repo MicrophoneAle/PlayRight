@@ -38,6 +38,8 @@ export interface NormalizedNote {
   divisionsAtNote: number;
   measureNumber: number;
   hasFermata: boolean;
+  hasStaccato: boolean;
+  hasAccent: boolean;
   partIndex: number;
   partCount: number;
 }
@@ -273,6 +275,34 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
       continue;
     }
 
+    if (tag === 'articulations' && Array.isArray(child.articulations)) {
+      const articulations: RawRecord = {};
+
+      for (const articulationChild of child.articulations) {
+        if (!isRecord(articulationChild)) {
+          continue;
+        }
+
+        const articulationTag = Object.keys(articulationChild).find(
+          (key) => key !== ':@',
+        );
+
+        if (
+          articulationTag === 'staccato' ||
+          articulationTag === 'accent' ||
+          articulationTag === 'strong-accent'
+        ) {
+          articulations[articulationTag] = true;
+        }
+      }
+
+      if (Object.keys(articulations).length > 0) {
+        record.articulations = articulations;
+      }
+
+      continue;
+    }
+
     if (tag !== 'technical' || !Array.isArray(child.technical)) {
       continue;
     }
@@ -350,6 +380,29 @@ function hasFermataNotation(note: RawRecord): boolean {
   }
 
   return notations.fermata != null;
+}
+
+function getArticulationsRecord(note: RawRecord): RawRecord | null {
+  const notations = note.notations;
+  if (!isRecord(notations)) {
+    return null;
+  }
+
+  const articulations = notations.articulations;
+  return isRecord(articulations) ? articulations : null;
+}
+
+function hasStaccatoNotation(note: RawRecord): boolean {
+  return getArticulationsRecord(note)?.staccato != null;
+}
+
+function hasAccentNotation(note: RawRecord): boolean {
+  const articulations = getArticulationsRecord(note);
+  if (!articulations) {
+    return false;
+  }
+
+  return articulations.accent != null || articulations['strong-accent'] != null;
 }
 
 function extractGraceStealTime(note: RawRecord): GraceStealTime | undefined {
@@ -529,6 +582,8 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     divisionsAtNote: measureContext.divisions,
     measureNumber: measureContext.measureNumber,
     hasFermata: hasFermataNotation(note),
+    hasStaccato: hasStaccatoNotation(note),
+    hasAccent: hasAccentNotation(note),
     partIndex: measureContext.partIndex,
     partCount: measureContext.partCount,
   };

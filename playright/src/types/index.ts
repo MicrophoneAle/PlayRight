@@ -16,6 +16,10 @@ export interface ScriptNote {
   tiedToNext?: boolean;
   /** True when the score marks a fermata over this note. */
   hasFermata?: boolean;
+  /** True when the score marks staccato on this note. */
+  hasStaccato?: boolean;
+  /** True when the score marks accent or strong-accent on this note. */
+  hasAccent?: boolean;
 }
 
 export interface ScoreTiming {
