@@ -1,6 +1,7 @@
 import type {
   EngineMode,
   Finger,
+  GraceNoteInfo,
   Hand,
   ManualFingeringMap,
   PlaybackScript,
@@ -41,12 +42,10 @@ export interface TwoHandStepNoteInfo {
 }
 
 /**
- * Notes the user must hit to advance in practice mode.
- *
- * v1 scope: `graceBefore` is play-mode-only (scheduled in PlaybackEngine,
- * highlighted in sheet sync). It is intentionally excluded here — a step with
- * a grace completes on `step.notes` alone. Practice-mode grace support is a
- * future enhancement.
+ * Notes the user must hit to advance a MAIN step position in practice mode.
+ * Grace notes are separate positions in the practice walk (see
+ * buildPracticePositions / getPracticeNotesForPosition) — this function
+ * intentionally covers step.notes only, main-step behavior unchanged.
  */
 export function getPracticeNotes(
   step: StepOrder,
@@ -58,6 +57,169 @@ export function getPracticeNotes(
   }
 
   return step.notes.filter((note) => note.hand === activeHand);
+}
+
+/** Adapt a grace note into ScriptNote shape for practice-note matching (no cross-hand support yet). */
+function graceNoteAsScriptNote(grace: GraceNoteInfo): ScriptNote {
+  return {
+    pitch: grace.pitch,
+    midi: grace.midi,
+    hand: grace.hand,
+    finger: grace.finger ?? null,
+    ...(grace.fingerSource ? { fingerSource: grace.fingerSource } : {}),
+  };
+}
+
+/** Practice notes for one walk position (a main step or a single grace note). */
+export function getPracticeNotesForPosition(
+  script: PlaybackScript,
+  position: PracticePosition,
+  engineMode: EngineMode,
+  activeHand: Hand,
+): ScriptNote[] {
+  if (position.kind === 'main') {
+    return getPracticeNotes(script[position.stepIndex], engineMode, activeHand);
+  }
+
+  const grace = script[position.stepIndex]?.graceBefore?.[position.graceIndex];
+  if (!grace) {
+    return [];
+  }
+
+  if (engineMode === 'one-hand' && grace.hand !== activeHand) {
+    return [];
+  }
+
+  return [graceNoteAsScriptNote(grace)];
+}
+
+/**
+ * Playable practice notes for a position: two-hand mode matches by finger, so
+ * a note without one (chord overflow on a main step, or an unfingered grace
+ * before Phase 2 auto-fingering lands) cannot be pressed and must not block
+ * completion.
+ */
+export function getPlayablePracticeNotesForPosition(
+  script: PlaybackScript,
+  position: PracticePosition,
+  engineMode: EngineMode,
+  activeHand: Hand,
+): ScriptNote[] {
+  const notes = getPracticeNotesForPosition(script, position, engineMode, activeHand);
+  return engineMode === 'two-hand' ? notes.filter((note) => note.finger !== null) : notes;
+}
+
+/**
+ * True when a position has content the user must play. Main positions use
+ * the pre-filter practice-note presence (unchanged from pre-Phase-1
+ * behavior: a step search stops on ANY practice note, even one that later
+ * turns out unplayable post chord-overflow filtering — existing behavior,
+ * not something this phase changes). Grace positions use the playable-note
+ * count directly, since an unfingered grace must never become a stuck,
+ * un-completable position in the walk.
+ */
+export function positionHasRequiredPracticeNotes(
+  script: PlaybackScript,
+  position: PracticePosition,
+  engineMode: EngineMode,
+  activeHand: Hand,
+): boolean {
+  if (position.kind === 'main') {
+    return stepHasPracticeNotes(script[position.stepIndex], engineMode, activeHand);
+  }
+
+  return (
+    getPlayablePracticeNotesForPosition(script, position, engineMode, activeHand).length > 0
+  );
+}
+
+/**
+ * True when a step, taken as a whole (its main notes OR any of its graces),
+ * has something to practice. Strict superset of stepHasPracticeNotes: when a
+ * step has no graces this reduces to exactly that call, so step-boundary
+ * search/skip logic is unchanged for every non-graced fixture.
+ */
+export function stepHasAnyPracticeContent(
+  script: PlaybackScript,
+  stepIndex: number,
+  engineMode: EngineMode,
+  activeHand: Hand,
+): boolean {
+  const step = script[stepIndex];
+  if (!step) {
+    return false;
+  }
+
+  if (stepHasPracticeNotes(step, engineMode, activeHand)) {
+    return true;
+  }
+
+  const graceCount = step.graceBefore?.length ?? 0;
+  for (let graceIndex = 0; graceIndex < graceCount; graceIndex += 1) {
+    if (
+      positionHasRequiredPracticeNotes(
+        script,
+        { kind: 'grace', stepIndex, graceIndex },
+        engineMode,
+        activeHand,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * First within-step position (a grace, by ascending index, or the main note
+ * when no grace qualifies) that has practice content for this hand/mode.
+ * Returns the graceCursor to land on: a grace index, or null for the main
+ * position.
+ */
+export function firstPositionWithinStep(
+  script: PlaybackScript,
+  stepIndex: number,
+  engineMode: EngineMode,
+  activeHand: Hand,
+): number | null {
+  const graceCount = script[stepIndex]?.graceBefore?.length ?? 0;
+
+  for (let graceIndex = 0; graceIndex < graceCount; graceIndex += 1) {
+    if (
+      positionHasRequiredPracticeNotes(
+        script,
+        { kind: 'grace', stepIndex, graceIndex },
+        engineMode,
+        activeHand,
+      )
+    ) {
+      return graceIndex;
+    }
+  }
+
+  return null;
+}
+
+/** Position-aware variant of getExpectedNoteForFinger, covering a grace's own finger too. */
+export function getExpectedNoteForFingerAtPosition(
+  script: PlaybackScript,
+  position: PracticePosition,
+  hand: Hand,
+  finger: Finger,
+): ScriptNote | null {
+  if (position.kind === 'main') {
+    return getExpectedNoteForFinger(script[position.stepIndex], hand, finger);
+  }
+
+  const grace = script[position.stepIndex]?.graceBefore?.[position.graceIndex];
+  if (!grace || grace.finger === undefined) {
+    return null;
+  }
+
+  return grace.hand === hand && grace.finger === finger
+    ? graceNoteAsScriptNote(grace)
+    : null;
 }
 
 /** During play mode, every note in the step is shown; otherwise practice filtering applies. */

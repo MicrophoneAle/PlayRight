@@ -213,6 +213,8 @@ interface EngineState {
   activeHand: Hand;
   /** Set by PracticeEngine; false when paused, stopped, or not yet started. */
   isPracticeActive: boolean;
+  /** Index into the current step's graceBefore array; null = at the main note or none. */
+  practiceGraceCursor: number | null;
   /** True after Start is pressed for the current piece (enables Restart). */
   hasPracticeStarted: boolean;
   /** True while a playback session is active (playing or paused). */
@@ -277,6 +279,7 @@ interface EngineState {
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
     setPracticeActive: (isActive: boolean) => void;
+    setPracticeGraceCursor: (index: number | null) => void;
     setHasPracticeStarted: (started: boolean) => void;
     setPlaybackActive: (active: boolean) => void;
     setPlaybackFinished: (finished: boolean) => void;
@@ -314,6 +317,7 @@ export const useEngineStore = create<EngineState>((set) => {
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
+  practiceGraceCursor: null,
   hasPracticeStarted: false,
   isPlaybackActive: false,
   isPlaybackFinished: false,
@@ -344,6 +348,7 @@ export const useEngineStore = create<EngineState>((set) => {
         currentStepIndex: 0,
         totalSteps: script.length,
         isPracticeActive: false,
+        practiceGraceCursor: null,
         hasPracticeStarted: false,
         isPlaybackActive: false,
         isPlaybackFinished: false,
@@ -364,6 +369,7 @@ export const useEngineStore = create<EngineState>((set) => {
         manualFingerings: {},
         selectedFingeringNote: null,
         hasPracticeStarted: false,
+        practiceGraceCursor: null,
         isPlaybackActive: false,
         isPlaybackFinished: false,
         isPlaybackPaused: false,
@@ -511,6 +517,7 @@ export const useEngineStore = create<EngineState>((set) => {
           fingeringMode: mode,
           playMode: false,
           isPracticeActive: false,
+          practiceGraceCursor: null,
           hasPracticeStarted: false,
           isPlaybackActive: false,
           isPlaybackFinished: false,
@@ -663,6 +670,7 @@ export const useEngineStore = create<EngineState>((set) => {
             engineMode: mode,
             fingeringMode: 'off' as const,
             isPracticeActive: false,
+            practiceGraceCursor: null,
             hasPracticeStarted: false,
             expectedMidiNotes: [],
           };
@@ -676,11 +684,15 @@ export const useEngineStore = create<EngineState>((set) => {
         activeHand: hand,
         currentStepIndex: 0,
         isPracticeActive: false,
+        practiceGraceCursor: null,
         expectedMidiNotes: [],
       });
     },
     setPracticeActive: (isActive) => {
       set({ isPracticeActive: isActive });
+    },
+    setPracticeGraceCursor: (index) => {
+      set({ practiceGraceCursor: index });
     },
     setHasPracticeStarted: (started) => {
       set({ hasPracticeStarted: started });
@@ -716,6 +728,7 @@ export const useEngineStore = create<EngineState>((set) => {
           playMode: enabled,
           fingeringMode: enabled ? ('off' as const) : state.fingeringMode,
           currentStepIndex: 0,
+          practiceGraceCursor: null,
           expectedMidiNotes: [],
           playingMidiNotes: [],
           playingPlaybackNotes: [],

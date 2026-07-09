@@ -38,6 +38,14 @@ export interface GraceNoteInfo {
   hand: Hand;
   kind: 'acciaccatura' | 'appoggiatura';
   stealTime?: 'previous' | 'following';
+  /**
+   * Undefined until Phase 2 (DP auto-fingering) or score/manual capture
+   * populates it. Practice mode treats an undefined finger as "unfingered":
+   * a two-hand grace position requires a finger to be playable and is
+   * skipped until one exists (mirrors main-note chord-overflow filtering).
+   */
+  finger?: Finger;
+  fingerSource?: 'score' | 'predicted' | 'manual';
 }
 
 export interface StepOrder {

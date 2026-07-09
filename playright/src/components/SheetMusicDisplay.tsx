@@ -264,6 +264,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
+  const practiceGraceCursor = useEngineStore((state) => state.practiceGraceCursor);
   const expectedMidiNotes = useEngineStore((state) => state.expectedMidiNotes);
   const playingPlaybackNotes = useEngineStore((state) => state.playingPlaybackNotes);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
@@ -363,6 +364,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
 
     highlightedNotesRef.current = syncSheetMusicPracticeVisuals(osmd, {
       stepIndex: state.currentStepIndex,
+      graceCursor: state.fingeringMode === 'program' ? null : state.practiceGraceCursor,
       visualIndex: visualIndexRef.current,
       expectedMidiNotes,
       practiceNotes,
@@ -760,6 +762,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     syncPracticeVisuals();
   }, [
     currentStepIndex,
+    practiceGraceCursor,
     expectedMidiNotes,
     playingPlaybackNotes,
     playMode,

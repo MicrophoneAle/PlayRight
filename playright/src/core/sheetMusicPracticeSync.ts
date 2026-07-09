@@ -62,7 +62,10 @@ export interface PracticeScrollState {
 
 export interface PracticeVisualIndex {
   stepCursorOffsets: number[];
+  /** Merged main+grace glyphs per step - play mode's highlight source, unchanged. */
   stepGraphicalNotes: GraphicalNote[][];
+  /** Per-grace glyphs, [stepIndex][graceIndex] - a practice grace position's own highlight. */
+  stepGraceGraphicalNotes: GraphicalNote[][][];
   stepMeasureNumbers: number[];
 }
 
@@ -750,6 +753,34 @@ export function graceHighlightNotes(
   });
 }
 
+/**
+ * Noteheads for ONE grace note by index within step.graceBefore, matched by
+ * midi + notated hand (same matching as graceHighlightNotes, scoped to a
+ * single grace so a practice grace position highlights only its own glyph).
+ * Ambiguous when multiple graces in the same step share a pitch+hand -
+ * same limitation graceHighlightNotes already has.
+ */
+export function graceHighlightNoteForIndex(
+  step: StepOrder,
+  graceIndex: number,
+  graceGNotes: readonly GraphicalNote[] | undefined,
+): GraphicalNote[] {
+  const grace = step.graceBefore?.[graceIndex];
+  if (!grace || !graceGNotes?.length) {
+    return [];
+  }
+
+  return graceGNotes.filter((gNote) => {
+    const source = gNote.sourceNote;
+    return (
+      !source.isRest() &&
+      source.IsGraceNote === true &&
+      osmdNoteMidi(source) === grace.midi &&
+      osmdNoteHand(source) === grace.hand
+    );
+  });
+}
+
 function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
   const cursor = osmd.cursor;
   const snapshots: CursorSnapshot[] = [];
@@ -804,6 +835,7 @@ export function buildPracticeVisualIndex(
   const snapshots = walkCursorSnapshots(osmd);
   const stepCursorOffsets = new Array<number>(script.length).fill(0);
   const stepGraphicalNotes: GraphicalNote[][] = script.map(() => []);
+  const stepGraceGraphicalNotes: GraphicalNote[][][] = script.map(() => []);
   const stepMeasureNumbers = script.map((step) => step.measureNumber);
 
   let searchStart = 0;
@@ -839,13 +871,19 @@ export function buildPracticeVisualIndex(
       stepCursorOffsets[stepIndex] = match.offset;
       lastMatchedOffset = match.offset;
       searchStart = match.endIdx + 1;
+      const graceGNotes = snapshots[match.offset]?.graceGNotes;
       stepGraphicalNotes[stepIndex] = [
-        ...graceHighlightNotes(
-          script[stepIndex],
-          snapshots[match.offset]?.graceGNotes,
-        ),
+        ...graceHighlightNotes(script[stepIndex], graceGNotes),
         ...match.notes,
       ];
+      const graceCount = script[stepIndex].graceBefore?.length ?? 0;
+      if (graceCount > 0) {
+        stepGraceGraphicalNotes[stepIndex] = Array.from(
+          { length: graceCount },
+          (_, graceIndex) =>
+            graceHighlightNoteForIndex(script[stepIndex], graceIndex, graceGNotes),
+        );
+      }
       continue;
     }
 
@@ -860,7 +898,7 @@ export function buildPracticeVisualIndex(
   }
 
   osmd.cursor.reset();
-  return { stepCursorOffsets, stepGraphicalNotes, stepMeasureNumbers };
+  return { stepCursorOffsets, stepGraphicalNotes, stepGraceGraphicalNotes, stepMeasureNumbers };
 }
 
 function moveCursorToOffset(
@@ -1756,6 +1794,8 @@ export function syncSheetMusicPracticeVisuals(
   osmd: OpenSheetMusicDisplay,
   options: {
     stepIndex: number;
+    /** Index into the current step's graceBefore array; null = main position. */
+    graceCursor: number | null;
     visualIndex: PracticeVisualIndex | null;
     expectedMidiNotes: number[];
     practiceNotes: ScriptNote[];
@@ -1771,6 +1811,7 @@ export function syncSheetMusicPracticeVisuals(
 ): GraphicalNote[] {
   const {
     stepIndex,
+    graceCursor,
     visualIndex,
     expectedMidiNotes,
     practiceNotes,
@@ -1798,13 +1839,20 @@ export function syncSheetMusicPracticeVisuals(
     moveCursorToOffset(osmd, offset, cursorOffsetRef);
     safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide', () => cursor.hide());
 
-    const toHighlight = resolveStepGraphicalNotes(
-      osmd,
-      visualIndex,
-      stepIndex,
-      practiceNotes,
-      cursorOffsetRef,
-    );
+    // A grace position highlights only its own glyph (precomputed index
+    // lookup, no cursor-scan fallback needed); the main position highlights
+    // the step's main glyphs, excluding any grace glyph merged in for play
+    // mode's benefit (see stepGraphicalNotes' doc comment).
+    const toHighlight =
+      graceCursor !== null
+        ? (visualIndex.stepGraceGraphicalNotes[stepIndex]?.[graceCursor] ?? [])
+        : resolveStepGraphicalNotes(
+            osmd,
+            visualIndex,
+            stepIndex,
+            practiceNotes,
+            cursorOffsetRef,
+          ).filter((gNote) => gNote.sourceNote.IsGraceNote !== true);
 
     if (toHighlight.length === 0) {
       safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide(empty-toHighlight)', () =>

@@ -4,13 +4,15 @@ import {
   stepHasPlaybackFermataHold,
 } from './playbackTiming.ts';
 import {
-  getExpectedNoteForFinger,
-  getPracticeNotes,
-  stepHasPracticeNotes,
+  firstPositionWithinStep,
+  getExpectedNoteForFingerAtPosition,
+  getPlayablePracticeNotesForPosition,
+  positionHasRequiredPracticeNotes,
+  stepHasAnyPracticeContent,
 } from './practiceSteps.ts';
 import { alignScopeToMidis } from './scopeAlign.ts';
 import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
-import type { ScriptNote } from '../types/index.ts';
+import type { PlaybackScript, PracticePosition, ScriptNote } from '../types/index.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 
 export class PracticeEngine {
@@ -83,6 +85,7 @@ export class PracticeEngine {
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
     actions.setStepIndex(0);
+    actions.setPracticeGraceCursor(null);
     actions.setPracticeActive(true);
     this.loadCurrentStep({ alignScope: true });
   }
@@ -102,6 +105,7 @@ export class PracticeEngine {
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
     actions.setExpectedNotes([]);
+    actions.setPracticeGraceCursor(null);
   }
 
   /** End the current playthrough and return to the beginning. */
@@ -116,6 +120,7 @@ export class PracticeEngine {
     this.practiceNotesForStep = [];
     this.releaseAllSoundingNotes();
     actions.setStepIndex(0);
+    actions.setPracticeGraceCursor(null);
     actions.setPracticeActive(false);
     actions.setHasPracticeStarted(false);
     actions.setExpectedNotes([]);
@@ -174,14 +179,15 @@ export class PracticeEngine {
   }
 
   handleFingerPress(mapping: FingerMapping): void {
-    const { script, currentStepIndex } = useEngineStore.getState();
+    const { script, currentStepIndex, practiceGraceCursor } = useEngineStore.getState();
     if (!script || currentStepIndex < 0 || currentStepIndex >= script.length) {
       return;
     }
 
-    const currentStep = script[currentStepIndex];
-    const expected = getExpectedNoteForFinger(
-      currentStep,
+    const position = this.currentPosition(currentStepIndex, practiceGraceCursor);
+    const expected = getExpectedNoteForFingerAtPosition(
+      script,
+      position,
       mapping.hand,
       mapping.finger,
     );
@@ -416,6 +422,52 @@ export class PracticeEngine {
     }
   }
 
+  /** Resolve the walk position for a (step, graceCursor) pair. */
+  private currentPosition(
+    stepIndex: number,
+    graceCursor: number | null,
+  ): PracticePosition {
+    return graceCursor === null
+      ? { kind: 'main', stepIndex }
+      : { kind: 'grace', stepIndex, graceIndex: graceCursor };
+  }
+
+  /**
+   * Set practiceNotesForStep/expectedNotes for an already-resolved position.
+   * Callers own step-boundary and within-step position resolution; this only
+   * loads the notes for the position they land on.
+   */
+  private loadPositionNotes(
+    script: PlaybackScript,
+    stepIndex: number,
+    graceCursor: number | null,
+    alignScope: boolean,
+  ): void {
+    const { engineMode, activeHand, actions } = useEngineStore.getState();
+    const position = this.currentPosition(stepIndex, graceCursor);
+
+    this.hitNoteIndices.clear();
+    this.expectedNotes.clear();
+
+    const playableNotes = getPlayablePracticeNotesForPosition(
+      script,
+      position,
+      engineMode,
+      activeHand,
+    );
+    this.practiceNotesForStep = playableNotes;
+    const stepMidis = playableNotes.map((note) => note.midi);
+    for (const midi of stepMidis) {
+      this.expectedNotes.add(midi);
+    }
+
+    actions.setExpectedNotes(stepMidis);
+
+    if (alignScope || useEngineStore.getState().isPracticeActive) {
+      alignScopeToMidis(stepMidis);
+    }
+  }
+
   loadCurrentStep(options: { alignScope?: boolean; exactStep?: boolean } = {}): void {
     const { alignScope = false, exactStep = false } = options;
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
@@ -426,16 +478,18 @@ export class PracticeEngine {
 
     if (!script) {
       actions.setExpectedNotes([]);
+      actions.setPracticeGraceCursor(null);
       return;
     }
 
     let index = useEngineStore.getState().currentStepIndex;
 
-    if (exactStep && !stepHasPracticeNotes(script[index], engineMode, activeHand)) {
+    if (exactStep && !stepHasAnyPracticeContent(script, index, engineMode, activeHand)) {
       const nearest = this.findNearestStepWithPracticeNotes(index);
       if (nearest === null) {
         actions.setPracticeActive(false);
         actions.setExpectedNotes([]);
+        actions.setPracticeGraceCursor(null);
         return;
       }
 
@@ -443,8 +497,7 @@ export class PracticeEngine {
       actions.setStepIndex(index);
     } else if (!exactStep) {
       while (index < script.length) {
-        const step = script[index];
-        if (stepHasPracticeNotes(step, engineMode, activeHand)) {
+        if (stepHasAnyPracticeContent(script, index, engineMode, activeHand)) {
           break;
         }
         index += 1;
@@ -458,27 +511,13 @@ export class PracticeEngine {
     if (index >= script.length) {
       actions.setPracticeActive(false);
       actions.setExpectedNotes([]);
+      actions.setPracticeGraceCursor(null);
       return;
     }
 
-    const practiceNotes = getPracticeNotes(script[index], engineMode, activeHand);
-    // Two-hand practice matches keys by finger; notes without a finger assignment
-    // cannot be pressed and must not block step completion (e.g. chord overflow).
-    const playableNotes =
-      engineMode === 'two-hand'
-        ? practiceNotes.filter((note) => note.finger !== null)
-        : practiceNotes;
-    this.practiceNotesForStep = playableNotes;
-    const stepMidis = playableNotes.map((note) => note.midi);
-    for (const midi of stepMidis) {
-      this.expectedNotes.add(midi);
-    }
-
-    actions.setExpectedNotes(stepMidis);
-
-    if (alignScope || useEngineStore.getState().isPracticeActive) {
-      alignScopeToMidis(stepMidis);
-    }
+    const graceCursor = firstPositionWithinStep(script, index, engineMode, activeHand);
+    actions.setPracticeGraceCursor(graceCursor);
+    this.loadPositionNotes(script, index, graceCursor, alignScope);
   }
 
   seekToStep(stepIndex: number): void {
@@ -501,7 +540,7 @@ export class PracticeEngine {
       return null;
     }
 
-    if (stepHasPracticeNotes(script[fromIndex], engineMode, activeHand)) {
+    if (stepHasAnyPracticeContent(script, fromIndex, engineMode, activeHand)) {
       return fromIndex;
     }
 
@@ -509,7 +548,7 @@ export class PracticeEngine {
       const forward = fromIndex + distance;
       if (
         forward < script.length &&
-        stepHasPracticeNotes(script[forward], engineMode, activeHand)
+        stepHasAnyPracticeContent(script, forward, engineMode, activeHand)
       ) {
         return forward;
       }
@@ -517,7 +556,7 @@ export class PracticeEngine {
       const backward = fromIndex - distance;
       if (
         backward >= 0 &&
-        stepHasPracticeNotes(script[backward], engineMode, activeHand)
+        stepHasAnyPracticeContent(script, backward, engineMode, activeHand)
       ) {
         return backward;
       }
@@ -535,13 +574,59 @@ export class PracticeEngine {
       return;
     }
 
-    const { script, currentStepIndex, actions } = useEngineStore.getState();
+    const { script, currentStepIndex, practiceGraceCursor, engineMode, activeHand, actions } =
+      useEngineStore.getState();
+    if (!script) {
+      return;
+    }
+
+    if (practiceGraceCursor !== null) {
+      const graceCount = script[currentStepIndex]?.graceBefore?.length ?? 0;
+
+      for (
+        let graceIndex = practiceGraceCursor + 1;
+        graceIndex < graceCount;
+        graceIndex += 1
+      ) {
+        if (
+          positionHasRequiredPracticeNotes(
+            script,
+            { kind: 'grace', stepIndex: currentStepIndex, graceIndex },
+            engineMode,
+            activeHand,
+          )
+        ) {
+          actions.setPracticeGraceCursor(graceIndex);
+          this.loadPositionNotes(script, currentStepIndex, graceIndex, false);
+          return;
+        }
+      }
+
+      // Graces exhausted; try the step's main position next.
+      if (
+        positionHasRequiredPracticeNotes(
+          script,
+          { kind: 'main', stepIndex: currentStepIndex },
+          engineMode,
+          activeHand,
+        )
+      ) {
+        actions.setPracticeGraceCursor(null);
+        this.loadPositionNotes(script, currentStepIndex, null, false);
+        return;
+      }
+
+      // Main doesn't qualify either (e.g. one-hand mode, main notes belong to
+      // the other hand) - fall through to advance past this step entirely.
+    }
+
     const nextIndex = currentStepIndex + 1;
 
     this.releaseFermataNotesForStep(currentStepIndex);
     actions.setStepIndex(nextIndex);
+    actions.setPracticeGraceCursor(null);
 
-    if (!script || nextIndex >= script.length) {
+    if (nextIndex >= script.length) {
       actions.setPracticeActive(false);
       actions.setExpectedNotes([]);
       this.hitNoteIndices.clear();

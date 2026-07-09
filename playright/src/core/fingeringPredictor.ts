@@ -1,5 +1,6 @@
 ﻿import type {
   Finger,
+  GraceNoteInfo,
   Hand,
   ManualFingeringMap,
   PlaybackScript,
@@ -28,12 +29,48 @@ export interface NoteEvent {
   graceIndex?: number;
 }
 
+/**
+ * Distinct onset-grouping key for chord/phrase grouping (NOT the same as
+ * stepIndex): a main event's key is its step, so simultaneous chord tones
+ * still group together unchanged. A grace event gets its OWN key per
+ * (stepIndex, graceIndex) - graces before one main note are sequential, never
+ * a chord, and must never merge into the main step's group even though they
+ * share its stepIndex (and onset - zero-width, rides on the main attack).
+ */
+function onsetGroupKey(
+  event: Pick<NoteEvent, 'stepIndex' | 'kind' | 'graceIndex'>,
+): string {
+  return event.kind === 'grace'
+    ? `g:${event.stepIndex}:${event.graceIndex}`
+    : `m:${event.stepIndex}`;
+}
+
 export function extractHandTimelines(
   script: PlaybackScript,
 ): Record<Hand, NoteEvent[]> {
   const timelines: Record<Hand, NoteEvent[]> = { L: [], R: [] };
 
   script.forEach((step, stepIndex) => {
+    step.graceBefore?.forEach((grace, graceIndex) => {
+      const authoredFinger =
+        grace.fingerSource === 'score' || grace.fingerSource === 'manual'
+          ? (grace.finger ?? null)
+          : null;
+
+      timelines[grace.hand].push({
+        stepIndex,
+        midi: grace.midi,
+        authoredFinger,
+        // Zero-width: rides on the main attack's onset, same as playback
+        // timing (graceBefore does not advance the timeline). Scored purely
+        // by pitch/finger like any regular note - transitionCost never reads
+        // onset or duration.
+        onset: step.onset,
+        kind: 'grace',
+        graceIndex,
+      });
+    });
+
     for (const note of step.notes) {
       const authoredFinger =
         note.fingerSource === 'score' || note.fingerSource === 'manual'
@@ -46,12 +83,26 @@ export function extractHandTimelines(
         authoredFinger,
         onset: step.onset,
         durationDivisions: note.durationDivisions,
+        kind: 'main',
       });
     }
   });
 
-  const compareEvents = (left: NoteEvent, right: NoteEvent): number =>
-    left.stepIndex - right.stepIndex || left.midi - right.midi;
+  // Within a step, graces (by graceIndex, engraved order) precede the main
+  // chord; main chord tones keep their original midi-ascending order.
+  const compareEvents = (left: NoteEvent, right: NoteEvent): number => {
+    if (left.stepIndex !== right.stepIndex) {
+      return left.stepIndex - right.stepIndex;
+    }
+
+    const leftRank = left.kind === 'grace' ? (left.graceIndex ?? 0) : Infinity;
+    const rightRank = right.kind === 'grace' ? (right.graceIndex ?? 0) : Infinity;
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+
+    return left.midi - right.midi;
+  };
 
   timelines.L.sort(compareEvents);
   timelines.R.sort(compareEvents);
@@ -85,7 +136,7 @@ function groupTimelineOnsets(timeline: NoteEvent[]): NoteEvent[][] {
     const event = timeline[index];
     const current = onsetGroups[onsetGroups.length - 1];
 
-    if (event.stepIndex === current[0].stepIndex) {
+    if (onsetGroupKey(event) === onsetGroupKey(current[0])) {
       current.push(event);
     } else {
       onsetGroups.push([event]);
@@ -919,7 +970,7 @@ function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
 
   for (let index = 1; index < phrase.length; index += 1) {
     const event = phrase[index];
-    if (event.stepIndex === current[0].stepIndex) {
+    if (onsetGroupKey(event) === onsetGroupKey(current[0])) {
       current.push(event);
       continue;
     }
@@ -947,21 +998,25 @@ export async function fingerPhraseWithChords(
   }
 
   const onsets = groupPhraseOnsets(phrase);
-  const chordFingersByStep = new Map<number, (Finger | null)[]>();
-  const onsetNotesByStep = new Map<number, NoteEvent[]>();
+  // Keyed by onsetGroupKey, NOT stepIndex: a grace and its main step share a
+  // stepIndex but must never collide here (trap #1 - see onsetGroupKey doc).
+  const chordFingersByGroup = new Map<string, (Finger | null)[]>();
+  const onsetNotesByGroup = new Map<string, NoteEvent[]>();
   const representatives: NoteEvent[] = [];
 
   for (const onset of onsets) {
-    const stepIndex = onset[0].stepIndex;
-    onsetNotesByStep.set(stepIndex, onset);
+    const groupKey = onsetGroupKey(onset[0]);
+    onsetNotesByGroup.set(groupKey, onset);
 
     if (onset.length === 1) {
       representatives.push(onset[0]);
       continue;
     }
 
+    // Chords are always main-step tones (a grace onset is always length 1 -
+    // graces before one main note are sequential, never simultaneous).
     const chordFingers = assignChordFingers(onset, hand, spanScale);
-    chordFingersByStep.set(stepIndex, chordFingers);
+    chordFingersByGroup.set(groupKey, chordFingers);
 
     const representativeIndex = hand === 'R' ? onset.length - 1 : 0;
     const representative = onset[representativeIndex];
@@ -972,10 +1027,11 @@ export async function fingerPhraseWithChords(
       authoredFinger: chordFingers[representativeIndex],
       onset: representative.onset,
       durationDivisions: representative.durationDivisions,
+      kind: 'main',
     });
   }
 
-  const solvedByStep = new Map<number, Finger>();
+  const solvedByGroup = new Map<string, Finger>();
   const solved = await fingerPhrase(
     representatives,
     hand,
@@ -988,20 +1044,21 @@ export async function fingerPhraseWithChords(
   );
 
   representatives.forEach((representative, index) => {
-    solvedByStep.set(representative.stepIndex, solved[index]);
+    solvedByGroup.set(onsetGroupKey(representative), solved[index]);
   });
 
   return phrase.map((note) => {
-    const chordFingers = chordFingersByStep.get(note.stepIndex);
+    const groupKey = onsetGroupKey(note);
+    const chordFingers = chordFingersByGroup.get(groupKey);
     if (chordFingers) {
-      const onsetNotes = onsetNotesByStep.get(note.stepIndex) ?? [];
+      const onsetNotes = onsetNotesByGroup.get(groupKey) ?? [];
       const noteIndex = onsetNotes.findIndex(
         (onsetNote) => onsetNote.midi === note.midi,
       );
       return noteIndex >= 0 ? chordFingers[noteIndex] : null;
     }
 
-    return solvedByStep.get(note.stepIndex) ?? null;
+    return solvedByGroup.get(groupKey) ?? null;
   });
 }
 
@@ -1013,6 +1070,25 @@ function isFingeringAnchor(note: ScriptNote, overrideScore: boolean): boolean {
   }
 
   return !overrideScore && note.fingerSource === 'score';
+}
+
+function isGraceFingeringAnchor(grace: GraceNoteInfo, overrideScore: boolean): boolean {
+  if (grace.fingerSource === 'manual') {
+    return true;
+  }
+
+  return !overrideScore && grace.fingerSource === 'score';
+}
+
+/** Strip a grace back to its base identity fields (no finger/fingerSource). */
+function baseGraceNoteInfo(grace: GraceNoteInfo): GraceNoteInfo {
+  return {
+    midi: grace.midi,
+    pitch: grace.pitch,
+    hand: grace.hand,
+    kind: grace.kind,
+    ...(grace.stealTime ? { stealTime: grace.stealTime } : {}),
+  };
 }
 
 /**
@@ -1126,8 +1202,34 @@ export async function predictFingering(
 
   return script.map((step) => {
     const noteUpdates = new Map<number, ScriptNote>();
+    const graceUpdates = new Map<number, GraceNoteInfo>();
 
     for (const hand of HANDS) {
+      // Graces first, in engraved (graceIndex) order, matching the emission
+      // order extractHandTimelines used to build fingersByHand[hand] - trap
+      // #2: the cursor must be advanced for every grace before any main note
+      // of this hand, or every subsequent finger in the script shifts by one.
+      step.graceBefore?.forEach((grace, graceIndex) => {
+        if (grace.hand !== hand) {
+          return;
+        }
+
+        const predicted = fingersByHand[hand][cursor[hand]];
+        cursor[hand] += 1;
+
+        if (isGraceFingeringAnchor(grace, overrideScore)) {
+          graceUpdates.set(graceIndex, { ...grace });
+        } else if (predicted === null) {
+          graceUpdates.set(graceIndex, baseGraceNoteInfo(grace));
+        } else {
+          graceUpdates.set(graceIndex, {
+            ...grace,
+            finger: predicted,
+            fingerSource: 'predicted',
+          });
+        }
+      });
+
       const indexedNotes = step.notes
         .map((note, index) => ({ note, index }))
         .filter(({ note }) => note.hand === hand)
@@ -1161,6 +1263,13 @@ export async function predictFingering(
       notes: step.notes.map(
         (note, index) => noteUpdates.get(index) ?? { ...note },
       ),
+      ...(step.graceBefore
+        ? {
+            graceBefore: step.graceBefore.map(
+              (grace, graceIndex) => graceUpdates.get(graceIndex) ?? grace,
+            ),
+          }
+        : {}),
     };
   });
 }
@@ -1232,6 +1341,13 @@ export function stripPredictedFingers(script: PlaybackScript): PlaybackScript {
         finger: null,
       };
     }),
+    ...(step.graceBefore
+      ? {
+          graceBefore: step.graceBefore.map((grace) =>
+            grace.fingerSource === 'predicted' ? baseGraceNoteInfo(grace) : grace,
+          ),
+        }
+      : {}),
   }));
 }
 
