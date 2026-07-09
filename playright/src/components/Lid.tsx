@@ -545,10 +545,6 @@ export function Lid() {
     toggleHeaderCollapsed();
   };
 
-  const collapseButtonSpacer = (
-    <div className="w-[22px] shrink-0" aria-hidden="true" />
-  );
-
   const collapseButton = (
     <button
       type="button"
@@ -556,7 +552,7 @@ export function Lid() {
       aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand header' : 'Collapse header'}
       title={collapsed ? 'Expand header' : 'Collapse header'}
-      className={`fixed left-3 top-[1.1875rem] z-50 sm:left-4 lg:left-6 ${headerToggleClass}`}
+      className={headerToggleClass}
     >
       {collapsed ? (
         <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
@@ -703,22 +699,24 @@ export function Lid() {
 
       <ParseWarningsPanel />
 
-      {collapseButton}
-
       <header
-        className={`flex shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm ${
+        className={`flex shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm px-3 py-3 sm:px-4 lg:px-6 ${
           collapsed
-            ? 'items-center px-3 py-3 sm:px-4 lg:px-6'
-            : 'flex-col gap-3 px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4'
+            ? 'items-center'
+            : 'flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:py-4'
         }`}
       >
-        {collapsed ? (
-          collapseButtonSpacer
-        ) : (
-          <>
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6">
-              <div className="flex min-w-0 items-center gap-1.5">
-                {collapseButtonSpacer}
+        <div
+          className={
+            collapsed
+              ? 'flex items-center'
+              : 'flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6'
+          }
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            {collapseButton}
+            {!collapsed ? (
+              <>
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
                   <Music2 size={18} strokeWidth={2} aria-hidden />
                 </div>
@@ -731,21 +729,26 @@ export function Lid() {
                     <span className="block">Piano Practice</span>
                   </div>
                 </div>
-              </div>
+              </>
+            ) : null}
+          </div>
 
-              <div className="flex min-w-0 flex-1 items-center">
-                <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5 lg:max-w-md">
-                  <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
-                    Piece
-                  </span>
-                  <span className="truncate text-sm text-zinc-400">
-                    {songTitle ?? 'No Piece Loaded'}
-                  </span>
-                </div>
+          {!collapsed ? (
+            <div className="flex min-w-0 flex-1 items-center">
+              <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5 lg:max-w-md">
+                <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
+                  Piece
+                </span>
+                <span className="truncate text-sm text-zinc-400">
+                  {songTitle ?? 'No Piece Loaded'}
+                </span>
               </div>
             </div>
+          ) : null}
+        </div>
 
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+        {!collapsed ? (
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => setScoreLibraryOpen(true)}
@@ -798,9 +801,8 @@ export function Lid() {
               </div>
 
               <AccountSection />
-            </div>
-          </>
-        )}
+          </div>
+        ) : null}
       </header>
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel
