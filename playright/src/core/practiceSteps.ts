@@ -463,6 +463,16 @@ function buildTwoHandFingerToPhysicalKeyMap(): Map<string, string> {
   return map;
 }
 
+/** Resolve store (stepIndex, graceCursor) into a practice walk position. */
+export function practicePositionFromGraceCursor(
+  stepIndex: number,
+  graceCursor: number | null,
+): PracticePosition {
+  return graceCursor === null
+    ? { kind: 'main', stepIndex }
+    : { kind: 'grace', stepIndex, graceIndex: graceCursor };
+}
+
 /** Every MIDI in the current step, for two-hand expected-key highlighting. */
 export function buildTwoHandExpectedMidis(
   script: PlaybackScript | null,
@@ -475,6 +485,29 @@ export function buildTwoHandExpectedMidis(
   }
 
   for (const note of script[stepIndex].notes) {
+    midis.add(note.midi);
+  }
+
+  return midis;
+}
+
+/** Expected MIDIs for one practice walk position (grace or main). */
+export function buildTwoHandExpectedMidisForPosition(
+  script: PlaybackScript | null,
+  position: PracticePosition,
+): Set<number> {
+  const midis = new Set<number>();
+
+  if (!script) {
+    return midis;
+  }
+
+  for (const note of getPlayablePracticeNotesForPosition(
+    script,
+    position,
+    'two-hand',
+    'R',
+  )) {
     midis.add(note.midi);
   }
 
@@ -506,6 +539,36 @@ export function buildTwoHandStepNotesByMidi(
   return byMidi;
 }
 
+/** Step notes grouped by MIDI for one practice walk position. */
+export function buildTwoHandStepNotesByMidiForPosition(
+  script: PlaybackScript | null,
+  position: PracticePosition,
+): Map<number, TwoHandStepNoteInfo[]> {
+  const byMidi = new Map<number, TwoHandStepNoteInfo[]>();
+
+  if (!script) {
+    return byMidi;
+  }
+
+  for (const note of getPlayablePracticeNotesForPosition(
+    script,
+    position,
+    'two-hand',
+    'R',
+  )) {
+    const existing = byMidi.get(note.midi) ?? [];
+    existing.push({
+      hand: note.hand,
+      midi: note.midi,
+      finger: note.finger,
+      fingerSource: note.fingerSource,
+    });
+    byMidi.set(note.midi, existing);
+  }
+
+  return byMidi;
+}
+
 /** Physical key labels per MIDI; multiple keys when several fingers share a unison. */
 export function buildTwoHandPhysicalKeysByMidi(
   script: PlaybackScript | null,
@@ -520,6 +583,46 @@ export function buildTwoHandPhysicalKeysByMidi(
   const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
 
   for (const note of script[stepIndex].notes) {
+    if (note.finger === null) {
+      continue;
+    }
+
+    const physicalKey = fingerToKey.get(
+      `${note.playingHand ?? note.hand}:${note.finger}`,
+    );
+    if (physicalKey === undefined) {
+      continue;
+    }
+
+    const existing = keysByMidi.get(note.midi) ?? [];
+    if (!existing.includes(physicalKey)) {
+      existing.push(physicalKey);
+    }
+    keysByMidi.set(note.midi, existing);
+  }
+
+  return keysByMidi;
+}
+
+/** Physical key labels for one practice walk position. */
+export function buildTwoHandPhysicalKeysByMidiForPosition(
+  script: PlaybackScript | null,
+  position: PracticePosition,
+): Map<number, string[]> {
+  const keysByMidi = new Map<number, string[]>();
+
+  if (!script) {
+    return keysByMidi;
+  }
+
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+
+  for (const note of getPlayablePracticeNotesForPosition(
+    script,
+    position,
+    'two-hand',
+    'R',
+  )) {
     if (note.finger === null) {
       continue;
     }

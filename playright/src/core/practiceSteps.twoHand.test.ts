@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { PlaybackScript, StepOrder } from '../types/index.ts';
 import {
   buildTwoHandExpectedMidis,
+  buildTwoHandExpectedMidisForPosition,
   buildTwoHandPhysicalKeysByMidi,
+  buildTwoHandPhysicalKeysByMidiForPosition,
   buildTwoHandStepNotesByMidi,
+  buildTwoHandStepNotesByMidiForPosition,
   getExpectedNoteForFinger,
 } from './practiceSteps.ts';
 
@@ -93,5 +96,33 @@ describe('two-hand keyboard indicators', () => {
       'n',
       'q',
     ]);
+  });
+
+  it('position-aware builders highlight only the current grace, not the main chord', () => {
+    const score = scriptFromSteps([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 9,
+        graceBefore: [{ midi: 69, pitch: 'A4', hand: 'R', kind: 'acciaccatura', finger: 1 }],
+        notes: [
+          { pitch: 'G4', midi: 67, hand: 'R', finger: 2 },
+          { pitch: 'A4', midi: 69, hand: 'R', finger: 1 },
+        ],
+      },
+    ]);
+
+    const gracePosition = { kind: 'grace' as const, stepIndex: 0, graceIndex: 0 };
+
+    expect(buildTwoHandExpectedMidisForPosition(score, gracePosition)).toEqual(
+      new Set([69]),
+    );
+    expect(buildTwoHandStepNotesByMidiForPosition(score, gracePosition).get(69)).toEqual([
+      { hand: 'R', midi: 69, finger: 1, fingerSource: undefined },
+    ]);
+    expect(buildTwoHandPhysicalKeysByMidiForPosition(score, gracePosition).get(69)).toEqual([
+      'n',
+    ]);
+    expect(buildTwoHandExpectedMidis(score, 0)).toEqual(new Set([67, 69]));
   });
 });

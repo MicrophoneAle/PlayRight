@@ -16,7 +16,8 @@ import type { GraphicalNote } from "opensheetmusicdisplay";
 import { practiceEngine } from "../core/PracticeEngine.ts";
 import { playbackEngine } from "../core/PlaybackEngine.ts";
 import { fingeringProgramEngine } from "../core/FingeringProgramEngine.ts";
-import { getDisplayEngineMode, getDisplayNotesForStep, programStepExpectedMidis } from "../core/practiceSteps.ts";
+import { getDisplayEngineMode, getDisplayNotesForStep, getPlayablePracticeNotesForPosition, practicePositionFromGraceCursor, programStepExpectedMidis } from "../core/practiceSteps.ts";
+import type { ScriptNote } from "../types/index.ts";
 import { useEngineStore } from "../store/useEngineStore.ts";
 
 interface SheetMusicDisplayProps {
@@ -345,14 +346,30 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     const step = state.script?.[state.currentStepIndex];
-    let practiceNotes = step
-      ? getDisplayNotesForStep(
-          step,
-          state.playMode,
-          state.engineMode,
-          state.activeHand,
-        )
-      : [];
+    let practiceNotes: ScriptNote[] = [];
+    if (
+      state.isPracticeActive &&
+      !state.playMode &&
+      state.fingeringMode !== 'program' &&
+      state.script
+    ) {
+      practiceNotes = getPlayablePracticeNotesForPosition(
+        state.script,
+        practicePositionFromGraceCursor(
+          state.currentStepIndex,
+          state.practiceGraceCursor,
+        ),
+        state.engineMode,
+        state.activeHand,
+      );
+    } else if (step) {
+      practiceNotes = getDisplayNotesForStep(
+        step,
+        state.playMode,
+        state.engineMode,
+        state.activeHand,
+      );
+    }
 
     // Program mode: mirror the keyboard — derive highlights from the current step
     // directly so the staff stays green even when store expectedMidiNotes is stale.

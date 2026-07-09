@@ -11,8 +11,12 @@ import {
 } from '../core/InputManager.ts';
 import {
   buildTwoHandExpectedMidis,
+  buildTwoHandExpectedMidisForPosition,
   buildTwoHandPhysicalKeysByMidi,
+  buildTwoHandPhysicalKeysByMidiForPosition,
   buildTwoHandStepNotesByMidi,
+  buildTwoHandStepNotesByMidiForPosition,
+  practicePositionFromGraceCursor,
   buildProgramAssignedKeys,
   programActiveTargetNote,
   programAssignmentProgress,
@@ -208,6 +212,7 @@ export function PianoKeyboard() {
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
   const script = useEngineStore((state) => state.script);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
+  const practiceGraceCursor = useEngineStore((state) => state.practiceGraceCursor);
   const totalSteps = useEngineStore((state) => state.totalSteps);
   const manualFingerings = useEngineStore((state) => state.manualFingerings);
   const programRefingerNoteIndex = useEngineStore((state) => state.programRefingerNoteIndex);
@@ -279,29 +284,71 @@ export function PianoKeyboard() {
     return programTargetMidis(script[currentStepIndex], manualFingerings);
   }, [isProgramMode, script, currentStepIndex, manualFingerings, programRefingerNoteIndex]);
 
+  const inPositionAwarePractice =
+    isPracticeActive && !playMode && !isProgramMode && script !== null;
+
   const twoHandExpectedMidis = useMemo(() => {
-    if (!isTwoHand) {
+    if (!isTwoHand || !script) {
       return null;
+    }
+
+    if (inPositionAwarePractice) {
+      return buildTwoHandExpectedMidisForPosition(
+        script,
+        practicePositionFromGraceCursor(currentStepIndex, practiceGraceCursor),
+      );
     }
 
     return buildTwoHandExpectedMidis(script, currentStepIndex);
-  }, [isTwoHand, script, currentStepIndex]);
+  }, [
+    isTwoHand,
+    script,
+    inPositionAwarePractice,
+    currentStepIndex,
+    practiceGraceCursor,
+  ]);
 
   const twoHandStepNotesByMidi = useMemo(() => {
-    if (!isTwoHand) {
+    if (!isTwoHand || !script) {
       return null;
+    }
+
+    if (inPositionAwarePractice) {
+      return buildTwoHandStepNotesByMidiForPosition(
+        script,
+        practicePositionFromGraceCursor(currentStepIndex, practiceGraceCursor),
+      );
     }
 
     return buildTwoHandStepNotesByMidi(script, currentStepIndex);
-  }, [isTwoHand, script, currentStepIndex]);
+  }, [
+    isTwoHand,
+    script,
+    inPositionAwarePractice,
+    currentStepIndex,
+    practiceGraceCursor,
+  ]);
 
   const twoHandPhysicalKeysByMidi = useMemo(() => {
-    if (!isTwoHand) {
+    if (!isTwoHand || !script) {
       return null;
     }
 
+    if (inPositionAwarePractice) {
+      return buildTwoHandPhysicalKeysByMidiForPosition(
+        script,
+        practicePositionFromGraceCursor(currentStepIndex, practiceGraceCursor),
+      );
+    }
+
     return buildTwoHandPhysicalKeysByMidi(script, currentStepIndex);
-  }, [isTwoHand, script, currentStepIndex]);
+  }, [
+    isTwoHand,
+    script,
+    inPositionAwarePractice,
+    currentStepIndex,
+    practiceGraceCursor,
+  ]);
 
   const oneHandExpectedCoverage = useMemo(() => {
     if (isTwoHand || playMode || expectedMidiNotes.length === 0) {
