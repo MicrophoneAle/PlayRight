@@ -233,9 +233,9 @@ describe('useEngineStore settings and mode', () => {
     expect(useEngineStore.getState().playModeFingeringsVisible).toBe(false);
   });
 
-  it('auto-shows play fingerings when auto-show setting is on and engine is two-hand', () => {
+  it('auto-shows play fingerings when auto-show setting is on', () => {
     useEngineStore.setState({
-      engineMode: 'two-hand',
+      engineMode: 'one-hand',
       playMode: false,
       showTwoHandFingeringsInPlayMode: true,
       playModeFingeringsVisible: false,

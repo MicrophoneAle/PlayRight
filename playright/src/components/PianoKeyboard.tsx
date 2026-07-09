@@ -14,6 +14,7 @@ import {
   buildTwoHandExpectedMidisForPosition,
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandPhysicalKeysByMidiForPosition,
+  buildTwoHandPhysicalKeysByMidiFromPlayback,
   buildTwoHandStepNotesByMidi,
   buildTwoHandStepNotesByMidiForPosition,
   buildTwoHandStepNotesByMidiFromPlayback,
@@ -227,9 +228,9 @@ export function PianoKeyboard() {
   );
   const { userId } = useAuth();
   const isTwoHandPractice = engineMode === 'two-hand' || fingeringMode !== 'off';
-  const isPlayModeFingerings =
-    playMode && playModeFingeringsVisible && engineMode === 'two-hand';
-  const isTwoHand = playMode ? isPlayModeFingerings : isTwoHandPractice;
+  const showPlayFingerings = playMode && playModeFingeringsVisible;
+  const showFingeringHints = isTwoHandPractice || showPlayFingerings;
+  const isTwoHand = isTwoHandPractice;
   const isProgramMode = fingeringMode === 'program';
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
     () => new Set(),
@@ -317,11 +318,11 @@ export function PianoKeyboard() {
   ]);
 
   const twoHandStepNotesByMidi = useMemo(() => {
-    if (!isTwoHand || !script) {
+    if (!showFingeringHints || !script) {
       return null;
     }
 
-    if (isPlayModeFingerings) {
+    if (showPlayFingerings) {
       return buildTwoHandStepNotesByMidiFromPlayback(
         script,
         playingPlaybackNotes,
@@ -338,8 +339,8 @@ export function PianoKeyboard() {
 
     return buildTwoHandStepNotesByMidi(script, currentStepIndex);
   }, [
-    isTwoHand,
-    isPlayModeFingerings,
+    showFingeringHints,
+    showPlayFingerings,
     script,
     inPositionAwarePractice,
     currentStepIndex,
@@ -348,8 +349,16 @@ export function PianoKeyboard() {
   ]);
 
   const twoHandPhysicalKeysByMidi = useMemo(() => {
-    if (!isTwoHand || !script || isPlayModeFingerings) {
-      return isPlayModeFingerings ? new Map<number, string[]>() : null;
+    if (!showFingeringHints || !script) {
+      return null;
+    }
+
+    if (showPlayFingerings) {
+      return buildTwoHandPhysicalKeysByMidiFromPlayback(
+        script,
+        playingPlaybackNotes,
+        currentStepIndex,
+      );
     }
 
     if (inPositionAwarePractice) {
@@ -361,12 +370,13 @@ export function PianoKeyboard() {
 
     return buildTwoHandPhysicalKeysByMidi(script, currentStepIndex);
   }, [
-    isTwoHand,
-    isPlayModeFingerings,
+    showFingeringHints,
+    showPlayFingerings,
     script,
     inPositionAwarePractice,
     currentStepIndex,
     practiceGraceCursor,
+    playingPlaybackNotes,
   ]);
 
   const oneHandExpectedCoverage = useMemo(() => {
@@ -783,7 +793,7 @@ export function PianoKeyboard() {
       >
         {whiteKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isPhysicallyActive = isPlayModeFingerings
+          const isPhysicallyActive = showPlayFingerings
             ? (playingMidiCounts.get(key.midi) ?? 0) > 0
             : isTwoHand
               ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
@@ -796,7 +806,7 @@ export function PianoKeyboard() {
           const mappedLetter = mappedLabelForMidi(key.midi, false);
           const isEditable =
             isTwoHand &&
-            !isPlayModeFingerings &&
+            !showPlayFingerings &&
             (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
           const isProgramTarget = isProgramMode && programTargetMidiSet.has(key.midi);
@@ -819,8 +829,8 @@ export function PianoKeyboard() {
               }
               className={`${getWhiteKeyClasses(showScopeHighlight, isExpected, isPressed, isSelected)}${isEditable ? ' cursor-pointer' : ''}${isProgramTarget ? ' ring-2 ring-inset ring-amber-400' : ''}`}
             >
-              {isTwoHand ? renderTwoHandHint(key.midi, false) : null}
-              {!isTwoHand && mappedLetter ? (
+              {showFingeringHints ? renderTwoHandHint(key.midi, false) : null}
+              {!showFingeringHints && mappedLetter ? (
                 <span
                   className={`absolute bottom-2 w-full text-center ${oneHandKeyLabelClass(false)}`}
                 >
@@ -832,7 +842,7 @@ export function PianoKeyboard() {
         })}
         {blackKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isPhysicallyActive = isPlayModeFingerings
+          const isPhysicallyActive = showPlayFingerings
             ? (playingMidiCounts.get(key.midi) ?? 0) > 0
             : isTwoHand
               ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
@@ -845,7 +855,7 @@ export function PianoKeyboard() {
           const mappedLetter = mappedLabelForMidi(key.midi, true);
           const isEditable =
             isTwoHand &&
-            !isPlayModeFingerings &&
+            !showPlayFingerings &&
             (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
           const isProgramTarget = isProgramMode && programTargetMidiSet.has(key.midi);
@@ -874,8 +884,8 @@ export function PianoKeyboard() {
                 height: '65%',
               }}
             >
-              {isTwoHand ? renderTwoHandHint(key.midi, true) : null}
-              {!isTwoHand && mappedLetter ? (
+              {showFingeringHints ? renderTwoHandHint(key.midi, true) : null}
+              {!showFingeringHints && mappedLetter ? (
                 <span
                   className={`absolute bottom-2 w-full text-center ${oneHandKeyLabelClass(true)}`}
                 >

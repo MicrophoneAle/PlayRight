@@ -70,9 +70,6 @@ export function Lid() {
   const setShowTwoHandFingeringsInPlayMode = useEngineStore(
     (state) => state.actions.setShowTwoHandFingeringsInPlayMode,
   );
-  const togglePlayModeFingeringsVisible = useEngineStore(
-    (state) => state.actions.togglePlayModeFingeringsVisible,
-  );
   const setPlayModeFingeringsVisible = useEngineStore(
     (state) => state.actions.setPlayModeFingeringsVisible,
   );
@@ -177,10 +174,15 @@ export function Lid() {
     };
   }, [settingsOpen]);
 
+  const settingsCheckboxClass =
+    'h-4 w-4 shrink-0 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-40';
+  const settingsRowClass = 'flex items-center justify-between gap-2 pr-3';
+  const settingsLabelClass = 'min-w-0 truncate text-xs text-zinc-400';
+
   const settingsPanel = settingsOpen && settingsMenuPosition ? (
     <div
       ref={settingsPanelRef}
-      className="fixed z-[200] flex w-56 flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 py-3 pl-3 pr-0 shadow-2xl"
+      className="fixed z-[200] flex w-60 flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950 py-3 pl-3 pr-0 shadow-2xl"
       style={{
         top: settingsMenuPosition.top,
         right: settingsMenuPosition.right,
@@ -193,10 +195,11 @@ export function Lid() {
         Settings
       </p>
       <div className="playright-scrollbar flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain">
-        <div className="flex items-center justify-between gap-3">
+        <div className={settingsRowClass}>
           <label
             htmlFor="play-mode-toggle"
-            className="text-xs text-zinc-400"
+            className={settingsLabelClass}
+            title="Play mode"
           >
             Play mode
           </label>
@@ -206,15 +209,16 @@ export function Lid() {
             checked={playMode}
             onChange={(event) => setPlayMode(event.target.checked)}
             disabled={fingeringMode !== 'off'}
-            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+            className={settingsCheckboxClass}
           />
         </div>
-        <div className="flex items-center justify-between gap-3">
+        <div className={settingsRowClass}>
           <label
             htmlFor="auto-play-fingerings-toggle"
-            className="text-xs text-zinc-400"
+            className={settingsLabelClass}
+            title="Auto-show fingerings in play"
           >
-            Auto-show two-hand fingerings in play
+            Auto-show fingerings in play
           </label>
           <input
             id="auto-play-fingerings-toggle"
@@ -223,28 +227,28 @@ export function Lid() {
             onChange={(event) =>
               setShowTwoHandFingeringsInPlayMode(event.target.checked)
             }
-            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+            className={settingsCheckboxClass}
           />
         </div>
-        {playMode && engineMode === 'two-hand' ? (
-          <div className="flex items-center justify-between gap-3">
-            <label
-              htmlFor="play-fingerings-toggle"
-              className="text-xs text-zinc-400"
-            >
-              Show fingerings
-            </label>
-            <input
-              id="play-fingerings-toggle"
-              type="checkbox"
-              checked={playModeFingeringsVisible}
-              onChange={(event) =>
-                setPlayModeFingeringsVisible(event.target.checked)
-              }
-              className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
-            />
-          </div>
-        ) : null}
+        <div className={settingsRowClass}>
+          <label
+            htmlFor="play-fingerings-toggle"
+            className={`${settingsLabelClass}${playMode ? '' : ' opacity-40'}`}
+            title="Show fingerings"
+          >
+            Show fingerings
+          </label>
+          <input
+            id="play-fingerings-toggle"
+            type="checkbox"
+            checked={playModeFingeringsVisible}
+            disabled={!playMode}
+            onChange={(event) =>
+              setPlayModeFingeringsVisible(event.target.checked)
+            }
+            className={settingsCheckboxClass}
+          />
+        </div>
         <div className="flex flex-col gap-2">
           <label
             htmlFor="tempo-factor-slider"
@@ -312,7 +316,7 @@ export function Lid() {
             <button
               type="button"
               onClick={() => setEngineMode('one-hand')}
-              disabled={fingeringMode === 'program' || playMode}
+              disabled={fingeringMode === 'program'}
               aria-pressed={engineMode === 'one-hand'}
               className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
                 engineMode === 'one-hand'
@@ -336,10 +340,11 @@ export function Lid() {
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3">
+        <div className={settingsRowClass}>
           <label
             htmlFor="auto-fingering-toggle"
-            className="text-xs text-zinc-400"
+            className={settingsLabelClass}
+            title="Auto-fingering"
           >
             Auto-fingering
           </label>
@@ -348,13 +353,14 @@ export function Lid() {
             type="checkbox"
             checked={autoFingering}
             onChange={(event) => setAutoFingering(event.target.checked)}
-            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+            className={settingsCheckboxClass}
           />
         </div>
-        <div className="flex items-center justify-between gap-3">
+        <div className={settingsRowClass}>
           <label
             htmlFor="override-score-fingerings-toggle"
-            className="text-xs text-zinc-400"
+            className={settingsLabelClass}
+            title="Override score fingerings"
           >
             Override score fingerings
           </label>
@@ -363,7 +369,7 @@ export function Lid() {
             type="checkbox"
             checked={overrideScoreFingerings}
             onChange={(event) => setOverrideScoreFingerings(event.target.checked)}
-            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+            className={settingsCheckboxClass}
           />
         </div>
         <div className="flex flex-col gap-2">
@@ -557,20 +563,6 @@ export function Lid() {
 
   const playControls = playMode ? (
     <>
-      {engineMode === 'two-hand' ? (
-        <button
-          type="button"
-          onClick={() => togglePlayModeFingeringsVisible()}
-          aria-pressed={playModeFingeringsVisible}
-          className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors ${
-            playModeFingeringsVisible
-              ? 'border-violet-500 bg-violet-600 text-white hover:bg-violet-500'
-              : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
-          }`}
-        >
-          Fingerings
-        </button>
-      ) : null}
       <button
         type="button"
         onClick={() => {

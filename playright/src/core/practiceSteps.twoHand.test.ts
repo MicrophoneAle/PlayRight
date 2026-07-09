@@ -5,6 +5,7 @@ import {
   buildTwoHandExpectedMidisForPosition,
   buildTwoHandPhysicalKeysByMidi,
   buildTwoHandPhysicalKeysByMidiForPosition,
+  buildTwoHandPhysicalKeysByMidiFromPlayback,
   buildTwoHandStepNotesByMidi,
   buildTwoHandStepNotesByMidiForPosition,
   buildTwoHandStepNotesByMidiFromPlayback,
@@ -167,5 +168,19 @@ describe('two-hand keyboard indicators', () => {
     expect(byMidi.get(69)).toEqual([
       { hand: 'R', midi: 69, finger: 1, fingerSource: undefined },
     ]);
+  });
+
+  it('maps physical keys for play-mode fingering overlay', () => {
+    const score = scriptFromSteps([
+      step([
+        { pitch: 'C3', midi: 48, hand: 'L', finger: 1 },
+        { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
+      ]),
+    ]);
+
+    const keysByMidi = buildTwoHandPhysicalKeysByMidiFromPlayback(score, [], 0);
+
+    expect(keysByMidi.get(48)).toEqual(['v']);
+    expect(keysByMidi.get(60)).toEqual(['n']);
   });
 });

@@ -96,10 +96,9 @@ function readStoredShowTwoHandFingeringsInPlayMode(): boolean {
 }
 
 function shouldAutoShowPlayModeFingerings(
-  engineMode: EngineMode,
   showTwoHandFingeringsInPlayMode: boolean,
 ): boolean {
-  return engineMode === 'two-hand' && showTwoHandFingeringsInPlayMode;
+  return showTwoHandFingeringsInPlayMode;
 }
 
 function clampTempoFactor(value: number): number {
@@ -702,24 +701,10 @@ export const useEngineStore = create<EngineState>((set) => {
             practiceGraceCursor: null,
             hasPracticeStarted: false,
             expectedMidiNotes: [],
-            playModeFingeringsVisible: false,
           };
         }
 
-        const playModeFingeringsVisible =
-          mode === 'two-hand' &&
-          state.playMode &&
-          shouldAutoShowPlayModeFingerings(
-            mode,
-            state.showTwoHandFingeringsInPlayMode,
-          );
-
-        return {
-          engineMode: mode,
-          playModeFingeringsVisible: state.playMode
-            ? playModeFingeringsVisible
-            : state.playModeFingeringsVisible,
-        };
+        return { engineMode: mode };
       });
     },
     setActiveHand: (hand) => {
@@ -777,10 +762,7 @@ export const useEngineStore = create<EngineState>((set) => {
           playingPlaybackNotes: [],
           selectedFingeringNote: enabled ? null : state.selectedFingeringNote,
           playModeFingeringsVisible: enabled
-            ? shouldAutoShowPlayModeFingerings(
-                state.engineMode,
-                state.showTwoHandFingeringsInPlayMode,
-              )
+            ? shouldAutoShowPlayModeFingerings(state.showTwoHandFingeringsInPlayMode)
             : false,
           ...(enabled
             ? {
@@ -808,8 +790,7 @@ export const useEngineStore = create<EngineState>((set) => {
 
         if (
           enabled &&
-          state.playMode &&
-          state.engineMode === 'two-hand'
+          state.playMode
         ) {
           return {
             showTwoHandFingeringsInPlayMode: enabled,

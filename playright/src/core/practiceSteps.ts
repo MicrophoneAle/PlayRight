@@ -652,6 +652,100 @@ export function buildTwoHandStepNotesByMidiFromPlayback(
   return byMidi;
 }
 
+function appendPhysicalKeyForNote(
+  keysByMidi: Map<number, string[]>,
+  note: {
+    midi: number;
+    hand: Hand;
+    finger?: Finger | null;
+    playingHand?: Hand;
+  },
+  fingerToKey: Map<string, string>,
+): void {
+  if (note.finger == null) {
+    return;
+  }
+
+  const physicalHand = note.playingHand ?? note.hand;
+  const physicalKey = fingerToKey.get(`${physicalHand}:${note.finger}`);
+  if (physicalKey === undefined) {
+    return;
+  }
+
+  const existing = keysByMidi.get(note.midi) ?? [];
+  if (!existing.includes(physicalKey)) {
+    existing.push(physicalKey);
+  }
+  keysByMidi.set(note.midi, existing);
+}
+
+function collectPlaybackFingeringNotes(
+  script: PlaybackScript,
+  playingPlaybackNotes: readonly PlayingPlaybackNote[],
+  currentStepIndex: number,
+): Array<ScriptNote | GraceNoteInfo> {
+  const notes: Array<ScriptNote | GraceNoteInfo> = [];
+  const seen = new Set<string>();
+
+  const addNote = (note: ScriptNote | GraceNoteInfo) => {
+    const key = `${note.hand}:${note.midi}`;
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    notes.push(note);
+  };
+
+  for (const playing of playingPlaybackNotes) {
+    const match = findScriptNoteForPlayback(
+      script,
+      playing.stepIndex,
+      playing.midi,
+      playing.hand,
+    );
+    if (match) {
+      addNote(match);
+    }
+  }
+
+  if (currentStepIndex >= 0 && currentStepIndex < script.length) {
+    const step = script[currentStepIndex];
+    for (const note of step.notes) {
+      addNote(note);
+    }
+    for (const grace of step.graceBefore ?? []) {
+      addNote(grace);
+    }
+  }
+
+  return notes;
+}
+
+/** Physical key labels for play-mode fingering overlay. */
+export function buildTwoHandPhysicalKeysByMidiFromPlayback(
+  script: PlaybackScript | null,
+  playingPlaybackNotes: readonly PlayingPlaybackNote[],
+  currentStepIndex: number,
+): Map<number, string[]> {
+  const keysByMidi = new Map<number, string[]>();
+
+  if (!script) {
+    return keysByMidi;
+  }
+
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+  for (const note of collectPlaybackFingeringNotes(
+    script,
+    playingPlaybackNotes,
+    currentStepIndex,
+  )) {
+    appendPhysicalKeyForNote(keysByMidi, note, fingerToKey);
+  }
+
+  return keysByMidi;
+}
+
 /** Physical key labels per MIDI; multiple keys when several fingers share a unison. */
 export function buildTwoHandPhysicalKeysByMidi(
   script: PlaybackScript | null,
