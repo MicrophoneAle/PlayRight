@@ -4,11 +4,34 @@ import type {
   Hand,
   ManualFingeringMap,
   PlaybackScript,
+  PracticePosition,
   ScriptNote,
   StepOrder,
 } from '../types/index.ts';
 import { fingeringKey, resolveManualAssignment } from '../types/index.ts';
 import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
+
+/**
+ * Derived practice-facing sequence: grace positions for step i precede
+ * { kind: 'main', stepIndex: i } in graceBefore array (engraved) order.
+ * PlaybackScript is unchanged; consumers opt in per Phase 1+.
+ */
+export function buildPracticePositions(script: PlaybackScript): PracticePosition[] {
+  const positions: PracticePosition[] = [];
+
+  for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
+    const graceBefore = script[stepIndex].graceBefore;
+    if (graceBefore !== undefined) {
+      for (let graceIndex = 0; graceIndex < graceBefore.length; graceIndex += 1) {
+        positions.push({ kind: 'grace', stepIndex, graceIndex });
+      }
+    }
+
+    positions.push({ kind: 'main', stepIndex });
+  }
+
+  return positions;
+}
 
 export interface TwoHandStepNoteInfo {
   hand: Hand;

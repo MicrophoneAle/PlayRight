@@ -21,6 +21,8 @@ export interface ScriptNote {
 export interface ScoreTiming {
   divisionsPerQuarter: number;
   tempoBpm: number;
+  /** Canonical-division cursor after the full score timeline walk (includes rests). */
+  totalTimelineDivisions: number;
 }
 
 export interface ParseMusicXmlResult {
@@ -54,6 +56,11 @@ export interface StepOrder {
 }
 
 export type PlaybackScript = StepOrder[];
+
+/** Practice walk target: main step attack or a grace note preceding that step. */
+export type PracticePosition =
+  | { kind: 'main'; stepIndex: number }
+  | { kind: 'grace'; stepIndex: number; graceIndex: number };
 
 export type EngineMode = 'one-hand' | 'two-hand';
 

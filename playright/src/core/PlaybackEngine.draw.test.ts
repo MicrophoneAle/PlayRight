@@ -58,6 +58,7 @@ describe('PlaybackEngine playback visuals', () => {
     const scoreTiming: ScoreTiming = {
       divisionsPerQuarter: 480,
       tempoBpm: 120,
+      totalTimelineDivisions: 480,
     };
 
     useEngineStore.setState({

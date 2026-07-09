@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 import { MusicXMLIngestor } from './MusicXMLIngestor.ts';
 import {
@@ -16,18 +17,46 @@ import { parseMusicXmlToScript } from './index.ts';
  * cursor bug in MusicXMLMapper.ts (tie-stop advancing before same-beat chord
  * tones attach, and tie-merge double counting). morns was not covered by any
  * automated test despite proving the bug, so it is asserted explicitly here.
+ *
+ * The gate compares the parser's end-of-walk timeline cursor (including rests)
+ * against an independent XML division walk — not max(playable note end), which
+ * can fall short when a score ends with rests after the last pitched note
+ * (unwelcome-school: cursor 3168 vs last note end 3144).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 interface AssetExpectation {
   path: string;
-  /** Snapshot captured 2026-07-03 post-P0-1 fix. Update only for an intentional
-   *  parser change to chord/tie grouping; a drift here is a real regression. */
+  mxl?: boolean;
+  /** Snapshot captured post-P0-1 fix. Update only for an intentional parser change. */
   expectedStepCount: number;
 }
 
 const ASSETS: Record<string, AssetExpectation> = {
+  'constant-moderato': {
+    path: '../../assets/constant-moderato.musicxml',
+    expectedStepCount: 626,
+  },
+  'glimpse-of-us': {
+    path: '../../assets/glimpse-of-us-joji.mxl',
+    mxl: true,
+    expectedStepCount: 481,
+  },
+  'hoyo-mix': {
+    path: '../../assets/if-i-can-stop-one-heart-from-breaking-hoyo-mix.musicxml',
+    expectedStepCount: 627,
+  },
+  tetoris: {
+    path: '../../assets/tetoris.mxl',
+    mxl: true,
+    expectedStepCount: 849,
+  },
+  'unwelcome-school': {
+    path: '../../assets/unwelcome-school.mxl',
+    mxl: true,
+    expectedStepCount: 625,
+  },
   morns: {
     path: '../../assets/morns-like-these-honkai-star-rail.musicxml',
     expectedStepCount: 123,
@@ -36,9 +65,19 @@ const ASSETS: Record<string, AssetExpectation> = {
     path: '../../assets/chase-setsuna-yuki.musicxml',
     expectedStepCount: 101,
   },
+  'river-flows': {
+    path: '../../assets/river-flows-in-you.mxl',
+    mxl: true,
+    expectedStepCount: 544,
+  },
   fanfare: {
     path: '../../assets/playright-fanfare.musicxml',
     expectedStepCount: 9,
+  },
+  kyrie: {
+    path: '../../assets/kyrie-eleison.mxl',
+    mxl: true,
+    expectedStepCount: 60,
   },
 };
 
@@ -98,10 +137,25 @@ function playableNoteElementCount(elements: NormalizedElement[]): number {
   ).length;
 }
 
+async function loadAssetXml(expectation: AssetExpectation): Promise<string> {
+  const assetPath = join(here, expectation.path);
+  if (!expectation.mxl) {
+    return readFileSync(assetPath, 'utf8');
+  }
+
+  const archive = await JSZip.loadAsync(readFileSync(assetPath));
+  const scoreXml = archive.file('score.xml');
+  if (!scoreXml) {
+    throw new Error(`${expectation.path} missing score.xml`);
+  }
+
+  return scoreXml.async('string');
+}
+
 describe('per-asset parser onset regression', () => {
   for (const [name, expectation] of Object.entries(ASSETS)) {
-    it(`${name}: final onset matches XML division total, step count in range`, () => {
-      const xml = readFileSync(join(here, expectation.path), 'utf8');
+    it(`${name}: timeline cursor matches XML division total, step count in range`, async () => {
+      const xml = await loadAssetXml(expectation);
       const raw = MusicXMLIngestor.ingest(xml);
       const { partElements } = MusicXMLNormalizer.normalize(raw);
       const flatElements = partElements.flat();
@@ -110,12 +164,10 @@ describe('per-asset parser onset regression', () => {
       const expectedFinalOnset = Math.max(
         ...partElements.map((part) => xmlDivisionTotal(part, canon)),
       );
-      // Derived ceiling: a step can never contain more notes than there are raw
-      // playable note elements, so step count can never exceed this count.
       const stepCountCeiling = playableNoteElementCount(flatElements);
 
-      const { script } = parseMusicXmlToScript(xml);
-      const finalOnset = Math.max(
+      const { script, scoreTiming } = parseMusicXmlToScript(xml);
+      const maxNoteEnd = Math.max(
         ...script.flatMap((step) =>
           step.notes.map((note) => step.onset + (note.durationDivisions ?? 0)),
         ),
@@ -124,29 +176,24 @@ describe('per-asset parser onset regression', () => {
       const maxOnset = script[script.length - 1].onset;
 
       console.log(
-        `${name.padEnd(8)}| expected final onset ${String(expectedFinalOnset).padEnd(6)}` +
-          `| actual ${String(finalOnset).padEnd(6)}| steps ${String(stepCount).padEnd(5)}` +
-          `(ceiling ${String(stepCountCeiling).padEnd(5)})| maxOnset ${maxOnset}`,
+        `${name.padEnd(16)}| expected ${String(expectedFinalOnset).padEnd(5)}` +
+          `| cursor ${String(scoreTiming.totalTimelineDivisions).padEnd(5)}` +
+          `| maxNoteEnd ${String(maxNoteEnd).padEnd(5)}| steps ${String(stepCount).padEnd(4)}` +
+          `(ceiling ${String(stepCountCeiling).padEnd(4)})| maxOnset ${maxOnset}`,
       );
 
-      expect(finalOnset).toBe(expectedFinalOnset);
+      expect(scoreTiming.totalTimelineDivisions).toBe(expectedFinalOnset);
+      expect(maxNoteEnd).toBeLessThanOrEqual(expectedFinalOnset);
 
       if (name === 'morns') {
-        // Regression guard for the P0-1 tie/chord cursor bug: pre-fix this was 643 (+34%).
-        expect(finalOnset).toBe(480);
+        expect(scoreTiming.totalTimelineDivisions).toBe(480);
       }
 
-      // Step count "range": the upper bound is derived from the raw XML (see
-      // stepCountCeiling above); the exact count is pinned to the post-P0-1
-      // snapshot because deriving it precisely from XML would mean
-      // re-deriving the mapper's own chord/tie-merge logic.
       expect(stepCount).toBeGreaterThan(0);
       expect(stepCount).toBeLessThanOrEqual(stepCountCeiling);
       expect(stepCount).toBe(expectation.expectedStepCount);
 
-      // Derived: the last step must start before the timeline ends, since it
-      // has positive duration.
-      expect(maxOnset).toBeLessThan(finalOnset);
+      expect(maxOnset).toBeLessThanOrEqual(scoreTiming.totalTimelineDivisions);
     });
   }
 });

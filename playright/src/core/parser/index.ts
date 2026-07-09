@@ -18,17 +18,17 @@ export class MusicXMLParser {
     const flatElements = partElements.flat();
     const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flatElements);
     const { tempoBpm } = extractScoreTiming(raw);
+    const partMaps = partElements.map((part) =>
+      MusicXMLMapper.mapToDomain(part, canonicalDivisionsPerQuarter),
+    );
     const mapped =
-      partElements.length <= 1
-        ? MusicXMLMapper.mapToDomain(
-            partElements[0] ?? [],
-            canonicalDivisionsPerQuarter,
-          )
-        : mergePlaybackScripts(
-            partElements.map((part) =>
-              MusicXMLMapper.mapToDomain(part, canonicalDivisionsPerQuarter),
-            ),
-          );
+      partMaps.length <= 1
+        ? (partMaps[0]?.script ?? [])
+        : mergePlaybackScripts(partMaps.map((partMap) => partMap.script));
+    const totalTimelineDivisions = Math.max(
+      0,
+      ...partMaps.map((partMap) => partMap.finalTimelineDivisions),
+    );
     const script = MusicXMLValidator.validate(mapped);
 
     return {
@@ -36,6 +36,7 @@ export class MusicXMLParser {
       scoreTiming: {
         divisionsPerQuarter: canonicalDivisionsPerQuarter,
         tempoBpm,
+        totalTimelineDivisions,
       },
       warnings: [...warnings, ...normalizeWarnings],
     };

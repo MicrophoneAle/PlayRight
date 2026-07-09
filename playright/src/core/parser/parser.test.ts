@@ -38,6 +38,7 @@ describe('parseMusicXmlToScript', () => {
     expect(scoreTiming).toEqual({
       divisionsPerQuarter: 480,
       tempoBpm: 100,
+      totalTimelineDivisions: 1440,
     });
   });
 

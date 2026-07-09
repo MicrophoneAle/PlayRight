@@ -320,6 +320,12 @@ function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
   });
 }
 
+export interface MapToDomainResult {
+  script: PlaybackScript;
+  /** Canonical-division cursor after walking the full part timeline (includes rests). */
+  finalTimelineDivisions: number;
+}
+
 export { getMidiNumber, formatPitch } from './pitch.ts';
 export { mergePlaybackScripts };
 
@@ -327,7 +333,7 @@ export class MusicXMLMapper {
   static mapToDomain(
     elements: NormalizedElement[],
     canonicalDivisionsPerQuarter: number,
-  ): PlaybackScript {
+  ): MapToDomainResult {
     let currentTime = 0;
     let chordAnchorEligible = false;
     let chordAnchorOnset = 0;
@@ -490,6 +496,9 @@ export class MusicXMLMapper {
     flushPendingTimeAdvance();
     clearDanglingOpenTies(openTies, absoluteNotes);
 
-    return groupByOnset(absoluteNotes);
+    return {
+      script: groupByOnset(absoluteNotes),
+      finalTimelineDivisions: currentTime,
+    };
   }
 }

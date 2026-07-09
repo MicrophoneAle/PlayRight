@@ -22,6 +22,10 @@ export interface NoteEvent {
   /** MusicXML division onset of this note's step (from StepOrder.onset). */
   onset: number;
   durationDivisions?: number;
+  /** 'main' when omitted (legacy timeline events). Grace events use kind 'grace'. */
+  kind?: 'main' | 'grace';
+  /** Index into StepOrder.graceBefore when kind is 'grace'. */
+  graceIndex?: number;
 }
 
 export function extractHandTimelines(
