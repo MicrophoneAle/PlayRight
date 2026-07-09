@@ -130,7 +130,7 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.MeasureNumberLabelOffset = 2;
 }
 
-const SHEET_TOP_CLEARANCE_PX = 24;
+const SHEET_TOP_CLEARANCE_PX = 16;
 
 const SCORE_CONTENT_TOP_SELECTORS = [
   '.vf-stave',
@@ -828,7 +828,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       onPointerDown={handleSheetPointerDown}
       onPointerUp={handleSheetPointerSeek}
       onPointerCancel={clearSheetPointerStart}
-      className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-3 pb-2 pt-6 [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
+      className="min-h-0 flex-1 w-full cursor-pointer overflow-auto rounded-lg bg-white px-4 pb-2 pt-4 [&_svg]:max-w-full [&_svg]:overflow-visible [&_[id^=cursorImg-]]:hidden [&_.measure-number>line]:hidden [&_.measure-number>path]:hidden"
     />
   );
 }

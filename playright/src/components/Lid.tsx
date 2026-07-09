@@ -541,6 +541,9 @@ export function Lid() {
   const headerToggleClass =
     'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
 
+  const logoRowClass =
+    'flex min-h-9 min-w-0 items-center gap-1.5 pl-8 sm:pl-10 lg:pl-12';
+
   const toggleCollapsed = () => {
     toggleHeaderCollapsed();
   };
@@ -700,23 +703,19 @@ export function Lid() {
       <ParseWarningsPanel />
 
       <header
-        className={`flex shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm px-3 py-3 sm:px-4 lg:px-6 ${
+        className={`flex shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm px-3 py-3 sm:px-4 lg:px-6 lg:py-4 ${
           collapsed
             ? 'items-center'
-            : 'flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:py-4'
+            : 'flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6'
         }`}
       >
-        <div
-          className={
-            collapsed
-              ? 'flex items-center'
-              : 'flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-6'
-          }
-        >
-          <div className="flex min-w-0 items-center gap-1.5">
-            {collapseButton}
-            {!collapsed ? (
-              <>
+        {collapsed ? (
+          <div className={logoRowClass}>{collapseButton}</div>
+        ) : (
+          <>
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-4">
+              <div className={logoRowClass}>
+                {collapseButton}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600/20 text-violet-400">
                   <Music2 size={18} strokeWidth={2} aria-hidden />
                 </div>
@@ -729,26 +728,21 @@ export function Lid() {
                     <span className="block">Piano Practice</span>
                   </div>
                 </div>
-              </>
-            ) : null}
-          </div>
+              </div>
 
-          {!collapsed ? (
-            <div className="flex min-w-0 flex-1 items-center">
-              <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5 lg:max-w-md">
-                <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
-                  Piece
-                </span>
-                <span className="truncate text-sm text-zinc-400">
-                  {songTitle ?? 'No Piece Loaded'}
-                </span>
+              <div className="flex min-w-0 flex-1 items-center sm:max-w-xs lg:max-w-[14rem] xl:max-w-xs 2xl:max-w-sm">
+                <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5">
+                  <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
+                    Piece
+                  </span>
+                  <span className="truncate text-sm text-zinc-400">
+                    {songTitle ?? 'No Piece Loaded'}
+                  </span>
+                </div>
               </div>
             </div>
-          ) : null}
-        </div>
 
-        {!collapsed ? (
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => setScoreLibraryOpen(true)}
@@ -801,8 +795,9 @@ export function Lid() {
               </div>
 
               <AccountSection />
-          </div>
-        ) : null}
+            </div>
+          </>
+        )}
       </header>
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel

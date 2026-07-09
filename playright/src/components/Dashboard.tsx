@@ -44,7 +44,7 @@ export function Dashboard() {
   return (
     <div className="flex h-svh w-full flex-col overflow-hidden bg-zinc-950 text-zinc-100">
       <Lid />
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-1 pt-2 sm:px-6">
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-1 pt-4 sm:px-6 sm:pt-6">
         {rawXml ? (
           <>
             <SheetMusicDisplay musicXml={rawXml} />
