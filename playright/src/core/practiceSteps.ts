@@ -5,6 +5,7 @@ import type {
   Hand,
   ManualFingeringMap,
   PlaybackScript,
+  PlayingPlaybackNote,
   PracticePosition,
   ScriptNote,
   StepOrder,
@@ -564,6 +565,88 @@ export function buildTwoHandStepNotesByMidiForPosition(
       fingerSource: note.fingerSource,
     });
     byMidi.set(note.midi, existing);
+  }
+
+  return byMidi;
+}
+
+function appendTwoHandStepNoteInfo(
+  byMidi: Map<number, TwoHandStepNoteInfo[]>,
+  note: {
+    hand: Hand;
+    midi: number;
+    finger?: Finger | null;
+    fingerSource?: ScriptNote['fingerSource'];
+  },
+): void {
+  const existing = byMidi.get(note.midi) ?? [];
+  if (existing.some((entry) => entry.hand === note.hand && entry.midi === note.midi)) {
+    return;
+  }
+
+  existing.push({
+    hand: note.hand,
+    midi: note.midi,
+    finger: note.finger ?? null,
+    fingerSource: note.fingerSource,
+  });
+  byMidi.set(note.midi, existing);
+}
+
+function findScriptNoteForPlayback(
+  script: PlaybackScript,
+  stepIndex: number,
+  midi: number,
+  hand: Hand,
+): ScriptNote | GraceNoteInfo | null {
+  const step = script[stepIndex];
+  if (!step) {
+    return null;
+  }
+
+  const mainMatch = step.notes.find((note) => note.midi === midi && note.hand === hand);
+  if (mainMatch) {
+    return mainMatch;
+  }
+
+  return step.graceBefore?.find((grace) => grace.midi === midi && grace.hand === hand) ?? null;
+}
+
+/**
+ * Two-hand fingering labels for play mode: union of all sounding notes plus the
+ * current transport step so labels persist for full note duration.
+ */
+export function buildTwoHandStepNotesByMidiFromPlayback(
+  script: PlaybackScript | null,
+  playingPlaybackNotes: readonly PlayingPlaybackNote[],
+  currentStepIndex: number,
+): Map<number, TwoHandStepNoteInfo[]> {
+  const byMidi = new Map<number, TwoHandStepNoteInfo[]>();
+
+  if (!script) {
+    return byMidi;
+  }
+
+  for (const playing of playingPlaybackNotes) {
+    const match = findScriptNoteForPlayback(
+      script,
+      playing.stepIndex,
+      playing.midi,
+      playing.hand,
+    );
+    if (match) {
+      appendTwoHandStepNoteInfo(byMidi, match);
+    }
+  }
+
+  if (currentStepIndex >= 0 && currentStepIndex < script.length) {
+    const step = script[currentStepIndex];
+    for (const note of step.notes) {
+      appendTwoHandStepNoteInfo(byMidi, note);
+    }
+    for (const grace of step.graceBefore ?? []) {
+      appendTwoHandStepNoteInfo(byMidi, grace);
+    }
   }
 
   return byMidi;

@@ -16,6 +16,7 @@ import {
   buildTwoHandPhysicalKeysByMidiForPosition,
   buildTwoHandStepNotesByMidi,
   buildTwoHandStepNotesByMidiForPosition,
+  buildTwoHandStepNotesByMidiFromPlayback,
   practicePositionFromGraceCursor,
   buildProgramAssignedKeys,
   programActiveTargetNote,
@@ -207,6 +208,10 @@ export function PianoKeyboard() {
   const playingMidiNotes = useEngineStore((state) => state.playingMidiNotes);
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const playMode = useEngineStore((state) => state.playMode);
+  const playModeFingeringsVisible = useEngineStore(
+    (state) => state.playModeFingeringsVisible,
+  );
+  const playingPlaybackNotes = useEngineStore((state) => state.playingPlaybackNotes);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const engineMode = useEngineStore((state) => state.engineMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
@@ -221,7 +226,10 @@ export function PianoKeyboard() {
     (state) => state.actions.clearManualFinger,
   );
   const { userId } = useAuth();
-  const isTwoHand = engineMode === 'two-hand' || fingeringMode !== 'off';
+  const isTwoHandPractice = engineMode === 'two-hand' || fingeringMode !== 'off';
+  const isPlayModeFingerings =
+    playMode && playModeFingeringsVisible && engineMode === 'two-hand';
+  const isTwoHand = playMode ? isPlayModeFingerings : isTwoHandPractice;
   const isProgramMode = fingeringMode === 'program';
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
     () => new Set(),
@@ -313,6 +321,14 @@ export function PianoKeyboard() {
       return null;
     }
 
+    if (isPlayModeFingerings) {
+      return buildTwoHandStepNotesByMidiFromPlayback(
+        script,
+        playingPlaybackNotes,
+        currentStepIndex,
+      );
+    }
+
     if (inPositionAwarePractice) {
       return buildTwoHandStepNotesByMidiForPosition(
         script,
@@ -323,15 +339,17 @@ export function PianoKeyboard() {
     return buildTwoHandStepNotesByMidi(script, currentStepIndex);
   }, [
     isTwoHand,
+    isPlayModeFingerings,
     script,
     inPositionAwarePractice,
     currentStepIndex,
     practiceGraceCursor,
+    playingPlaybackNotes,
   ]);
 
   const twoHandPhysicalKeysByMidi = useMemo(() => {
-    if (!isTwoHand || !script) {
-      return null;
+    if (!isTwoHand || !script || isPlayModeFingerings) {
+      return isPlayModeFingerings ? new Map<number, string[]>() : null;
     }
 
     if (inPositionAwarePractice) {
@@ -344,6 +362,7 @@ export function PianoKeyboard() {
     return buildTwoHandPhysicalKeysByMidi(script, currentStepIndex);
   }, [
     isTwoHand,
+    isPlayModeFingerings,
     script,
     inPositionAwarePractice,
     currentStepIndex,
@@ -764,16 +783,21 @@ export function PianoKeyboard() {
       >
         {whiteKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isPhysicallyActive = isTwoHand
-            ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
-            : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+          const isPhysicallyActive = isPlayModeFingerings
+            ? (playingMidiCounts.get(key.midi) ?? 0) > 0
+            : isTwoHand
+              ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
+              : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
             isPhysicallyActive,
           });
           const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, false);
-          const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
+          const isEditable =
+            isTwoHand &&
+            !isPlayModeFingerings &&
+            (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
           const isProgramTarget = isProgramMode && programTargetMidiSet.has(key.midi);
 
@@ -808,16 +832,21 @@ export function PianoKeyboard() {
         })}
         {blackKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isPhysicallyActive = isTwoHand
-            ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
-            : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+          const isPhysicallyActive = isPlayModeFingerings
+            ? (playingMidiCounts.get(key.midi) ?? 0) > 0
+            : isTwoHand
+              ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
+              : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
             isPhysicallyActive,
           });
           const showScopeHighlight = !playMode && inScope;
           const mappedLetter = mappedLabelForMidi(key.midi, true);
-          const isEditable = isTwoHand && (twoHandStepNotesByMidi?.has(key.midi) ?? false);
+          const isEditable =
+            isTwoHand &&
+            !isPlayModeFingerings &&
+            (twoHandStepNotesByMidi?.has(key.midi) ?? false);
           const isSelected = isNoteSelected(key.midi);
           const isProgramTarget = isProgramMode && programTargetMidiSet.has(key.midi);
 

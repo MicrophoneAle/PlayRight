@@ -7,6 +7,7 @@ import {
   buildTwoHandPhysicalKeysByMidiForPosition,
   buildTwoHandStepNotesByMidi,
   buildTwoHandStepNotesByMidiForPosition,
+  buildTwoHandStepNotesByMidiFromPlayback,
   getExpectedNoteForFinger,
 } from './practiceSteps.ts';
 
@@ -124,5 +125,47 @@ describe('two-hand keyboard indicators', () => {
       'n',
     ]);
     expect(buildTwoHandExpectedMidis(score, 0)).toEqual(new Set([67, 69]));
+  });
+
+  it('keeps sounding playback notes visible after the transport step advances', () => {
+    const score = scriptFromSteps([
+      step([{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }]),
+      step([{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }]),
+    ]);
+
+    const byMidi = buildTwoHandStepNotesByMidiFromPlayback(
+      score,
+      [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }],
+      1,
+    );
+
+    expect(byMidi.get(60)).toEqual([
+      { hand: 'R', midi: 60, finger: 1, fingerSource: undefined },
+    ]);
+    expect(byMidi.get(62)).toEqual([
+      { hand: 'R', midi: 62, finger: 2, fingerSource: undefined },
+    ]);
+  });
+
+  it('resolves grace-note fingerings from playback presses', () => {
+    const score = scriptFromSteps([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        graceBefore: [{ midi: 69, pitch: 'A4', hand: 'R', kind: 'acciaccatura', finger: 1 }],
+        notes: [{ pitch: 'G4', midi: 67, hand: 'R', finger: 2 }],
+      },
+    ]);
+
+    const byMidi = buildTwoHandStepNotesByMidiFromPlayback(
+      score,
+      [{ pressId: 1, stepIndex: 0, midi: 69, hand: 'R' }],
+      0,
+    );
+
+    expect(byMidi.get(69)).toEqual([
+      { hand: 'R', midi: 69, finger: 1, fingerSource: undefined },
+    ]);
   });
 });

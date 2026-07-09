@@ -39,6 +39,12 @@ export function Lid() {
   const isPracticeActive = useEngineStore((state) => state.isPracticeActive);
   const hasPracticeStarted = useEngineStore((state) => state.hasPracticeStarted);
   const playMode = useEngineStore((state) => state.playMode);
+  const playModeFingeringsVisible = useEngineStore(
+    (state) => state.playModeFingeringsVisible,
+  );
+  const showTwoHandFingeringsInPlayMode = useEngineStore(
+    (state) => state.showTwoHandFingeringsInPlayMode,
+  );
   const tempoFactor = useEngineStore((state) => state.tempoFactor);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const isPlaybackFinished = useEngineStore((state) => state.isPlaybackFinished);
@@ -61,6 +67,15 @@ export function Lid() {
   const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
   const setPlayMode = useEngineStore((state) => state.actions.setPlayMode);
+  const setShowTwoHandFingeringsInPlayMode = useEngineStore(
+    (state) => state.actions.setShowTwoHandFingeringsInPlayMode,
+  );
+  const togglePlayModeFingeringsVisible = useEngineStore(
+    (state) => state.actions.togglePlayModeFingeringsVisible,
+  );
+  const setPlayModeFingeringsVisible = useEngineStore(
+    (state) => state.actions.setPlayModeFingeringsVisible,
+  );
   const setTempoFactor = useEngineStore((state) => state.actions.setTempoFactor);
 
   const setFingeringMode = useEngineStore((state) => state.actions.setFingeringMode);
@@ -194,6 +209,42 @@ export function Lid() {
             className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
           />
         </div>
+        <div className="flex items-center justify-between gap-3">
+          <label
+            htmlFor="auto-play-fingerings-toggle"
+            className="text-xs text-zinc-400"
+          >
+            Auto-show two-hand fingerings in play
+          </label>
+          <input
+            id="auto-play-fingerings-toggle"
+            type="checkbox"
+            checked={showTwoHandFingeringsInPlayMode}
+            onChange={(event) =>
+              setShowTwoHandFingeringsInPlayMode(event.target.checked)
+            }
+            className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+          />
+        </div>
+        {playMode && engineMode === 'two-hand' ? (
+          <div className="flex items-center justify-between gap-3">
+            <label
+              htmlFor="play-fingerings-toggle"
+              className="text-xs text-zinc-400"
+            >
+              Show fingerings
+            </label>
+            <input
+              id="play-fingerings-toggle"
+              type="checkbox"
+              checked={playModeFingeringsVisible}
+              onChange={(event) =>
+                setPlayModeFingeringsVisible(event.target.checked)
+              }
+              className="h-4 w-4 rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-zinc-950"
+            />
+          </div>
+        ) : null}
         <div className="flex flex-col gap-2">
           <label
             htmlFor="tempo-factor-slider"
@@ -506,6 +557,20 @@ export function Lid() {
 
   const playControls = playMode ? (
     <>
+      {engineMode === 'two-hand' ? (
+        <button
+          type="button"
+          onClick={() => togglePlayModeFingeringsVisible()}
+          aria-pressed={playModeFingeringsVisible}
+          className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors ${
+            playModeFingeringsVisible
+              ? 'border-violet-500 bg-violet-600 text-white hover:bg-violet-500'
+              : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100'
+          }`}
+        >
+          Fingerings
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => {
