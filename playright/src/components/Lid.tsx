@@ -42,9 +42,6 @@ export function Lid() {
   const playModeFingeringsVisible = useEngineStore(
     (state) => state.playModeFingeringsVisible,
   );
-  const showTwoHandFingeringsInPlayMode = useEngineStore(
-    (state) => state.showTwoHandFingeringsInPlayMode,
-  );
   const tempoFactor = useEngineStore((state) => state.tempoFactor);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const isPlaybackFinished = useEngineStore((state) => state.isPlaybackFinished);
@@ -67,9 +64,6 @@ export function Lid() {
   const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
   const setPlayMode = useEngineStore((state) => state.actions.setPlayMode);
-  const setShowTwoHandFingeringsInPlayMode = useEngineStore(
-    (state) => state.actions.setShowTwoHandFingeringsInPlayMode,
-  );
   const setPlayModeFingeringsVisible = useEngineStore(
     (state) => state.actions.setPlayModeFingeringsVisible,
   );
@@ -209,24 +203,6 @@ export function Lid() {
             checked={playMode}
             onChange={(event) => setPlayMode(event.target.checked)}
             disabled={fingeringMode !== 'off'}
-            className={settingsCheckboxClass}
-          />
-        </div>
-        <div className={settingsRowClass}>
-          <label
-            htmlFor="auto-play-fingerings-toggle"
-            className={settingsLabelClass}
-            title="Auto-show fingerings in play"
-          >
-            Auto-show fingerings in play
-          </label>
-          <input
-            id="auto-play-fingerings-toggle"
-            type="checkbox"
-            checked={showTwoHandFingeringsInPlayMode}
-            onChange={(event) =>
-              setShowTwoHandFingeringsInPlayMode(event.target.checked)
-            }
             className={settingsCheckboxClass}
           />
         </div>

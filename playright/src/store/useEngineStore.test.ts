@@ -220,30 +220,16 @@ describe('useEngineStore settings and mode', () => {
     expect(state.isPlaybackFinished).toBe(false);
   });
 
-  it('does not auto-show play fingerings when auto-show setting is off', () => {
+  it('starts with play fingerings hidden when entering play mode', () => {
     useEngineStore.setState({
       engineMode: 'two-hand',
       playMode: false,
-      showTwoHandFingeringsInPlayMode: false,
       playModeFingeringsVisible: false,
     });
 
     useEngineStore.getState().actions.setPlayMode(true);
 
     expect(useEngineStore.getState().playModeFingeringsVisible).toBe(false);
-  });
-
-  it('auto-shows play fingerings when auto-show setting is on', () => {
-    useEngineStore.setState({
-      engineMode: 'one-hand',
-      playMode: false,
-      showTwoHandFingeringsInPlayMode: true,
-      playModeFingeringsVisible: false,
-    });
-
-    useEngineStore.getState().actions.setPlayMode(true);
-
-    expect(useEngineStore.getState().playModeFingeringsVisible).toBe(true);
   });
 
   it('clears play fingerings visibility when leaving play mode', () => {
@@ -256,14 +242,5 @@ describe('useEngineStore settings and mode', () => {
     useEngineStore.getState().actions.setPlayMode(false);
 
     expect(useEngineStore.getState().playModeFingeringsVisible).toBe(false);
-  });
-
-  it('persists auto-show play fingerings setting in localStorage', () => {
-    useEngineStore.getState().actions.setShowTwoHandFingeringsInPlayMode(true);
-
-    expect(window.localStorage.getItem('playright-show-two-hand-fingerings-in-play-mode')).toBe(
-      'true',
-    );
-    expect(useEngineStore.getState().showTwoHandFingeringsInPlayMode).toBe(true);
   });
 });

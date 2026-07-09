@@ -29,8 +29,6 @@ const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
 const OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY = 'playright-override-score-fingerings';
 const FINGERING_MODE_STORAGE_KEY = 'playright-fingering-mode';
 const PLAY_MODE_STORAGE_KEY = 'playright-play-mode';
-const SHOW_TWO_HAND_FINGERINGS_IN_PLAY_MODE_STORAGE_KEY =
-  'playright-show-two-hand-fingerings-in-play-mode';
 const TEMPO_FACTOR_STORAGE_KEY = 'playright-tempo-factor';
 
 export const TEMPO_FACTOR_MIN = 0.5;
@@ -82,23 +80,6 @@ function readStoredOverrideScoreFingerings(): boolean {
 
 function readStoredPlayMode(): boolean {
   return false;
-}
-
-function readStoredShowTwoHandFingeringsInPlayMode(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return (
-    window.localStorage.getItem(SHOW_TWO_HAND_FINGERINGS_IN_PLAY_MODE_STORAGE_KEY) ===
-    'true'
-  );
-}
-
-function shouldAutoShowPlayModeFingerings(
-  showTwoHandFingeringsInPlayMode: boolean,
-): boolean {
-  return showTwoHandFingeringsInPlayMode;
 }
 
 function clampTempoFactor(value: number): number {
@@ -243,8 +224,6 @@ interface EngineState {
   /** True when playback is paused mid-session. */
   isPlaybackPaused: boolean;
   playMode: boolean;
-  /** Persisted: auto-enable play-mode fingerings when entering play in two-hand mode. */
-  showTwoHandFingeringsInPlayMode: boolean;
   /** Runtime: show two-hand fingering labels on the keyboard during play mode. */
   playModeFingeringsVisible: boolean;
   tempoFactor: number;
@@ -308,7 +287,6 @@ interface EngineState {
     setPlaybackFinished: (finished: boolean) => void;
     setPlaybackPaused: (paused: boolean) => void;
     setPlayMode: (enabled: boolean) => void;
-    setShowTwoHandFingeringsInPlayMode: (enabled: boolean) => void;
     setPlayModeFingeringsVisible: (visible: boolean) => void;
     togglePlayModeFingeringsVisible: () => void;
     setTempoFactor: (factor: number) => void;
@@ -349,7 +327,6 @@ export const useEngineStore = create<EngineState>((set) => {
   isPlaybackFinished: false,
   isPlaybackPaused: false,
   playMode: readStoredPlayMode(),
-  showTwoHandFingeringsInPlayMode: readStoredShowTwoHandFingeringsInPlayMode(),
   playModeFingeringsVisible: false,
   tempoFactor: readStoredTempoFactor(),
   headerCollapsed: false,
@@ -761,9 +738,7 @@ export const useEngineStore = create<EngineState>((set) => {
           playingMidiNotes: [],
           playingPlaybackNotes: [],
           selectedFingeringNote: enabled ? null : state.selectedFingeringNote,
-          playModeFingeringsVisible: enabled
-            ? shouldAutoShowPlayModeFingerings(state.showTwoHandFingeringsInPlayMode)
-            : false,
+          playModeFingeringsVisible: false,
           ...(enabled
             ? {
                 isPracticeActive: false,
@@ -775,30 +750,6 @@ export const useEngineStore = create<EngineState>((set) => {
                 isPlaybackPaused: false,
               }),
         };
-      });
-    },
-    setShowTwoHandFingeringsInPlayMode: (enabled) => {
-      window.localStorage.setItem(
-        SHOW_TWO_HAND_FINGERINGS_IN_PLAY_MODE_STORAGE_KEY,
-        enabled ? 'true' : 'false',
-      );
-
-      set((state) => {
-        if (state.showTwoHandFingeringsInPlayMode === enabled) {
-          return state;
-        }
-
-        if (
-          enabled &&
-          state.playMode
-        ) {
-          return {
-            showTwoHandFingeringsInPlayMode: enabled,
-            playModeFingeringsVisible: true,
-          };
-        }
-
-        return { showTwoHandFingeringsInPlayMode: enabled };
       });
     },
     setPlayModeFingeringsVisible: (visible) => {
