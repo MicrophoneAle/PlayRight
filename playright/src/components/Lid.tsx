@@ -210,9 +210,9 @@ export function Lid() {
           <label
             htmlFor="play-fingerings-toggle"
             className={`${settingsLabelClass}${playMode ? '' : ' opacity-40'}`}
-            title="Show fingerings"
+            title="Show two-hand fingerings"
           >
-            Show fingerings
+            Show two-hand fingerings
           </label>
           <input
             id="play-fingerings-toggle"

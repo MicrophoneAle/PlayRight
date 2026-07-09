@@ -229,7 +229,7 @@ export function PianoKeyboard() {
   const { userId } = useAuth();
   const isTwoHandPractice = engineMode === 'two-hand' || fingeringMode !== 'off';
   const showPlayFingerings = playMode && playModeFingeringsVisible;
-  const showFingeringHints = isTwoHandPractice || showPlayFingerings;
+  const showFingeringHints = playMode ? showPlayFingerings : isTwoHandPractice;
   const isTwoHand = isTwoHandPractice;
   const isProgramMode = fingeringMode === 'program';
   const [activePhysicalKeys, setActivePhysicalKeys] = useState<Set<string>>(
