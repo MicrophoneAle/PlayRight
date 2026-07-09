@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
 import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
@@ -561,18 +561,71 @@ export function Lid() {
     </>
   );
 
+  const expandedHeaderRef = useRef<HTMLElement>(null);
+  const collapseButtonRef = useRef<HTMLButtonElement>(null);
+  const [lockedTogglePosition, setLockedTogglePosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
+  const captureTogglePosition = useCallback(() => {
+    const button = collapseButtonRef.current;
+    if (!button) {
+      return;
+    }
+
+    const { top, left } = button.getBoundingClientRect();
+    setLockedTogglePosition((current) =>
+      current?.top === top && current.left === left ? current : { top, left },
+    );
+  }, []);
+
   const toggleCollapsed = () => {
+    if (!collapsed) {
+      captureTogglePosition();
+    }
     toggleHeaderCollapsed();
   };
 
-  const collapseButton = (
+  useLayoutEffect(() => {
+    if (collapsed) {
+      return;
+    }
+
+    captureTogglePosition();
+
+    const header = expandedHeaderRef.current;
+    if (!header) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      captureTogglePosition();
+    });
+    observer.observe(header);
+    window.addEventListener('resize', captureTogglePosition);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', captureTogglePosition);
+    };
+  }, [collapsed, captureTogglePosition]);
+
+  const renderCollapseButton = (
+    buttonRef?: RefObject<HTMLButtonElement | null>,
+    floating = false,
+  ) => (
     <button
+      ref={buttonRef}
       type="button"
       onClick={toggleCollapsed}
       aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand header' : 'Collapse header'}
       title={collapsed ? 'Expand header' : 'Collapse header'}
-      className={headerToggleClass + (collapsed ? ' shadow-md ring-1 ring-zinc-700/80' : '')}
+      className={
+        headerToggleClass +
+        (floating ? ' shadow-md ring-1 ring-zinc-700/80' : '')
+      }
     >
       {collapsed ? (
         <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
@@ -707,17 +760,29 @@ export function Lid() {
     </div>
   ) : null;
 
-  const collapsedToggleOverlay = (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex h-12 items-center px-3 sm:px-4 lg:px-6">
-      <div className={`${logoRowClass} pointer-events-auto`}>{collapseButton}</div>
-    </div>
-  );
+  const collapsedToggleOverlay =
+    lockedTogglePosition === null ? null : (
+      <div
+        className="pointer-events-none fixed z-50"
+        style={{
+          top: `${lockedTogglePosition.top}px`,
+          left: `${lockedTogglePosition.left}px`,
+        }}
+      >
+        <div className="pointer-events-auto">
+          {renderCollapseButton(undefined, true)}
+        </div>
+      </div>
+    );
 
   const expandedHeader = (
-    <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-3 py-3 backdrop-blur-sm sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4">
+    <header
+      ref={expandedHeaderRef}
+      className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-3 py-3 backdrop-blur-sm sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4"
+    >
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-4">
         <div className={logoRowClass}>
-          {collapseButton}
+          {renderCollapseButton(collapseButtonRef)}
           {logoBrand}
         </div>
 
