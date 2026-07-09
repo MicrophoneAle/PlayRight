@@ -25,13 +25,17 @@ export function usePracticeKeyboardShortcuts(): void {
 
       const state = useEngineStore.getState();
 
-      if (state.fingeringMode === 'program') {
-        return;
-      }
-
       if (event.code === 'KeyC') {
         event.preventDefault();
         state.actions.toggleScoreLibrary();
+        return;
+      }
+
+      if (state.scoreLibraryOpen) {
+        return;
+      }
+
+      if (state.fingeringMode === 'program') {
         return;
       }
 

@@ -292,7 +292,7 @@ export function ScoreLibraryPanel({
         return;
       }
 
-      if (event.key === 'Enter') {
+      if (event.code === 'Enter' || event.code === 'NumpadEnter') {
         const entry = sortedEntries[focusedIndex];
         if (!entry) {
           return;
@@ -300,6 +300,7 @@ export function ScoreLibraryPanel({
 
         event.preventDefault();
         handleSelect(entry.id);
+        return;
       }
     };
 
