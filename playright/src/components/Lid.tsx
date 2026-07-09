@@ -542,7 +542,7 @@ export function Lid() {
     'inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:translate-y-0 active:scale-100';
 
   const logoRowClass =
-    'flex items-center gap-1.5 pl-8 sm:pl-10 lg:pl-12';
+    'flex min-w-0 items-center gap-1.5 pl-8 sm:pl-10 lg:pl-12';
 
   const logoBrand = (
     <>
@@ -572,7 +572,7 @@ export function Lid() {
       aria-expanded={!collapsed}
       aria-label={collapsed ? 'Expand header' : 'Collapse header'}
       title={collapsed ? 'Expand header' : 'Collapse header'}
-      className={headerToggleClass}
+      className={headerToggleClass + (collapsed ? ' shadow-md ring-1 ring-zinc-700/80' : '')}
     >
       {collapsed ? (
         <ChevronDown size={10} strokeWidth={2.5} aria-hidden />
@@ -707,6 +707,89 @@ export function Lid() {
     </div>
   ) : null;
 
+  const collapsedToggleOverlay = (
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex h-12 items-center px-3 sm:px-4 lg:px-6">
+      <div className={`${logoRowClass} pointer-events-auto`}>{collapseButton}</div>
+    </div>
+  );
+
+  const expandedHeader = (
+    <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 bg-zinc-950/90 px-3 py-3 backdrop-blur-sm sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:py-4">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-4">
+        <div className={logoRowClass}>
+          {collapseButton}
+          {logoBrand}
+        </div>
+
+        <div className="flex min-w-0 flex-1 items-center sm:max-w-xs lg:max-w-[14rem] xl:max-w-xs 2xl:max-w-sm">
+          <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5">
+            <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
+              Piece
+            </span>
+            <span className="truncate text-sm text-zinc-400">
+              {songTitle ?? 'No Piece Loaded'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+        <button
+          type="button"
+          onClick={() => setScoreLibraryOpen(true)}
+          className={headerActionClass}
+        >
+          <Library size={15} strokeWidth={2} aria-hidden />
+          <span className="hidden sm:inline">Scores</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleImportClick}
+          disabled={!canManageLibrary}
+          title={canManageLibrary ? 'Import a MusicXML or MXL file' : 'Sign in to import songs'}
+          className={`${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <Upload size={15} strokeWidth={2} aria-hidden />
+          <span className="hidden sm:inline">Import</span>
+        </button>
+        {playControls}
+
+        {handToggle}
+
+        <ShortcutsMenu
+          isOpen={shortcutsOpen}
+          onToggle={() => {
+            setSettingsOpen(false);
+            setShortcutsOpen((open) => !open);
+          }}
+          onClose={() => setShortcutsOpen(false)}
+        />
+
+        <div className="relative" ref={settingsRef}>
+          <button
+            type="button"
+            onClick={() => {
+              setShortcutsOpen(false);
+              setSettingsOpen((open) => !open);
+            }}
+            aria-expanded={settingsOpen}
+            aria-haspopup="true"
+            aria-label="Settings"
+            className={`${headerActionClass} ${
+              settingsOpen
+                ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
+                : ''
+            }`}
+          >
+            <Settings size={15} strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+
+        <AccountSection />
+      </div>
+    </header>
+  );
+
   return (
     <>
       <input
@@ -719,86 +802,7 @@ export function Lid() {
 
       <ParseWarningsPanel />
 
-      <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm">
-        <div className="flex h-12 items-center px-3 sm:px-4 lg:px-6">
-          <div className={logoRowClass}>
-            {collapseButton}
-            {!collapsed ? logoBrand : null}
-          </div>
-        </div>
-
-        {!collapsed ? (
-          <div className="flex flex-col gap-3 px-3 pb-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:px-6 lg:pb-4">
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 lg:min-w-0 lg:flex-1 lg:gap-4">
-              <div className="flex min-w-0 flex-1 items-center sm:max-w-xs lg:max-w-[14rem] xl:max-w-xs 2xl:max-w-sm">
-                <div className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4 sm:py-2.5">
-                  <span className="hidden shrink-0 text-xs font-medium uppercase tracking-wider text-zinc-600 sm:inline">
-                    Piece
-                  </span>
-                  <span className="truncate text-sm text-zinc-400">
-                    {songTitle ?? 'No Piece Loaded'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
-              <button
-                type="button"
-                onClick={() => setScoreLibraryOpen(true)}
-                className={headerActionClass}
-              >
-                <Library size={15} strokeWidth={2} aria-hidden />
-                <span className="hidden sm:inline">Scores</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleImportClick}
-                disabled={!canManageLibrary}
-                title={canManageLibrary ? 'Import a MusicXML or MXL file' : 'Sign in to import songs'}
-                className={`${headerActionClass} disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                <Upload size={15} strokeWidth={2} aria-hidden />
-                <span className="hidden sm:inline">Import</span>
-              </button>
-              {playControls}
-
-              {handToggle}
-
-              <ShortcutsMenu
-                isOpen={shortcutsOpen}
-                onToggle={() => {
-                  setSettingsOpen(false);
-                  setShortcutsOpen((open) => !open);
-                }}
-                onClose={() => setShortcutsOpen(false)}
-              />
-
-              <div className="relative" ref={settingsRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShortcutsOpen(false);
-                    setSettingsOpen((open) => !open);
-                  }}
-                  aria-expanded={settingsOpen}
-                  aria-haspopup="true"
-                  aria-label="Settings"
-                  className={`${headerActionClass} ${
-                    settingsOpen
-                      ? 'border-zinc-600 bg-zinc-800 text-zinc-100'
-                      : ''
-                  }`}
-                >
-                  <Settings size={15} strokeWidth={2} aria-hidden />
-                </button>
-              </div>
-
-              <AccountSection />
-            </div>
-          </div>
-        ) : null}
-      </header>
+      {collapsed ? collapsedToggleOverlay : expandedHeader}
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
       <ScoreLibraryPanel
         isOpen={isLibraryOpen}
