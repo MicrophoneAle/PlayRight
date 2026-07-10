@@ -88,6 +88,50 @@ describe('playbackTiming', () => {
     expect(playbackDurationQuarterNotes(0.5)).toBeCloseTo(0.48, 5);
   });
 
+  it('shortens staccato notes to roughly half their written length, compounding with the articulation gap', () => {
+    // written=1: staccato base 0.5, gap 0.035 -> 0.465 (vs 0.965 non-staccato).
+    expect(playbackDurationQuarterNotes(1, false, { hasStaccato: true })).toBeCloseTo(
+      0.465,
+      5,
+    );
+    // written=0.5: staccato base 0.25, gap hits the 0.02 min clamp -> 0.23 (vs 0.48).
+    expect(playbackDurationQuarterNotes(0.5, false, { hasStaccato: true })).toBeCloseTo(
+      0.23,
+      5,
+    );
+
+    const normal = playbackDurationQuarterNotes(1);
+    const staccato = playbackDurationQuarterNotes(1, false, { hasStaccato: true });
+    expect(staccato).toBeLessThan(normal);
+    expect(staccato / 1).toBeGreaterThan(0.4);
+    expect(staccato / 1).toBeLessThan(0.5);
+  });
+
+  it('staccato never shortens a tied note (attack/onset timing is untouched by construction)', () => {
+    expect(playbackDurationQuarterNotes(1, true, { hasStaccato: true })).toBe(1);
+  });
+
+  it('a staccato final note is clipped instead of ringing through its full written length', () => {
+    const nonStaccatoFinal = playbackDurationQuarterNotes(4, false, { isFinalNote: true });
+    const staccatoFinal = playbackDurationQuarterNotes(4, false, {
+      isFinalNote: true,
+      hasStaccato: true,
+    });
+
+    expect(nonStaccatoFinal).toBe(4);
+    expect(staccatoFinal).toBeLessThan(nonStaccatoFinal);
+    expect(staccatoFinal).toBeCloseTo(4 * 0.5 - PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS, 5);
+  });
+
+  it('very short staccato notes are floored, never clipped to silence', () => {
+    // written=0.05: staccato base 0.025, min-clamped gap 0.02 -> 0.005 pre-floor,
+    // but the 0.25*written floor (0.0125) wins.
+    const written = 0.05;
+    const staccato = playbackDurationQuarterNotes(written, false, { hasStaccato: true });
+    expect(staccato).toBeGreaterThan(0);
+    expect(staccato).toBeCloseTo(written * 0.25, 5);
+  });
+
   it('uses a slightly shorter release when the same pitch re-attacks on the next step', () => {
     const written = 0.5;
     const normal = playbackDurationQuarterNotes(written);

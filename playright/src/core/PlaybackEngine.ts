@@ -869,6 +869,11 @@ export class PlaybackEngine {
             this.applyStepVisual(stepIndex);
 
             for (const { pressId, note, playedDuration } of stepPresses) {
+              // note.hasAccent: deferred, not infeasible. AudioEngine.scheduleAttackRelease
+              // already threads a velocity param through to Tone.Sampler.triggerAttack,
+              // which does scale playback volume - a real, audible emphasis effect would
+              // just be a higher velocity for accented notes. Not wired in here; scoped
+              // as a separate follow-up.
               engine.scheduleAttackRelease(note.midi, playedDuration, time);
 
               if (isRepeatedPlaybackAttack(script, stepIndex, note)) {

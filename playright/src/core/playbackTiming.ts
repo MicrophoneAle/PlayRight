@@ -46,6 +46,14 @@ export const PLAYBACK_ARTICULATION_GAP_QUARTERS = PLAYBACK_ARTICULATION_GAP_MAX_
 export const PLAYBACK_FERMATA_HOLD_FACTOR = 2;
 
 /**
+ * Play-mode fraction of a staccato note's written length used as the sounded
+ * base, before the normal articulation gap is subtracted on top (the two
+ * effects compound, matching the fermata-hold-factor pattern of only
+ * touching duration - the attack/onset time never moves).
+ */
+export const PLAYBACK_STACCATO_DURATION_RATIO = 0.5;
+
+/**
  * Safety cap on the EXTRA hold time a fermata can add, in quarter notes
  * (tempo-independent, matching this module's other units). Backstops the
  * unify-reference fix above in case a fermata ever lands on an unusually
@@ -61,6 +69,8 @@ export interface PlaybackDurationOptions {
   hasFermata?: boolean;
   /** Same hand+pitch re-attacks immediately at this note's written end. */
   followedByConsecutiveSameNote?: boolean;
+  /** Play mode only: shorten held duration for staccato-marked notes. */
+  hasStaccato?: boolean;
 }
 
 function basePlaybackDurationQuarterNotes(
@@ -68,20 +78,27 @@ function basePlaybackDurationQuarterNotes(
   tiedToNext: boolean,
   options: Pick<
     PlaybackDurationOptions,
-    'isFinalNote' | 'followedByConsecutiveSameNote'
+    'isFinalNote' | 'followedByConsecutiveSameNote' | 'hasStaccato'
   >,
 ): number {
   if (tiedToNext || writtenQuarterNotes <= 0) {
     return writtenQuarterNotes;
   }
 
-  if (options.isFinalNote) {
+  // A staccato final note is meant to sound clipped, not ring out - the only
+  // exception to "final note plays its full written length" is staccato
+  // explicitly asking for less.
+  if (options.isFinalNote && !options.hasStaccato) {
     return writtenQuarterNotes;
   }
 
+  const staccatoBaseQuarterNotes = options.hasStaccato
+    ? writtenQuarterNotes * PLAYBACK_STACCATO_DURATION_RATIO
+    : writtenQuarterNotes;
+
   const gap = articulationGapQuarterNotes(writtenQuarterNotes, options);
   const minPlayDuration = writtenQuarterNotes * 0.25;
-  return Math.max(writtenQuarterNotes - gap, minPlayDuration);
+  return Math.max(staccatoBaseQuarterNotes - gap, minPlayDuration);
 }
 
 export interface FermataPlaybackContext {
@@ -588,6 +605,7 @@ export function notePlaybackDurationOptions(
     followedByConsecutiveSameNote: consecutiveSameNoteKeys.has(
       playbackNoteKey(stepIndex, note.hand, note.midi),
     ),
+    hasStaccato: note.hasStaccato ?? false,
   };
 }
 
