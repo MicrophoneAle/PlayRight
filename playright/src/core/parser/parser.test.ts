@@ -36,7 +36,7 @@ async function buildMxlBuffer(xml: string): Promise<ArrayBuffer> {
 }
 
 describe('parseMusicXmlToScript', () => {
-  const { script, scoreTiming } = parseMusicXmlToScript(MINIMAL_MUSICXML);
+  const { script, scoreTiming, playbackOrder } = parseMusicXmlToScript(MINIMAL_MUSICXML);
 
   it('captures score-level timing metadata', () => {
     expect(scoreTiming).toEqual({
@@ -104,7 +104,7 @@ describe('parseMusicXmlToScript', () => {
     const xmlFromMxl = await unzipScoreXmlFromMxlBuffer(mxlBuffer);
     const fromMxl = parseMusicXmlToScript(xmlFromMxl);
 
-    expect(fromMxl).toEqual({ script, scoreTiming, warnings: [] });
+    expect(fromMxl).toEqual({ script, scoreTiming, playbackOrder, warnings: [] });
   });
 
   it('merges tied segments into one note with combined duration', () => {

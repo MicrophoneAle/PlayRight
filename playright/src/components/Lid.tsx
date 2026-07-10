@@ -454,7 +454,7 @@ export function Lid() {
     void (async () => {
       try {
         const text = await readMusicXmlFromFile(file);
-        const { script, scoreTiming, warnings } = parseMusicXmlToScript(text);
+        const { script, scoreTiming, playbackOrder, warnings } = parseMusicXmlToScript(text);
         const title = titleFromFileName(file.name);
         const { script: loadedScript, manualFingerings } = await prepareScriptForLoad(
           script,
@@ -477,7 +477,7 @@ export function Lid() {
         loadScript(loadedScript, text, title, {
           scoreId,
           manualFingerings,
-        }, scoreTiming);
+        }, scoreTiming, playbackOrder);
         setParseWarnings(warnings);
 
         console.log('🎉 PARSE SUCCESS! Final PlaybackScript:', loadedScript);
@@ -501,7 +501,7 @@ export function Lid() {
     }
 
     try {
-      const { script, scoreTiming, warnings } = parseMusicXmlToScript(saved.raw_xml);
+      const { script, scoreTiming, playbackOrder, warnings } = parseMusicXmlToScript(saved.raw_xml);
       const { script: loadedScript, manualFingerings } = await prepareScriptForLoad(
         script,
         saved.manual_fingerings,
@@ -512,7 +512,7 @@ export function Lid() {
       loadScript(loadedScript, saved.raw_xml, saved.title, {
         scoreId: saved.id,
         manualFingerings,
-      }, scoreTiming);
+      }, scoreTiming, playbackOrder);
       setParseWarnings(warnings);
     } catch (error) {
       console.error('🚨 PARSE FAILED:', error);

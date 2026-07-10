@@ -31,10 +31,27 @@ export interface ScoreTiming {
 
 export interface ParseMusicXmlResult {
   script: PlaybackScript;
+  /**
+   * Unrolled repeat/ending playback sequence (R0). Identity mapping (one
+   * entry per step, passIndex 0, document order) for scores without repeat
+   * barlines. The document-order script itself is never reordered.
+   */
+  playbackOrder: PlaybackOrder;
   scoreTiming: ScoreTiming;
   /** Non-fatal parse notices surfaced to the user after a successful load. */
   warnings: string[];
 }
+
+export interface PlaybackOrderEntry {
+  /** Index into the document-order PlaybackScript (equals StepOrder.order). */
+  stepIndex: number;
+  /** Onset on the unrolled playback timeline, in canonical divisions. */
+  playbackOnset: number;
+  /** 0-based visit count: how many times this step already appeared earlier in playback order. */
+  passIndex: number;
+}
+
+export type PlaybackOrder = PlaybackOrderEntry[];
 
 export interface GraceNoteInfo {
   midi: number;

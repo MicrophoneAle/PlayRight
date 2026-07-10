@@ -27,8 +27,11 @@ export interface PlaybackScheduleSimulationOptions {
 }
 
 /**
- * Mirrors extendScheduleWindow attack-tick scheduling for regression tests without
- * spinning up Tone transport.
+ * Mirrors document-order (identity PlaybackOrder) attack-tick scheduling for
+ * regression tests without spinning up Tone transport. Since R1 this is the
+ * pre-repeat-unrolling reference: PlaybackEngine must reproduce it tick for
+ * tick on every score whose PlaybackOrder is the identity mapping
+ * (PlaybackEngine.playback-order.test.ts asserts that equivalence).
  */
 export function simulatePlaybackAttackSchedule(
   script: PlaybackScript,

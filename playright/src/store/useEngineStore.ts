@@ -13,6 +13,7 @@ import type {
   FingeringMode,
   Hand,
   ManualFingeringMap,
+  PlaybackOrder,
   PlaybackScript,
   PlayingPlaybackNote,
   ScoreTiming,
@@ -145,12 +146,16 @@ async function reprocessScriptFromRaw(
   autoFingering: boolean,
   handSpan: HandSpanPreset,
   overrideScoreFingerings: boolean,
-): Promise<{ script: PlaybackScript; scoreTiming: ScoreTiming } | null> {
+): Promise<{
+  script: PlaybackScript;
+  scoreTiming: ScoreTiming;
+  playbackOrder: PlaybackOrder;
+} | null> {
   if (!rawXml) {
     return null;
   }
 
-  const { script: parsed, scoreTiming } = parseMusicXmlToScript(rawXml);
+  const { script: parsed, scoreTiming, playbackOrder } = parseMusicXmlToScript(rawXml);
   const script = await prepareScriptWithFingering(
     parsed,
     manualFingerings,
@@ -160,7 +165,7 @@ async function reprocessScriptFromRaw(
     scoreTiming,
   );
 
-  return { script, scoreTiming };
+  return { script, scoreTiming, playbackOrder };
 }
 
 function persistManualFingerings(
@@ -195,6 +200,8 @@ interface EngineState {
   songTitle: string | null;
   scoreId: string | null;
   scoreTiming: ScoreTiming | null;
+  /** Unrolled repeat/ending playback sequence (R0); null means identity (no repeats). */
+  playbackOrder: PlaybackOrder | null;
   manualFingerings: ManualFingeringMap;
   fingeringMode: FingeringMode;
   selectedFingeringNote: SelectedFingeringNote | null;
@@ -245,6 +252,7 @@ interface EngineState {
       title?: string,
       library?: LoadScriptLibraryMeta,
       scoreTiming?: ScoreTiming,
+      playbackOrder?: PlaybackOrder,
     ) => void;
     clearScript: () => void;
     setManualFinger: (
@@ -311,6 +319,7 @@ export const useEngineStore = create<EngineState>((set) => {
   songTitle: null,
   scoreId: null,
   scoreTiming: null,
+  playbackOrder: null,
   manualFingerings: {},
   fingeringMode: 'off',
   selectedFingeringNote: null,
@@ -343,7 +352,7 @@ export const useEngineStore = create<EngineState>((set) => {
   playingMidiNotes: [],
   playingPlaybackNotes: [],
   actions: {
-    loadScript: (script, rawXml, title, library, scoreTiming) => {
+    loadScript: (script, rawXml, title, library, scoreTiming, playbackOrder) => {
       stopPlaybackSession();
       if (useEngineStore.getState().fingeringMode === 'program') {
         stopFingeringProgramSession();
@@ -355,6 +364,7 @@ export const useEngineStore = create<EngineState>((set) => {
         songTitle: title ?? null,
         scoreId: library?.scoreId ?? null,
         scoreTiming: scoreTiming ?? null,
+        playbackOrder: playbackOrder ?? null,
         manualFingerings: library?.manualFingerings ?? {},
         currentStepIndex: 0,
         totalSteps: script.length,
@@ -377,6 +387,7 @@ export const useEngineStore = create<EngineState>((set) => {
         songTitle: null,
         scoreId: null,
         scoreTiming: null,
+        playbackOrder: null,
         manualFingerings: {},
         selectedFingeringNote: null,
         hasPracticeStarted: false,
@@ -415,6 +426,7 @@ export const useEngineStore = create<EngineState>((set) => {
           manualFingerings,
           script: reprocessed.script,
           scoreTiming: reprocessed.scoreTiming,
+          playbackOrder: reprocessed.playbackOrder,
           totalSteps: reprocessed.script.length,
         });
       });
@@ -507,6 +519,7 @@ export const useEngineStore = create<EngineState>((set) => {
           manualFingerings,
           script: reprocessed.script,
           scoreTiming: reprocessed.scoreTiming,
+          playbackOrder: reprocessed.playbackOrder,
           totalSteps: reprocessed.script.length,
         });
       });
@@ -663,6 +676,7 @@ export const useEngineStore = create<EngineState>((set) => {
             overrideScoreFingerings,
             script: reprocessed.script,
             scoreTiming: reprocessed.scoreTiming,
+            playbackOrder: reprocessed.playbackOrder,
             totalSteps: reprocessed.script.length,
           });
           return;

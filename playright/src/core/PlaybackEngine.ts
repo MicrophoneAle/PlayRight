@@ -10,7 +10,7 @@ import {
   isRepeatedPlaybackAttack,
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
-  pieceEndQuarterNotes,
+  PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   PLAYBACK_SCHEDULE_AHEAD_QUARTERS,
   resolveNotePlaybackDurationQuarterNotes,
   quarterNotesToTickDuration,
@@ -21,7 +21,13 @@ import type { FermataPlaybackContext } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import { getDisplayNotesForStep } from './practiceSteps.ts';
-import type { GraceNoteInfo, Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type {
+  GraceNoteInfo,
+  Hand,
+  PlaybackOrder,
+  PlaybackScript,
+  ScriptNote,
+} from '../types/index.ts';
 
 /**
  * Whole-script derived timing data (fermata context/offsets, final-note keys,
@@ -40,11 +46,67 @@ import type { GraceNoteInfo, Hand, PlaybackScript, ScriptNote } from '../types/i
 interface ScheduleDerivedData {
   script: PlaybackScript;
   divisionsPerQuarter: number;
+  /**
+   * R1: resolved playback sequence (identity for non-repeat scores). The
+   * rolling window iterates ENTRIES of this order; the document script is
+   * never reordered.
+   */
+  playbackOrder: PlaybackOrder;
+  /** True when playbackOrder is the exact identity mapping. */
+  isIdentityOrder: boolean;
+  /**
+   * Virtual step sequence over playbackOrder entries (onset = playbackOnset,
+   * order = entry index; notes shared with the document steps). Aliases the
+   * document script itself when the order is identity, so identity scores
+   * compute exactly the same tables as before R1.
+   */
+  entryScript: PlaybackScript;
+  // Document-indexed, pass-INVARIANT tables: these drive each note's own
+  // sounded duration (incl. staccato/fermata length), which must not depend
+  // on which repeat pass the note is played on.
   finalNoteKeys: Set<string>;
   fermataContext: FermataPlaybackContext;
-  fermataOffsets: number[];
   consecutiveSameNoteKeys: Set<string>;
   stepDurations: number[];
+  // Entry-indexed, pass-DEPENDENT tables: these drive the unrolled attack
+  // timeline, where a backward jump creates real new adjacency (last note of
+  // an ending against the repeat target's first note).
+  entryFinalNoteKeys: Set<string>;
+  entryFermataOffsets: number[];
+  entryAttackQuarters: number[];
+  /** True when a repeat/volta discontinuity sits between entry k and k+1. */
+  jumpBoundaryAfterEntry: boolean[];
+  /** Playback-time quarters of the first discontinuity at/after each entry (Infinity when none). */
+  nextJumpBoundaryQuarters: number[];
+  /** First (lowest-pass) entry index for each document step; drives seek. */
+  firstEntryIndexByStep: number[];
+  /** Latest release on the unrolled timeline (end-of-piece event time). */
+  pieceEndQuarters: number;
+}
+
+/**
+ * Cap a note's sounded length so its release never crosses the next repeat
+ * jump discontinuity: nothing may keep sounding across a backward jump. The
+ * clamp leaves the minimum articulation gap before the post-jump attack so a
+ * same-pitch re-strike at the jump target still re-triggers. No-op (boundary
+ * = Infinity) for identity orders and for notes ending before the boundary.
+ */
+function clampPlayedQuartersToJumpBoundary(
+  playedQuarters: number,
+  attackOnsetQuarters: number,
+  boundaryQuarters: number,
+): number {
+  if (!Number.isFinite(boundaryQuarters)) {
+    return playedQuarters;
+  }
+
+  const maxPlayed =
+    boundaryQuarters - attackOnsetQuarters - PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS;
+  if (playedQuarters <= maxPlayed) {
+    return playedQuarters;
+  }
+
+  return Math.max(Math.min(playedQuarters, maxPlayed), 0.01);
 }
 
 function getTransport(): ReturnType<typeof Tone.getTransport> {
@@ -55,7 +117,7 @@ function getTransport(): ReturnType<typeof Tone.getTransport> {
  * Clamp a computed tick to a finite, non-decreasing integer before it reaches
  * Tone's Transport.
  *
- * scheduleFromStep computes every event's tick synchronously from
+ * scheduleFromEntry computes every event's tick synchronously from
  * playbackTiming's fermata/duration math and hands it straight to
  * transport.scheduleOnce as a "<ticks>i" string. A NaN/Infinity or
  * out-of-order tick breaks Tone's ordered Timeline silently. Tone's Clock also
@@ -108,10 +170,10 @@ export class PlaybackEngine {
   private isPaused = false;
   private hasFinishedPiece = false;
   private storeSubscriptionInitialized = false;
-  private nextUnscheduledStepIndex = 0;
+  private nextUnscheduledEntryIndex = 0;
   private lastScheduledAttackTick = -1;
-  /** Step index whose attack must fire after a sheet seek (Tone skips same-tick events). */
-  private seekTargetStepIndex: number | null = null;
+  /** PlaybackOrder entry whose attack must fire after a sheet seek (Tone skips same-tick events). */
+  private seekTargetEntryIndex: number | null = null;
   private scheduleDerivedData: ScheduleDerivedData | null = null;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -165,23 +227,23 @@ export class PlaybackEngine {
     const startIndex = restartingFromEnd
       ? 0
       : Math.min(Math.max(currentStepIndex, 0), script.length - 1);
-    const { fermataOffsets } = this.getScheduleDerivedData(
+    const derived = this.getScheduleDerivedData(
       script,
       scoreTiming.divisionsPerQuarter,
     );
-    const startOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      script[startIndex].onset,
-      scoreTiming.divisionsPerQuarter,
-      fermataOffsets[startIndex],
-    );
+    // Start from the step's FIRST pass on the unrolled timeline.
+    const startEntryIndex = restartingFromEnd
+      ? 0
+      : derived.firstEntryIndexByStep[startIndex];
+    const startOnsetQuarters = derived.entryAttackQuarters[startEntryIndex];
 
     this.clearScheduledEvents();
     const transport = getTransport();
     transport.stop();
     this.applyTransportBpm(scoreTiming.tempoBpm);
     transport.ticks = Math.round(quartersToTicks(startOnsetQuarters, this.transportPpq()));
-    this.applyStepVisual(startIndex);
-    this.scheduleFromStep(startIndex);
+    this.applyStepVisual(derived.playbackOrder[startEntryIndex].stepIndex);
+    this.scheduleFromEntry(startEntryIndex);
 
     const { actions } = useEngineStore.getState();
     actions.setPlaybackActive(true);
@@ -223,13 +285,17 @@ export class PlaybackEngine {
     // resets the step to 0), so this rebuilds the schedule from the current
     // step — a fresh start from wherever the step index now points.
     if (this.scheduledEventIds.length === 0) {
-      const { currentStepIndex, script } = useEngineStore.getState();
-      if (script) {
+      const { currentStepIndex, script, scoreTiming } = useEngineStore.getState();
+      if (script && scoreTiming) {
         const resumeIndex = Math.min(
           Math.max(currentStepIndex, 0),
           script.length - 1,
         );
-        this.scheduleFromStep(resumeIndex);
+        const derived = this.getScheduleDerivedData(
+          script,
+          scoreTiming.divisionsPerQuarter,
+        );
+        this.scheduleFromEntry(derived.firstEntryIndexByStep[resumeIndex]);
       }
     }
 
@@ -287,15 +353,13 @@ export class PlaybackEngine {
     }
 
     const wasPlaying = this.isPlaying && !this.isPaused;
-    const { fermataOffsets } = this.getScheduleDerivedData(
+    const derived = this.getScheduleDerivedData(
       script,
       scoreTiming.divisionsPerQuarter,
     );
-    const onsetQuarters = scheduledPlaybackAttackQuarterNotes(
-      script[stepIndex].onset,
-      scoreTiming.divisionsPerQuarter,
-      fermataOffsets[stepIndex],
-    );
+    // A clicked document step maps to its FIRST pass on the unrolled timeline.
+    const entryIndex = derived.firstEntryIndexByStep[stepIndex];
+    const onsetQuarters = derived.entryAttackQuarters[entryIndex];
 
     this.clearScheduledEvents();
     this.audioEngine?.releaseAll();
@@ -305,10 +369,10 @@ export class PlaybackEngine {
     }
     transport.ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
     this.hasFinishedPiece = false;
-    this.seekTargetStepIndex = stepIndex;
+    this.seekTargetEntryIndex = entryIndex;
     this.applyStepVisual(stepIndex);
-    this.scheduleFromStep(stepIndex);
-    this.seekTargetStepIndex = null;
+    this.scheduleFromEntry(entryIndex);
+    this.seekTargetEntryIndex = null;
 
     if (wasPlaying) {
       transport.start();
@@ -319,7 +383,7 @@ export class PlaybackEngine {
     }
 
     if (this.isPlaying) {
-      // scheduleFromStep already ran above for paused mid-piece seeks.
+      // scheduleFromEntry already ran above for paused mid-piece seeks.
     }
 
     transport.pause();
@@ -393,6 +457,39 @@ export class PlaybackEngine {
       return cached;
     }
 
+    // R1: resolve the playback order (identity when absent). A stale or
+    // corrupt order must never crash scheduling — fall back to identity.
+    const storeOrder = useEngineStore.getState().playbackOrder;
+    let playbackOrder: PlaybackOrder;
+    if (
+      storeOrder &&
+      storeOrder.length > 0 &&
+      storeOrder.every((entry) => entry.stepIndex >= 0 && entry.stepIndex < script.length)
+    ) {
+      playbackOrder = storeOrder;
+    } else {
+      if (storeOrder) {
+        console.error(
+          '[DIAG:playback-order] store playbackOrder is inconsistent with the script - falling back to document order',
+          { orderLength: storeOrder.length, scriptLength: script.length },
+        );
+      }
+      playbackOrder = script.map((step, stepIndex) => ({
+        stepIndex,
+        playbackOnset: step.onset,
+        passIndex: 0,
+      }));
+    }
+
+    const isIdentityOrder =
+      playbackOrder.length === script.length &&
+      playbackOrder.every(
+        (entry, entryIndex) =>
+          entry.stepIndex === entryIndex &&
+          entry.passIndex === 0 &&
+          entry.playbackOnset === script[entryIndex].onset,
+      );
+
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
     const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
     const fermataOffsets = buildPlaybackFermataOffsetsByStep(
@@ -414,14 +511,127 @@ export class PlaybackEngine {
       fermataContext,
     );
 
+    // Pass-dependent tables over ENTRY adjacency. For identity orders these
+    // alias the document tables outright (equal by construction), so
+    // non-repeat scores compute and schedule exactly as before R1.
+    let entryScript: PlaybackScript;
+    let entryFinalNoteKeys: Set<string>;
+    let entryFermataOffsets: number[];
+    if (isIdentityOrder) {
+      entryScript = script;
+      entryFinalNoteKeys = finalNoteKeys;
+      entryFermataOffsets = fermataOffsets;
+    } else {
+      entryScript = playbackOrder.map((entry, entryIndex) => ({
+        ...script[entry.stepIndex],
+        order: entryIndex,
+        onset: entry.playbackOnset,
+      }));
+      entryFinalNoteKeys = buildFinalNoteKeySet(entryScript, divisionsPerQuarter);
+      const entryFermataContext = buildFermataPlaybackContext(
+        entryScript,
+        divisionsPerQuarter,
+      );
+      // Sounded durations stay pass-invariant: reuse the per-step values.
+      const entryDurations = playbackOrder.map(
+        (entry) => stepDurations[entry.stepIndex],
+      );
+      entryFermataOffsets = buildPlaybackFermataOffsetsByStep(
+        entryScript,
+        divisionsPerQuarter,
+        entryFinalNoteKeys,
+        entryFermataContext,
+        entryDurations,
+      );
+    }
+
+    const entryAttackQuarters = entryScript.map((entryStep, entryIndex) =>
+      scheduledPlaybackAttackQuarterNotes(
+        entryStep.onset,
+        divisionsPerQuarter,
+        entryFermataOffsets[entryIndex],
+      ),
+    );
+
+    // A discontinuity between entry k and k+1 (backward jump or volta skip)
+    // is any break in document-step contiguity.
+    const jumpBoundaryAfterEntry = playbackOrder.map((entry, entryIndex) => {
+      const next = playbackOrder[entryIndex + 1];
+      return next !== undefined && next.stepIndex !== entry.stepIndex + 1;
+    });
+
+    const nextJumpBoundaryQuarters = new Array<number>(playbackOrder.length).fill(
+      Infinity,
+    );
+    let upcomingBoundary = Infinity;
+    for (let entryIndex = playbackOrder.length - 1; entryIndex >= 0; entryIndex -= 1) {
+      if (jumpBoundaryAfterEntry[entryIndex]) {
+        upcomingBoundary = entryAttackQuarters[entryIndex + 1];
+      }
+      nextJumpBoundaryQuarters[entryIndex] = upcomingBoundary;
+    }
+
+    const firstEntryIndexByStep = new Array<number>(script.length).fill(-1);
+    playbackOrder.forEach((entry, entryIndex) => {
+      if (firstEntryIndexByStep[entry.stepIndex] === -1) {
+        firstEntryIndexByStep[entry.stepIndex] = entryIndex;
+      }
+    });
+    for (let stepIndex = 0; stepIndex < firstEntryIndexByStep.length; stepIndex += 1) {
+      if (firstEntryIndexByStep[stepIndex] === -1) {
+        console.error(
+          '[DIAG:playback-order] document step is never visited by playbackOrder - seeking maps it to a clamped entry',
+          { stepIndex },
+        );
+        firstEntryIndexByStep[stepIndex] = Math.min(
+          stepIndex,
+          playbackOrder.length - 1,
+        );
+      }
+    }
+
+    // Latest release on the unrolled timeline. Equals the document-order
+    // piece end for identity (same per-note resolution over the same steps).
+    let pieceEndQuarters = 0;
+    for (let entryIndex = 0; entryIndex < playbackOrder.length; entryIndex += 1) {
+      const stepIndex = playbackOrder[entryIndex].stepIndex;
+      const attackQuarters = entryAttackQuarters[entryIndex];
+      for (const note of script[stepIndex].notes) {
+        const playedQuarters = clampPlayedQuartersToJumpBoundary(
+          resolveNotePlaybackDurationQuarterNotes(
+            stepIndex,
+            note,
+            script,
+            stepDurations,
+            divisionsPerQuarter,
+            finalNoteKeys,
+            consecutiveSameNoteKeys,
+            fermataContext,
+          ),
+          attackQuarters,
+          nextJumpBoundaryQuarters[entryIndex],
+        );
+        pieceEndQuarters = Math.max(pieceEndQuarters, attackQuarters + playedQuarters);
+      }
+    }
+
     const data: ScheduleDerivedData = {
       script,
       divisionsPerQuarter,
+      playbackOrder,
+      isIdentityOrder,
+      entryScript,
       finalNoteKeys,
       fermataContext,
-      fermataOffsets,
       consecutiveSameNoteKeys,
       stepDurations,
+      entryFinalNoteKeys,
+      entryFermataOffsets,
+      entryAttackQuarters,
+      jumpBoundaryAfterEntry,
+      nextJumpBoundaryQuarters,
+      firstEntryIndexByStep,
+      pieceEndQuarters,
     };
     this.scheduleDerivedData = data;
     return data;
@@ -507,36 +717,46 @@ export class PlaybackEngine {
   }
 
   private scheduleTieEndRelease(
+    entryIndex: number,
     stepIndex: number,
     note: ScriptNote,
     attackOnsetQuarters: number,
     attackTick: number,
     divisionsPerQuarter: number,
     ppq: number,
-    finalNoteKeys: Set<string>,
+    entryFinalNoteKeys: Set<string>,
     windowLagTicks: number,
+    jumpBoundaryQuarters: number,
   ): void {
     const durationDivisions = note.durationDivisions ?? divisionsPerQuarter;
     const writtenQuarters = noteDurationQuarterNotes(
       durationDivisions,
       divisionsPerQuarter,
     );
-    const isFinalNote = finalNoteKeys.has(`${stepIndex}:${note.hand}:${note.midi}`);
+    // Final-note detection is pass-dependent (entry adjacency): a step that
+    // ends the document can still be mid-piece on an earlier repeat pass.
+    const isFinalNote = entryFinalNoteKeys.has(
+      `${entryIndex}:${note.hand}:${note.midi}`,
+    );
     const durationOptions = {
       isFinalNote,
       hasFermata: note.hasFermata ?? false,
     };
-    const releaseOnset = playbackReleaseOnsetQuarterNotes(
-      attackOnsetQuarters,
-      writtenQuarters,
-      false,
-      durationOptions,
+    const releaseOnset = Math.min(
+      playbackReleaseOnsetQuarterNotes(
+        attackOnsetQuarters,
+        writtenQuarters,
+        false,
+        durationOptions,
+      ),
+      // Never let a tie release outlive the next backward-jump boundary.
+      jumpBoundaryQuarters,
     );
     const { text: releaseTime } = safeTickTime(
       quartersToTicks(releaseOnset, ppq) + windowLagTicks,
       attackTick,
       'tie-end release',
-      { stepIndex, midi: note.midi, hand: note.hand },
+      { entryIndex, stepIndex, midi: note.midi, hand: note.hand },
     );
     const releaseEventId = getTransport().scheduleOnce(() => {
       try {
@@ -650,22 +870,66 @@ export class PlaybackEngine {
     });
   }
 
-  private scheduleFromStep(fromStepIndex: number): void {
-    this.nextUnscheduledStepIndex = fromStepIndex;
+  private scheduleFromEntry(fromEntryIndex: number): void {
+    this.nextUnscheduledEntryIndex = fromEntryIndex;
     this.lastScheduledAttackTick = -1;
     this.extendScheduleWindow();
   }
 
-  /** Schedule the next window of steps so the Tone timeline stays bounded. */
+  /**
+   * Explicit release-all at a repeat jump boundary: any pending note-off or
+   * tie-release from before the jump must fire or be cleared here, never
+   * orphaned across the jump. Scheduled while processing the pre-jump entry,
+   * so at an equal tick it dispatches BEFORE the post-jump attack (Tone fires
+   * equal-tick events in insertion order) and cannot cut the incoming notes.
+   */
+  private scheduleJumpBoundaryRelease(
+    entryIndex: number,
+    boundaryQuarters: number,
+    minTick: number,
+    ppq: number,
+    windowLagTicks: number,
+  ): void {
+    const { text: boundaryTime, tick: boundaryTick } = safeTickTime(
+      quartersToTicks(boundaryQuarters, ppq) + windowLagTicks,
+      minTick,
+      'jump-boundary release',
+      { entryIndex, boundaryQuarters },
+    );
+    const eventId = getTransport().scheduleOnce(() => {
+      try {
+        console.debug(
+          '[DIAG:jump-boundary] repeat jump boundary reached - releasing all pre-jump notes',
+          { entryIndex, boundaryTick },
+        );
+        // Sweep releases whose events were skipped during transport catch-up,
+        // then force-release anything still held from before the jump (e.g. a
+        // dangling tie start with no release event of its own).
+        this.releaseOverduePresses(Math.round(getTransport().ticks));
+        const changed = this.playingPressTracker.releaseMatching(() => true);
+        if (changed) {
+          this.syncPlayingNotes();
+        }
+        // Audio safety net: sounded durations are already clamped to end
+        // before the boundary, so this only catches voices that slipped
+        // through. Post-jump attacks at this same tick fire after this
+        // callback and are unaffected.
+        this.audioEngine?.releaseAll();
+      } catch (err) {
+        console.error(
+          '[DIAG:jump-boundary] release-all callback failed (skipped):',
+          err,
+        );
+      }
+    }, boundaryTime);
+    this.scheduledEventIds.push(eventId);
+  }
+
+  /** Schedule the next window of PlaybackOrder entries so the Tone timeline stays bounded. */
   private extendScheduleWindow(): void {
     const { script, scoreTiming } = useEngineStore.getState();
     const engine = this.audioEngine;
     if (!script || !scoreTiming || !engine) {
-      return;
-    }
-
-    const fromStepIndex = this.nextUnscheduledStepIndex;
-    if (fromStepIndex >= script.length) {
       return;
     }
 
@@ -681,22 +945,28 @@ export class PlaybackEngine {
     // baking a phantom seam into every window boundary.
     const transportTicksAtEntry = transport.ticks;
     const {
+      playbackOrder,
+      entryScript,
       finalNoteKeys,
       fermataContext,
-      fermataOffsets,
       consecutiveSameNoteKeys,
       stepDurations,
+      entryFinalNoteKeys,
+      entryAttackQuarters,
+      jumpBoundaryAfterEntry,
+      nextJumpBoundaryQuarters,
+      pieceEndQuarters,
     } = this.getScheduleDerivedData(script, divisionsPerQuarter);
+
+    const fromEntryIndex = this.nextUnscheduledEntryIndex;
+    const totalEntries = playbackOrder.length;
+    if (fromEntryIndex >= totalEntries) {
+      return;
+    }
 
     const currentQuarters = transportTicksAtEntry / ppq;
     const anchorQuarters =
-      fromStepIndex > 0
-        ? scheduledPlaybackAttackQuarterNotes(
-            script[fromStepIndex].onset,
-            divisionsPerQuarter,
-            fermataOffsets[fromStepIndex],
-          )
-        : currentQuarters;
+      fromEntryIndex > 0 ? entryAttackQuarters[fromEntryIndex] : currentQuarters;
     const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
 
     const anchorTick = Math.round(quartersToTicks(anchorQuarters, ppq));
@@ -711,7 +981,7 @@ export class PlaybackEngine {
     const laggedTicksFromQuarters = (quarterNotes: number): number =>
       quartersToTicks(quarterNotes, ppq) + windowLagTicks;
 
-    let lastScheduledStep = fromStepIndex;
+    let lastScheduledEntry = fromEntryIndex;
     // Monotonic floor comes from the last scheduled *musical* attack. Only fall
     // back to transport.ticks when seeking mid-piece (lastScheduledAttackTick
     // reset to -1). Blending transport into every rolling-window extension
@@ -723,16 +993,13 @@ export class PlaybackEngine {
       lastSafeAttackTick = Math.max(-1, transportNow - 1);
     }
 
-    for (let stepIndex = fromStepIndex; stepIndex < script.length; stepIndex += 1) {
+    for (let entryIndex = fromEntryIndex; entryIndex < totalEntries; entryIndex += 1) {
+      const stepIndex = playbackOrder[entryIndex].stepIndex;
       try {
         const step = script[stepIndex];
-        const attackOnsetQuarters = scheduledPlaybackAttackQuarterNotes(
-          step.onset,
-          divisionsPerQuarter,
-          fermataOffsets[stepIndex],
-        );
+        const attackOnsetQuarters = entryAttackQuarters[entryIndex];
 
-        if (stepIndex > fromStepIndex && attackOnsetQuarters > windowEndQuarters) {
+        if (entryIndex > fromEntryIndex && attackOnsetQuarters > windowEndQuarters) {
           break;
         }
 
@@ -740,15 +1007,20 @@ export class PlaybackEngine {
           laggedTicksFromQuarters(attackOnsetQuarters),
           lastSafeAttackTick,
           'step attack',
-          { stepIndex, attackOnsetQuarters, fermataOffset: fermataOffsets[stepIndex] ?? 0 },
+          {
+            entryIndex,
+            stepIndex,
+            passIndex: playbackOrder[entryIndex].passIndex,
+            attackOnsetQuarters,
+          },
         );
         let attackTick = attackTickRaw;
         let attackTimeText = attackTime;
         // After a backward (or any) sheet seek the transport is parked exactly on
         // the target attack tick; Tone's timeline often will not dispatch an
-        // event scheduled at the current tick, so bump the seek step one tick
+        // event scheduled at the current tick, so bump the seek entry one tick
         // forward so the jump is audible and visuals stay in sync.
-        if (stepIndex === this.seekTargetStepIndex) {
+        if (entryIndex === this.seekTargetEntryIndex) {
           const transportNow = Math.round(transportTicksAtEntry);
           if (attackTick <= transportNow) {
             attackTick = transportNow + 1;
@@ -759,7 +1031,7 @@ export class PlaybackEngine {
         // Graces are scheduled before this step's attack/release events so
         // that, at the shared main-attack tick, the last grace's release
         // fires ahead of the main press (Tone dispatches equal-tick events
-        // in insertion order). The tick floor is the previous step's attack,
+        // in insertion order). The tick floor is the previous entry's attack,
         // since all grace events land between the two attacks.
         if (step.graceBefore && step.graceBefore.length > 0) {
           this.scheduleGraceNotes(
@@ -775,26 +1047,26 @@ export class PlaybackEngine {
         lastSafeAttackTick = attackTick;
 
         // Acciaccatura time is borrowed from the preceding note's tail: when
-        // the NEXT step opens with graces, any of this step's releases that
+        // the NEXT entry opens with graces, any of this entry's releases that
         // would land inside that grace window release early to make room.
         // Notes intentionally sustaining past the next attack (other voices,
-        // long holds) are left alone.
+        // long holds) are left alone. Entry adjacency: after a backward jump
+        // the "next" step is the repeat target, not the document successor.
         let nextGraceWindowStartQuarters: number | null = null;
         let nextAttackQuarters = 0;
-        const nextStep = stepIndex + 1 < script.length ? script[stepIndex + 1] : null;
-        const nextGraceCount = nextStep?.graceBefore?.length ?? 0;
-        if (nextStep && nextGraceCount > 0) {
-          nextAttackQuarters = scheduledPlaybackAttackQuarterNotes(
-            nextStep.onset,
-            divisionsPerQuarter,
-            fermataOffsets[stepIndex + 1],
-          );
+        const nextEntryStep =
+          entryIndex + 1 < totalEntries ? entryScript[entryIndex + 1] : null;
+        const nextGraceCount = nextEntryStep?.graceBefore?.length ?? 0;
+        if (nextEntryStep && nextGraceCount > 0) {
+          nextAttackQuarters = entryAttackQuarters[entryIndex + 1];
           const windowStart =
             nextAttackQuarters - nextGraceCount * GRACE_NOTE_DURATION_QUARTERS;
           if (windowStart > attackOnsetQuarters) {
             nextGraceWindowStartQuarters = windowStart;
           }
         }
+
+        const boundaryQuarters = nextJumpBoundaryQuarters[entryIndex];
 
         const stepPresses: Array<{
           pressId: number;
@@ -803,22 +1075,29 @@ export class PlaybackEngine {
         }> = [];
 
         for (const note of step.notes) {
-          if (isPlaybackTieContinuation(script, stepIndex, note)) {
+          // Tie continuation is pass-dependent: consult ENTRY adjacency, so a
+          // backward jump breaks any tie written across the jump boundary
+          // instead of silently swallowing the post-jump attack.
+          if (isPlaybackTieContinuation(entryScript, entryIndex, note)) {
             if (!note.tiedToNext) {
               this.scheduleTieEndRelease(
+                entryIndex,
                 stepIndex,
                 note,
                 attackOnsetQuarters,
                 attackTick,
                 divisionsPerQuarter,
                 ppq,
-                finalNoteKeys,
+                entryFinalNoteKeys,
                 windowLagTicks,
+                boundaryQuarters,
               );
             }
             continue;
           }
 
+          // Sounded duration is pass-INVARIANT: resolved from the document
+          // step tables, identical on every repeat pass.
           let playedQuarters = resolveNotePlaybackDurationQuarterNotes(
             stepIndex,
             note,
@@ -838,6 +1117,11 @@ export class PlaybackEngine {
               playedQuarters = nextGraceWindowStartQuarters - attackOnsetQuarters;
             }
           }
+          playedQuarters = clampPlayedQuartersToJumpBoundary(
+            playedQuarters,
+            attackOnsetQuarters,
+            boundaryQuarters,
+          );
           const playedDuration = quarterNotesToTickDuration(playedQuarters, ppq);
           const pressId = this.playingPressTracker.allocatePressId();
 
@@ -849,7 +1133,7 @@ export class PlaybackEngine {
               laggedTicksFromQuarters(releaseOnset),
               attackTick,
               'note release',
-              { stepIndex, midi: note.midi, hand: note.hand },
+              { entryIndex, stepIndex, midi: note.midi, hand: note.hand },
             );
             this.scheduledReleaseTickByPressId.set(pressId, releaseTick);
             const releaseEventId = transport.scheduleOnce(() => {
@@ -876,7 +1160,10 @@ export class PlaybackEngine {
               // as a separate follow-up.
               engine.scheduleAttackRelease(note.midi, playedDuration, time);
 
-              if (isRepeatedPlaybackAttack(script, stepIndex, note)) {
+              // Repeated-attack detection consults ENTRY adjacency: a backward
+              // jump makes the repeat target's first note a real re-strike when
+              // the pre-jump entry ended on the same pitch.
+              if (isRepeatedPlaybackAttack(entryScript, entryIndex, note)) {
                 this.deferRepeatedPress(stepIndex, note.midi, note.hand, pressId);
               } else {
                 this.pressPlayingNote(stepIndex, note.midi, note.hand, pressId);
@@ -888,41 +1175,51 @@ export class PlaybackEngine {
         }, attackTimeText);
 
         this.scheduledEventIds.push(stepEventId);
-        lastScheduledStep = stepIndex + 1;
+
+        // Backward jump / volta skip directly after this entry: nothing may
+        // keep sounding across it.
+        if (jumpBoundaryAfterEntry[entryIndex] && entryIndex + 1 < totalEntries) {
+          this.scheduleJumpBoundaryRelease(
+            entryIndex,
+            nextJumpBoundaryQuarters[entryIndex],
+            attackTick,
+            ppq,
+            windowLagTicks,
+          );
+        }
+
+        lastScheduledEntry = entryIndex + 1;
       } catch (err) {
         console.error(
-          '[PlaybackEngine] scheduleFromStep step scheduling failed (step skipped, continuing)',
+          '[PlaybackEngine] scheduleFromEntry entry scheduling failed (entry skipped, continuing)',
           {
+            entryIndex,
             stepIndex,
             errorMessage: err instanceof Error ? err.message : String(err),
             errorStack: err instanceof Error ? err.stack : undefined,
           },
         );
-        lastScheduledStep = stepIndex + 1;
+        lastScheduledEntry = entryIndex + 1;
       }
     }
 
-    this.nextUnscheduledStepIndex = lastScheduledStep;
+    this.nextUnscheduledEntryIndex = lastScheduledEntry;
     this.lastScheduledAttackTick = lastSafeAttackTick;
 
-    if (lastScheduledStep < script.length) {
-      const triggerQuarters = scheduledPlaybackAttackQuarterNotes(
-        script[lastScheduledStep].onset,
-        divisionsPerQuarter,
-        fermataOffsets[lastScheduledStep],
-      );
+    if (lastScheduledEntry < totalEntries) {
+      const triggerQuarters = entryAttackQuarters[lastScheduledEntry];
       const { text: extensionTime } = safeTickTime(
         laggedTicksFromQuarters(triggerQuarters),
         lastSafeAttackTick,
         'schedule extension',
-        { fromStepIndex: lastScheduledStep },
+        { fromEntryIndex: lastScheduledEntry },
       );
       const extensionEventId = transport.scheduleOnce((_time) => {
         try {
           if (!this.isPlaying || this.isPaused) {
             return;
           }
-          if (this.nextUnscheduledStepIndex >= script.length) {
+          if (this.nextUnscheduledEntryIndex >= totalEntries) {
             return;
           }
           this.extendScheduleWindow();
@@ -934,12 +1231,11 @@ export class PlaybackEngine {
       return;
     }
 
-    const pieceEndQuarters = pieceEndQuarterNotes(script, divisionsPerQuarter);
     const { text: pieceEndTime } = safeTickTime(
       laggedTicksFromQuarters(pieceEndQuarters),
       lastSafeAttackTick,
       'piece end',
-      { scriptLength: script.length },
+      { totalEntries },
     );
     const endEventId = transport.scheduleOnce((time) => {
       try {
@@ -977,7 +1273,7 @@ export class PlaybackEngine {
     }
 
     this.scheduledEventIds = [];
-    this.nextUnscheduledStepIndex = 0;
+    this.nextUnscheduledEntryIndex = 0;
     this.lastScheduledAttackTick = -1;
     this.clearPlayingNotes();
     transport.cancel(0);

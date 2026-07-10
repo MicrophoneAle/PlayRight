@@ -48,6 +48,7 @@ export interface NormalizedControl {
   type: 'backup' | 'forward';
   duration: number;
   divisionsAtNote: number;
+  measureNumber: number;
 }
 
 export type NormalizedElement = NormalizedNote | NormalizedControl;
@@ -600,6 +601,7 @@ function normalizeControl(
     type,
     duration: toNumber(control.duration, 0),
     divisionsAtNote: measureContext.divisions,
+    measureNumber: measureContext.measureNumber,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { ParseMusicXmlResult } from '../../types/index.ts';
+import { extractMeasureFlow } from './MeasureFlowNormalizer.ts';
 import { MusicXMLIngestor } from './MusicXMLIngestor.ts';
 import { MusicXMLMapper, mergePlaybackScripts } from './MusicXMLMapper.ts';
 import {
@@ -7,6 +8,7 @@ import {
 } from './MusicXMLParseChecks.ts';
 import { extractScoreTiming, MusicXMLNormalizer, resolveCanonicalDivisionsPerQuarter } from './MusicXMLNormalizer.ts';
 import { MusicXMLValidator } from './MusicXMLValidator.ts';
+import { resolvePlaybackOrder } from './PlaybackOrderResolver.ts';
 
 export class MusicXMLParser {
   static parse(xmlString: string): ParseMusicXmlResult {
@@ -30,15 +32,23 @@ export class MusicXMLParser {
       ...partMaps.map((partMap) => partMap.finalTimelineDivisions),
     );
     const script = MusicXMLValidator.validate(mapped);
+    const flow = extractMeasureFlow(raw);
+    const { playbackOrder, warnings: resolveWarnings } = resolvePlaybackOrder({
+      script,
+      flow,
+      firstPartElements: partElements[0] ?? [],
+      canonicalDivisionsPerQuarter,
+    });
 
     return {
       script,
+      playbackOrder,
       scoreTiming: {
         divisionsPerQuarter: canonicalDivisionsPerQuarter,
         tempoBpm,
         totalTimelineDivisions,
       },
-      warnings: [...warnings, ...normalizeWarnings],
+      warnings: [...warnings, ...normalizeWarnings, ...flow.warnings, ...resolveWarnings],
     };
   }
 }
