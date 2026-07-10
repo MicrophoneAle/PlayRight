@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { alignScopeToMidis } from './scopeAlign.ts';
+import { alignScopeToMidis, centerScopeOnMidis } from './scopeAlign.ts';
 import {
   getEffectiveKeyMap,
   getExtensionMidis,
@@ -61,5 +61,34 @@ describe('alignScopeToMidis', () => {
 
     const scopeStart = useEngineStore.getState().scopeStartMidi;
     expect(midisFitScopeKeyMap([78, 81], scopeStart, 0)).toBe(true);
+  });
+});
+
+describe('centerScopeOnMidis', () => {
+  beforeEach(() => {
+    useEngineStore.setState({ scopeStartMidi: 60, scopeTranspose: 0 });
+  });
+
+  it('centers a single starting note in the core row', () => {
+    centerScopeOnMidis([60]);
+
+    expect(useEngineStore.getState().scopeStartMidi).toBe(52);
+    expect(noteUsesExtensionKey(52, 60)).toBe(false);
+  });
+
+  it('centers the midpoint of a starting chord', () => {
+    centerScopeOnMidis([60, 64]);
+
+    expect(useEngineStore.getState().scopeStartMidi).toBe(54);
+    for (const midi of [60, 64]) {
+      expect(noteUsesExtensionKey(54, midi)).toBe(false);
+    }
+  });
+
+  it('falls back when the span is wider than the core row', () => {
+    centerScopeOnMidis([60, 78]);
+
+    const scopeStart = useEngineStore.getState().scopeStartMidi;
+    expect(midisFitScopeKeyMap([60, 78], scopeStart, 0)).toBe(true);
   });
 });

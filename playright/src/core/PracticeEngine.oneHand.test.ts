@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine } from './AudioEngine.ts';
 import { PracticeEngine } from './PracticeEngine.ts';
-import { getDynamicKeyMap, getScopeKeyMap, midisFitScopeKeyMap } from './InputManager.ts';
+import { getScopeKeyMap, midisFitScopeKeyMap } from './InputManager.ts';
 import type { PlaybackScript } from '../types/index.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
@@ -223,7 +223,24 @@ describe('PracticeEngine one-hand progression', () => {
     expect(state.expectedMidiNotes).toEqual([60]);
   });
 
-  it('aligns the scope when step notes fall outside the current core anchors', () => {
+  it('centers the scope on the first note when one-hand practice starts', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+      },
+    ]);
+    useEngineStore.getState().actions.setScopeStart(60);
+
+    engine.start();
+
+    expect(useEngineStore.getState().scopeStartMidi).toBe(52);
+    expect(useEngineStore.getState().expectedMidiNotes).toEqual([60]);
+  });
+
+  it('centers the scope when the first note sits above the default anchors', () => {
     const highMidi = 88;
     makeScript([
       {
@@ -238,11 +255,9 @@ describe('PracticeEngine one-hand progression', () => {
     engine.start();
 
     const scopeStart = useEngineStore.getState().scopeStartMidi;
-    const map = getDynamicKeyMap(scopeStart);
-
+    expect(scopeStart).toBe(80);
     expect(midisFitScopeKeyMap([highMidi], scopeStart, 0)).toBe(true);
     expect(Object.values(getScopeKeyMap(scopeStart, 0))).toContain(highMidi);
-    expect(map.KeyA).toBeLessThanOrEqual(highMidi);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([highMidi]);
   });
 
