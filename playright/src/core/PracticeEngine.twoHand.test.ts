@@ -147,9 +147,15 @@ describe('PracticeEngine two-hand finger press', () => {
     expect(audio.noteOn).toHaveBeenCalledWith(60);
     expect(audio.noteOff).not.toHaveBeenCalled();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([
+      { pressId: 0, stepIndex: 0, midi: 60, hand: 'R' },
+    ]);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
 
     engine.handleFingerRelease({ hand: 'R', finger: 1 });
     expect(audio.noteOff).toHaveBeenCalledWith(60);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
   });
 
   it('does not advance after the first hand in a two-note step until the second hand is hit', () => {

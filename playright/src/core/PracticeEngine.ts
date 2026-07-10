@@ -1,8 +1,5 @@
 import type { AudioEngine } from './AudioEngine.ts';
-import {
-  buildFermataPlaybackContext,
-  stepHasPlaybackFermataHold,
-} from './playbackTiming.ts';
+import { PlayingMidiPressTracker } from './playingMidiPressTracker.ts';
 import {
   firstPositionWithinStep,
   getExpectedNoteForFingerAtPosition,
@@ -12,7 +9,7 @@ import {
 } from './practiceSteps.ts';
 import { alignScopeToMidis } from './scopeAlign.ts';
 import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
-import type { PlaybackScript, PracticePosition, ScriptNote } from '../types/index.ts';
+import type { Hand, PlaybackScript, PracticePosition, ScriptNote } from '../types/index.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 
 export class PracticeEngine {
@@ -22,6 +19,7 @@ export class PracticeEngine {
   private hitNoteIndices: Set<number> = new Set();
   private soundingMidis = new Set<number>();
   private activeFingerSounds = new Map<string, number>();
+  private practicePressTracker = new PlayingMidiPressTracker();
   private storeSubscriptionInitialized = false;
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
@@ -151,16 +149,7 @@ export class PracticeEngine {
   }
 
   handleNoteOn(midi: number): void {
-    const engine = this.audioEngine;
-    if (!engine) {
-      return;
-    }
-
-    if (!this.soundingMidis.has(midi)) {
-      engine.noteOn(midi);
-      this.soundingMidis.add(midi);
-    }
-
+    this.attackMidi(midi);
     if (!useEngineStore.getState().isPracticeActive) {
       return;
     }
@@ -176,6 +165,8 @@ export class PracticeEngine {
 
     engine.noteOff(midi);
     this.soundingMidis.delete(midi);
+    this.practicePressTracker.releaseMatching((note) => note.midi === midi);
+    this.syncPracticeSoundingToStore();
   }
 
   handleFingerPress(mapping: FingerMapping): void {
@@ -320,56 +311,13 @@ export class PracticeEngine {
     return true;
   }
 
-  private releaseFermataNotesForStep(stepIndex: number): void {
-    const { script, scoreTiming } = useEngineStore.getState();
-    const engine = this.audioEngine;
-    if (
-      !script ||
-      !scoreTiming ||
-      !engine ||
-      stepIndex < 0 ||
-      stepIndex >= script.length
-    ) {
-      return;
-    }
-
-    const { divisionsPerQuarter } = scoreTiming;
-    if (!stepHasPlaybackFermataHold(script, stepIndex, divisionsPerQuarter)) {
-      return;
-    }
-
-    const fermataContext = buildFermataPlaybackContext(
-      script,
-      divisionsPerQuarter,
-    );
-    const releaseAllStepNotes = fermataContext.carryForwardSteps.has(stepIndex);
-    const midisToRelease = releaseAllStepNotes
-      ? script[stepIndex].notes.map((note) => note.midi)
-      : script[stepIndex].notes
-          .filter((note) => note.hasFermata)
-          .map((note) => note.midi);
-
-    const uniqueMidis = [...new Set(midisToRelease)];
-    for (const midi of uniqueMidis) {
-      if (!this.soundingMidis.has(midi)) {
-        continue;
-      }
-
-      engine.noteOff(midi);
-      this.soundingMidis.delete(midi);
-
-      for (const [fingerKey, activeMidi] of this.activeFingerSounds) {
-        if (activeMidi === midi) {
-          this.activeFingerSounds.delete(fingerKey);
-        }
-      }
-    }
-  }
-
   private releaseAllSoundingNotes(): void {
     const engine = this.audioEngine;
     if (!engine) {
       this.soundingMidis.clear();
+      this.activeFingerSounds.clear();
+      this.practicePressTracker.clear();
+      this.clearPracticeSoundingInStore();
       return;
     }
 
@@ -379,19 +327,74 @@ export class PracticeEngine {
 
     this.soundingMidis.clear();
     this.activeFingerSounds.clear();
+    this.practicePressTracker.clear();
+    this.clearPracticeSoundingInStore();
   }
 
-  private sustainNote(midi: number, mapping: FingerMapping): void {
+  private attackMidi(midi: number, hand?: Hand): void {
     const engine = this.audioEngine;
     if (!engine) {
       return;
     }
 
-    if (!this.soundingMidis.has(midi)) {
-      engine.noteOn(midi);
-      this.soundingMidis.add(midi);
+    if (this.soundingMidis.has(midi)) {
+      return;
     }
 
+    engine.noteOn(midi);
+    this.soundingMidis.add(midi);
+    this.trackPracticePress(midi, hand);
+  }
+
+  private trackPracticePress(midi: number, explicitHand?: Hand): void {
+    if (!selectIsPracticeActive(useEngineStore.getState())) {
+      return;
+    }
+
+    const { currentStepIndex, engineMode, activeHand } = useEngineStore.getState();
+    const matchingNotes = this.practiceNotesForStep.filter((note) => note.midi === midi);
+    const hands =
+      explicitHand !== undefined
+        ? [explicitHand]
+        : matchingNotes
+            .filter((note) => engineMode !== 'one-hand' || note.hand === activeHand)
+            .map((note) => note.hand);
+
+    const uniqueHands = [...new Set(hands.length > 0 ? hands : engineMode === 'one-hand' ? [activeHand] : [])];
+    if (uniqueHands.length === 0) {
+      return;
+    }
+
+    for (const hand of uniqueHands) {
+      this.practicePressTracker.press({
+        pressId: this.practicePressTracker.allocatePressId(),
+        stepIndex: currentStepIndex,
+        midi,
+        hand,
+      });
+    }
+
+    this.syncPracticeSoundingToStore();
+  }
+
+  private syncPracticeSoundingToStore(): void {
+    if (!selectIsPracticeActive(useEngineStore.getState())) {
+      return;
+    }
+
+    const { actions } = useEngineStore.getState();
+    actions.setPlayingPlaybackNotes(this.practicePressTracker.activeNotes());
+    actions.setPlayingMidiNotes(this.practicePressTracker.activeMidis());
+  }
+
+  private clearPracticeSoundingInStore(): void {
+    const { actions } = useEngineStore.getState();
+    actions.setPlayingPlaybackNotes([]);
+    actions.setPlayingMidiNotes([]);
+  }
+
+  private sustainNote(midi: number, mapping: FingerMapping): void {
+    this.attackMidi(midi, mapping.hand);
     this.activeFingerSounds.set(`${mapping.hand}:${mapping.finger}`, midi);
   }
 
@@ -622,7 +625,6 @@ export class PracticeEngine {
 
     const nextIndex = currentStepIndex + 1;
 
-    this.releaseFermataNotesForStep(currentStepIndex);
     actions.setStepIndex(nextIndex);
     actions.setPracticeGraceCursor(null);
 
@@ -632,6 +634,7 @@ export class PracticeEngine {
       this.hitNoteIndices.clear();
       this.expectedNotes.clear();
       this.practiceNotesForStep = [];
+      this.clearPracticeSoundingInStore();
       return;
     }
 

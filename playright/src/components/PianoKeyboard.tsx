@@ -263,6 +263,9 @@ export function PianoKeyboard() {
   const showStepKeyHighlight =
     (!playMode && isPracticeActive) || (playMode && isPlaybackActive);
 
+  const practiceSoundingActive =
+    isPracticeActive && !playMode && !isProgramMode;
+
   const isKeyInDisplayRange = (midi: number) => {
     if (isTwoHand) {
       return false;
@@ -334,6 +337,14 @@ export function PianoKeyboard() {
     }
 
     if (inPositionAwarePractice) {
+      if (playingPlaybackNotes.length > 0) {
+        return buildTwoHandStepNotesByMidiFromPlayback(
+          script,
+          playingPlaybackNotes,
+          currentStepIndex,
+        );
+      }
+
       return buildTwoHandStepNotesByMidiForPosition(
         script,
         practicePositionFromGraceCursor(currentStepIndex, practiceGraceCursor),
@@ -370,6 +381,14 @@ export function PianoKeyboard() {
     }
 
     if (inPositionAwarePractice) {
+      if (playingPlaybackNotes.length > 0) {
+        return buildTwoHandPhysicalKeysByMidiFromPlayback(
+          script,
+          playingPlaybackNotes,
+          currentStepIndex,
+        );
+      }
+
       return buildTwoHandPhysicalKeysByMidiForPosition(
         script,
         practicePositionFromGraceCursor(currentStepIndex, practiceGraceCursor),
@@ -460,7 +479,6 @@ export function PianoKeyboard() {
 
   useEffect(() => {
     setSelectedNote(null);
-    setActiveTwoHandFingers(new Set());
   }, [currentStepIndex]);
 
   useEffect(() => {
@@ -813,11 +831,12 @@ export function PianoKeyboard() {
       >
         {whiteKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isPhysicallyActive = showPlayFingerings
-            ? (playingMidiCounts.get(key.midi) ?? 0) > 0
-            : isTwoHand
-              ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
-              : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+          const isPhysicallyActive =
+            showPlayFingerings || practiceSoundingActive
+              ? (playingMidiCounts.get(key.midi) ?? 0) > 0
+              : isTwoHand
+                ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
+                : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
             isPhysicallyActive,
@@ -862,11 +881,12 @@ export function PianoKeyboard() {
         })}
         {blackKeys.map((key) => {
           const inScope = isKeyInDisplayRange(key.midi);
-          const isPhysicallyActive = showPlayFingerings
-            ? (playingMidiCounts.get(key.midi) ?? 0) > 0
-            : isTwoHand
-              ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
-              : isMidiActive(key.midi, keyMap, activePhysicalKeys);
+          const isPhysicallyActive =
+            showPlayFingerings || practiceSoundingActive
+              ? (playingMidiCounts.get(key.midi) ?? 0) > 0
+              : isTwoHand
+                ? isTwoHandMidiHeld(key.midi, twoHandStepNotesByMidi, activeTwoHandFingers)
+                : isMidiActive(key.midi, keyMap, activePhysicalKeys);
           const { isExpected, isPressed } = getKeyHighlightState(key.midi, {
             ...highlightOptions,
             isPhysicallyActive,

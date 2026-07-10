@@ -299,6 +299,14 @@ describe('PracticeEngine one-hand progression', () => {
     flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([
+      { pressId: 0, stepIndex: 0, midi: 60, hand: 'R' },
+      { pressId: 1, stepIndex: 0, midi: 64, hand: 'R' },
+    ]);
+
+    engine.handleNoteOff(60);
+    engine.handleNoteOff(64);
+    expect(useEngineStore.getState().playingPlaybackNotes).toEqual([]);
   });
 
   it('visits every right-hand step in script order while skipping LH-only steps', () => {

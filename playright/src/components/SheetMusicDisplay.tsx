@@ -421,6 +421,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       scrollVisualIndex: scrollVisualIndexRef.current,
       activeHand: state.activeHand,
       engineMode: displayEngineMode,
+      soundingNotes:
+        state.isPracticeActive && !state.playMode && state.fingeringMode !== 'program'
+          ? state.playingPlaybackNotes
+          : [],
     });
   };
 
