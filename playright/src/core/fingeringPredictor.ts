@@ -1,4 +1,4 @@
-ï»¿import type {
+import type {
   Finger,
   GraceNoteInfo,
   Hand,
@@ -250,7 +250,7 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   return phrases;
 }
 
-/** Ideal right-hand pitch distance in semitones (lower finger Î“Ã¥Ã† higher finger). */
+/** Ideal right-hand pitch distance in semitones (lower finger GåÆ higher finger). */
 export const IDEAL: Record<string, number> = {
   '1-2': 4,
   '1-3': 7,
@@ -339,7 +339,7 @@ function isBlackKey(midi: number): boolean {
   return BLACK_KEY_PITCH_CLASSES.has(midi % 12);
 }
 
-/** Tiered ideal finger gap from semitone distance (1Î“Ã‡Ã´4Î“Ã¥Ã†1, 5Î“Ã‡Ã´8Î“Ã¥Ã†2, 9Î“Ã‡Ã´11Î“Ã¥Ã†3, 12+Î“Ã¥Ã†4). */
+/** Tiered ideal finger gap from semitone distance (1GÇô4GåÆ1, 5GÇô8GåÆ2, 9GÇô11GåÆ3, 12+GåÆ4). */
 export function preferredIdealFingerGap(absInterval: number): number {
   if (absInterval <= 0) {
     return 0;
@@ -1629,3 +1629,4 @@ export async function prepareScriptWithFingering(
     scoreTiming?.divisionsPerQuarter,
   );
 }
+
