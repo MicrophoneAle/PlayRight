@@ -250,7 +250,7 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   return phrases;
 }
 
-/** Ideal right-hand pitch distance in semitones (lower finger GåÆ higher finger). */
+/** Ideal right-hand pitch distance in semitones (lower finger -> higher finger). */
 export const IDEAL: Record<string, number> = {
   '1-2': 4,
   '1-3': 7,
@@ -339,7 +339,7 @@ function isBlackKey(midi: number): boolean {
   return BLACK_KEY_PITCH_CLASSES.has(midi % 12);
 }
 
-/** Tiered ideal finger gap from semitone distance (1GÇô4GåÆ1, 5GÇô8GåÆ2, 9GÇô11GåÆ3, 12+GåÆ4). */
+/** Tiered ideal finger gap from semitone distance (1-4->1, 5-8->2, 9-11->3, 12+->4). */
 export function preferredIdealFingerGap(absInterval: number): number {
   if (absInterval <= 0) {
     return 0;
