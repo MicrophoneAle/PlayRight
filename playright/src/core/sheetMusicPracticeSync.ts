@@ -1807,8 +1807,6 @@ export function syncSheetMusicPracticeVisuals(
     scrollVisualIndex: PracticeVisualIndex | null;
     activeHand: Hand;
     engineMode: EngineMode;
-    /** Notes still held from earlier practice steps (or the current one). */
-    soundingNotes?: PlayingPlaybackNote[];
   },
 ): GraphicalNote[] {
   const {
@@ -1823,7 +1821,6 @@ export function syncSheetMusicPracticeVisuals(
     scrollStateRef,
     scrollMode,
     scrollVisualIndex,
-    soundingNotes = [],
   } = options;
 
   try {
@@ -1856,34 +1853,6 @@ export function syncSheetMusicPracticeVisuals(
             practiceNotes,
             cursorOffsetRef,
           ).filter((gNote) => gNote.sourceNote.IsGraceNote !== true);
-
-    if (soundingNotes.length > 0) {
-      const seen = new Set(toHighlight);
-      for (const press of soundingNotes) {
-        const gNotes = visualIndex.stepGraphicalNotes[press.stepIndex] ?? [];
-        for (const gNote of gNotes) {
-          const source = gNote.sourceNote;
-          if (source.isRest()) {
-            continue;
-          }
-
-          if (source.IsGraceNote === true) {
-            if (!seen.has(gNote)) {
-              seen.add(gNote);
-              toHighlight.push(gNote);
-            }
-            continue;
-          }
-
-          const midi = osmdNoteMidi(source);
-          const hand = osmdNoteHand(source);
-          if (midi === press.midi && hand === press.hand && !seen.has(gNote)) {
-            seen.add(gNote);
-            toHighlight.push(gNote);
-          }
-        }
-      }
-    }
 
     if (toHighlight.length === 0) {
       safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide(empty-toHighlight)', () =>
