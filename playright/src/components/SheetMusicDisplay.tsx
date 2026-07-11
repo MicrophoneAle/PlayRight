@@ -353,6 +353,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       highlightedNotesRef.current = syncSheetMusicPlaybackVisuals(osmd, {
         visualIndex: visualIndexRef.current,
         scrollStepIndex: state.currentStepIndex,
+        scrollPlaybackOrderIndex: state.currentPlaybackOrderIndex,
         activeNotes: state.playingPlaybackNotes,
         container,
         highlightedNotes: highlightedNotesRef.current,
@@ -452,12 +453,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           state.script,
           displayEngineMode,
           state.activeHand,
+          state.playbackOrder,
         );
         scrollVisualIndexRef.current = buildPracticeVisualIndex(
           osmd,
           state.script,
           'two-hand',
           state.activeHand,
+          state.playbackOrder,
         );
 
         if (generation !== visualIndexGenerationRef.current) {
@@ -842,7 +845,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         state.isPlaybackActive &&
         !state.isPlaybackPaused &&
         (state.playingPlaybackNotes !== prevState.playingPlaybackNotes ||
-          state.currentStepIndex !== prevState.currentStepIndex)
+          state.currentStepIndex !== prevState.currentStepIndex ||
+          state.currentPlaybackOrderIndex !== prevState.currentPlaybackOrderIndex)
       ) {
         syncPracticeVisuals();
       }

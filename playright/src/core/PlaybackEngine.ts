@@ -242,7 +242,10 @@ export class PlaybackEngine {
     transport.stop();
     this.applyTransportBpm(scoreTiming.tempoBpm);
     transport.ticks = Math.round(quartersToTicks(startOnsetQuarters, this.transportPpq()));
-    this.applyStepVisual(derived.playbackOrder[startEntryIndex].stepIndex);
+    this.applyStepVisual(
+      derived.playbackOrder[startEntryIndex].stepIndex,
+      startEntryIndex,
+    );
     this.scheduleFromEntry(startEntryIndex);
 
     const { actions } = useEngineStore.getState();
@@ -319,7 +322,7 @@ export class PlaybackEngine {
 
     this.applyTransportBpm(scoreTiming.tempoBpm);
     getTransport().ticks = 0;
-    this.applyStepVisual(0);
+    this.applyStepVisual(0, 0);
     this.audioEngine?.releaseAll();
 
     actions.setPlaybackActive(true);
@@ -339,6 +342,7 @@ export class PlaybackEngine {
     actions.setPlaybackPaused(false);
 
     actions.setStepIndex(0);
+    actions.setPlaybackOrderIndex(0);
     actions.setExpectedNotes([]);
     actions.setPlayingMidiNotes([]);
     actions.setPlayingPlaybackNotes([]);
@@ -370,7 +374,7 @@ export class PlaybackEngine {
     transport.ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
     this.hasFinishedPiece = false;
     this.seekTargetEntryIndex = entryIndex;
-    this.applyStepVisual(stepIndex);
+    this.applyStepVisual(stepIndex, entryIndex);
     this.scheduleFromEntry(entryIndex);
     this.seekTargetEntryIndex = null;
 
@@ -783,7 +787,14 @@ export class PlaybackEngine {
     actions.setPlayingPlaybackNotes([]);
   }
 
-  private applyStepVisual(stepIndex: number): void {
+  /**
+   * R2: every visual step update also records its PlaybackOrder position so
+   * the sheet cursor can be keyed per-pass (a repeated step's second pass maps
+   * to different cursor-walk offsets than its first). Every caller knows the
+   * entry index natively (play/seek/replay resolve it, the attack callback
+   * closes over it), so no reverse lookup is ever needed.
+   */
+  private applyStepVisual(stepIndex: number, entryIndex: number): void {
     const { script, engineMode, activeHand, playMode, actions } =
       useEngineStore.getState();
     if (!script || stepIndex < 0 || stepIndex >= script.length) {
@@ -798,6 +809,7 @@ export class PlaybackEngine {
     );
 
     actions.setStepIndex(stepIndex);
+    actions.setPlaybackOrderIndex(entryIndex);
     actions.setExpectedNotes(displayNotes.map((note) => note.midi));
   }
 
@@ -1150,7 +1162,7 @@ export class PlaybackEngine {
         const stepEventId = transport.scheduleOnce((time) => {
           try {
             this.releaseOverduePresses(Math.round(getTransport().ticks));
-            this.applyStepVisual(stepIndex);
+            this.applyStepVisual(stepIndex, entryIndex);
 
             for (const { pressId, note, playedDuration } of stepPresses) {
               // note.hasAccent: deferred, not infeasible. AudioEngine.scheduleAttackRelease

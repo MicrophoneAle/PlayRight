@@ -240,6 +240,12 @@ interface EngineState {
   /** Non-fatal parse notices for the current piece; shown in a dismissible panel. */
   parseWarnings: string[];
   currentStepIndex: number;
+  /**
+   * R2: play mode's position in playbackOrder (monotonic while playing;
+   * distinct passes of a repeated step get distinct positions). Practice-mode
+   * consumers never read this — they follow currentStepIndex only.
+   */
+  currentPlaybackOrderIndex: number;
   totalSteps: number;
   expectedMidiNotes: number[];
   playingMidiNotes: number[];
@@ -306,6 +312,7 @@ interface EngineState {
     toggleScoreLibrary: () => void;
     setParseWarnings: (warnings: string[]) => void;
     setStepIndex: (index: number) => void;
+    setPlaybackOrderIndex: (index: number) => void;
     setExpectedNotes: (notes: number[]) => void;
     setPlayingMidiNotes: (notes: number[]) => void;
     setPlayingPlaybackNotes: (notes: PlayingPlaybackNote[]) => void;
@@ -347,6 +354,7 @@ export const useEngineStore = create<EngineState>((set) => {
   scoreLibraryOpen: false,
   parseWarnings: [],
   currentStepIndex: 0,
+  currentPlaybackOrderIndex: 0,
   totalSteps: 0,
   expectedMidiNotes: [],
   playingMidiNotes: [],
@@ -367,6 +375,7 @@ export const useEngineStore = create<EngineState>((set) => {
         playbackOrder: playbackOrder ?? null,
         manualFingerings: library?.manualFingerings ?? {},
         currentStepIndex: 0,
+        currentPlaybackOrderIndex: 0,
         totalSteps: script.length,
         isPracticeActive: false,
         practiceGraceCursor: null,
@@ -388,6 +397,7 @@ export const useEngineStore = create<EngineState>((set) => {
         scoreId: null,
         scoreTiming: null,
         playbackOrder: null,
+        currentPlaybackOrderIndex: 0,
         manualFingerings: {},
         selectedFingeringNote: null,
         hasPracticeStarted: false,
@@ -732,6 +742,7 @@ export const useEngineStore = create<EngineState>((set) => {
       set({
         activeHand: hand,
         currentStepIndex: 0,
+        currentPlaybackOrderIndex: 0,
         isPracticeActive: false,
         practiceGraceCursor: null,
         expectedMidiNotes: [],
@@ -777,6 +788,7 @@ export const useEngineStore = create<EngineState>((set) => {
           playMode: enabled,
           fingeringMode: enabled ? ('off' as const) : state.fingeringMode,
           currentStepIndex: 0,
+          currentPlaybackOrderIndex: 0,
           practiceGraceCursor: null,
           expectedMidiNotes: [],
           playingMidiNotes: [],
@@ -833,6 +845,9 @@ export const useEngineStore = create<EngineState>((set) => {
       }
 
       set({ currentStepIndex: index });
+    },
+    setPlaybackOrderIndex: (index) => {
+      set({ currentPlaybackOrderIndex: index });
     },
     setExpectedNotes: (notes) => {
       set({ expectedMidiNotes: notes });

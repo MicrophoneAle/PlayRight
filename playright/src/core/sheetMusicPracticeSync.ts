@@ -7,6 +7,7 @@ import { getPracticeNotes } from './practiceSteps.ts';
 import type {
   EngineMode,
   Hand,
+  PlaybackOrder,
   PlaybackScript,
   PlayingPlaybackNote,
   ScriptNote,
@@ -61,12 +62,24 @@ export interface PracticeScrollState {
 }
 
 export interface PracticeVisualIndex {
+  /** Per raw script step: cursor-walk offset of the step's FIRST pass. Practice consumers key by this. */
   stepCursorOffsets: number[];
   /** Merged main+grace glyphs per step - play mode's highlight source, unchanged. */
   stepGraphicalNotes: GraphicalNote[][];
   /** Per-grace glyphs, [stepIndex][graceIndex] - a practice grace position's own highlight. */
   stepGraceGraphicalNotes: GraphicalNote[][][];
   stepMeasureNumbers: number[];
+  /**
+   * R2: per playback-order position, the cursor-walk offset of that
+   * (step, pass). OSMD's cursor iterator executes repeat jumps itself
+   * (handleRepetitionsAtMeasureEnd), so a repeated step's pass-1 entry maps
+   * into the duplicated snapshot region after the repeat barline — a LARGER
+   * offset than the repeat-end step's pass-0 offset, even though the
+   * highlight moves visually backward on the page.
+   */
+  orderCursorOffsets: number[];
+  /** The playback order this index was built against (consistency guard at sync time). */
+  playbackOrder: PlaybackOrder;
 }
 
 interface CursorSnapshot {
@@ -825,23 +838,54 @@ function walkCursorSnapshots(osmd: OpenSheetMusicDisplay): CursorSnapshot[] {
   return snapshots;
 }
 
-/** Build a practice-step index in a single cursor pass (linear time). */
+function identityPlaybackOrder(script: PlaybackScript): PlaybackOrder {
+  return script.map((step, stepIndex) => ({
+    stepIndex,
+    playbackOnset: step.onset,
+    passIndex: 0,
+  }));
+}
+
+/**
+ * Build a practice-step index in a single cursor pass (linear time).
+ *
+ * R2: the matching loop walks `playbackOrder` (R0's unrolled performance
+ * sequence) rather than raw script steps. For an identity order this is
+ * step-for-step the historical per-step loop; when the order contains repeat
+ * passes, each pass consumes the corresponding duplicated cursor snapshots
+ * (OSMD's iterator executes repeats), yielding a distinct cursor offset per
+ * (step, pass). Only pass-0 entries populate the per-step arrays, so
+ * practice-mode consumers are structurally unaffected (Q4: practice ignores
+ * repeats).
+ */
 export function buildPracticeVisualIndex(
   osmd: OpenSheetMusicDisplay,
   script: PlaybackScript,
   engineMode: EngineMode,
   activeHand: Hand,
+  playbackOrder?: PlaybackOrder | null,
 ): PracticeVisualIndex {
   const snapshots = walkCursorSnapshots(osmd);
+  const order =
+    playbackOrder &&
+    playbackOrder.length > 0 &&
+    playbackOrder.every(
+      (entry) => entry.stepIndex >= 0 && entry.stepIndex < script.length,
+    )
+      ? playbackOrder
+      : identityPlaybackOrder(script);
   const stepCursorOffsets = new Array<number>(script.length).fill(0);
   const stepGraphicalNotes: GraphicalNote[][] = script.map(() => []);
   const stepGraceGraphicalNotes: GraphicalNote[][][] = script.map(() => []);
   const stepMeasureNumbers = script.map((step) => step.measureNumber);
+  const orderCursorOffsets = new Array<number>(order.length).fill(0);
 
   let searchStart = 0;
   let lastMatchedOffset = 0;
 
-  for (let stepIndex = 0; stepIndex < script.length; stepIndex += 1) {
+  for (let orderIndex = 0; orderIndex < order.length; orderIndex += 1) {
+    const { stepIndex, passIndex } = order[orderIndex];
+    const isFirstPass = passIndex === 0;
     const expected = practiceKeysForStep(
       script,
       stepIndex,
@@ -855,7 +899,10 @@ export function buildPracticeVisualIndex(
     );
 
     if (expected.size === 0) {
-      stepCursorOffsets[stepIndex] = lastMatchedOffset;
+      orderCursorOffsets[orderIndex] = lastMatchedOffset;
+      if (isFirstPass) {
+        stepCursorOffsets[stepIndex] = lastMatchedOffset;
+      }
       continue;
     }
 
@@ -868,40 +915,60 @@ export function buildPracticeVisualIndex(
     );
 
     if (match) {
-      stepCursorOffsets[stepIndex] = match.offset;
+      orderCursorOffsets[orderIndex] = match.offset;
       lastMatchedOffset = match.offset;
       searchStart = match.endIdx + 1;
-      const graceGNotes = snapshots[match.offset]?.graceGNotes;
-      stepGraphicalNotes[stepIndex] = [
-        ...graceHighlightNotes(script[stepIndex], graceGNotes),
-        ...match.notes,
-      ];
-      const graceCount = script[stepIndex].graceBefore?.length ?? 0;
-      if (graceCount > 0) {
-        stepGraceGraphicalNotes[stepIndex] = Array.from(
-          { length: graceCount },
-          (_, graceIndex) =>
-            graceHighlightNoteForIndex(script[stepIndex], graceIndex, graceGNotes),
-        );
+      if (isFirstPass) {
+        stepCursorOffsets[stepIndex] = match.offset;
+        const graceGNotes = snapshots[match.offset]?.graceGNotes;
+        stepGraphicalNotes[stepIndex] = [
+          ...graceHighlightNotes(script[stepIndex], graceGNotes),
+          ...match.notes,
+        ];
+        const graceCount = script[stepIndex].graceBefore?.length ?? 0;
+        if (graceCount > 0) {
+          stepGraceGraphicalNotes[stepIndex] = Array.from(
+            { length: graceCount },
+            (_, graceIndex) =>
+              graceHighlightNoteForIndex(script[stepIndex], graceIndex, graceGNotes),
+          );
+        }
       }
       continue;
     }
 
-    stepCursorOffsets[stepIndex] = lastMatchedOffset;
-    stepGraphicalNotes[stepIndex] = findBestPartialHighlightInSnapshots(
-      osmd,
-      snapshots,
-      searchStart,
-      practiceNotes,
-      script[stepIndex].measureNumber,
-    );
+    orderCursorOffsets[orderIndex] = lastMatchedOffset;
+    if (isFirstPass) {
+      stepCursorOffsets[stepIndex] = lastMatchedOffset;
+      stepGraphicalNotes[stepIndex] = findBestPartialHighlightInSnapshots(
+        osmd,
+        snapshots,
+        searchStart,
+        practiceNotes,
+        script[stepIndex].measureNumber,
+      );
+    }
   }
 
   osmd.cursor.reset();
-  return { stepCursorOffsets, stepGraphicalNotes, stepGraceGraphicalNotes, stepMeasureNumbers };
+  return {
+    stepCursorOffsets,
+    stepGraphicalNotes,
+    stepGraceGraphicalNotes,
+    stepMeasureNumbers,
+    orderCursorOffsets,
+    playbackOrder: order,
+  };
 }
 
-function moveCursorToOffset(
+/**
+ * Advance (or reset-and-advance) OSMD's cursor to a cursor-walk offset. A
+ * target smaller than the current offset — a backward seek, or a repeat's
+ * post-jump pass landing on an earlier system after a rebuild — resets the
+ * cursor and re-advances from the top; OSMD's cursor cannot step backward.
+ * Exported for the mocked-cursor harness tests.
+ */
+export function moveCursorToOffset(
   osmd: OpenSheetMusicDisplay,
   offset: number,
   lastOffsetRef: { current: number },
@@ -1661,6 +1728,8 @@ export function syncSheetMusicPlaybackVisuals(
   options: {
     visualIndex: PracticeVisualIndex | null;
     scrollStepIndex: number;
+    /** R2: position in the playback order; -1 / stale values fall back to step-keyed offsets. */
+    scrollPlaybackOrderIndex: number;
     activeNotes: PlayingPlaybackNote[];
     container: HTMLElement;
     highlightedNotes: GraphicalNote[];
@@ -1675,6 +1744,7 @@ export function syncSheetMusicPlaybackVisuals(
   const {
     visualIndex,
     scrollStepIndex,
+    scrollPlaybackOrderIndex,
     activeNotes,
     container,
     highlightedNotes,
@@ -1696,10 +1766,23 @@ export function syncSheetMusicPlaybackVisuals(
       return [];
     }
 
+    // R2: key the cursor by playback-order position (per-pass) when the order
+    // entry agrees with the step the engine reported; a stale/mismatched order
+    // index (index rebuilt against a different order, -1 default) falls back
+    // to the step-keyed first-pass offset. On a repeat pass this offset keeps
+    // GROWING through OSMD's duplicated snapshots even though the highlight
+    // jumps visually backward, so no cursor reset is needed at the jump.
+    const orderEntry = visualIndex.playbackOrder[scrollPlaybackOrderIndex];
+    const offset =
+      orderEntry !== undefined && orderEntry.stepIndex === scrollStepIndex
+        ? visualIndex.orderCursorOffsets[scrollPlaybackOrderIndex] ??
+          visualIndex.stepCursorOffsets[scrollStepIndex] ??
+          0
+        : visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
     // The cursor is invisible in play mode; moving it only maintains the
     // internal offset. Walking the iterator + cursor.update() per sync was
-    // pure overhead on dense bars, so only do it when the step actually moved.
-    const offset = visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
+    // pure overhead on dense bars, so only do it when the step actually moved
+    // (the memo key includes the per-pass offset, so a repeat pass re-syncs).
     const visualKey = playbackVisualKey(scrollStepIndex, offset, activeNotes);
     if (visualKey === lastPlaybackVisualKey) {
       return highlightedNotes;
