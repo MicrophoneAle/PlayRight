@@ -26,14 +26,16 @@ import {
   PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO,
   PLAYBACK_FERMATA_HOLD_FACTOR,
   quarterNotesToSeconds,
+  quarterNotesToSecondsWithTempoMap,
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
   scheduledPlaybackAttackQuarterNotes,
   stepHasPlaybackFermataHold,
   stepOnsetQuarterNotes,
+  tempoBpmAtOnset,
 } from './playbackTiming.ts';
-import type { PlaybackScript } from '../types/index.ts';
+import type { PlaybackScript, TempoMapEntry } from '../types/index.ts';
 
 describe('playbackTiming', () => {
   it('converts step onset from divisions to quarter notes', () => {
@@ -50,6 +52,32 @@ describe('playbackTiming', () => {
   it('converts quarter notes to wall-clock seconds at a given BPM', () => {
     expect(quarterNotesToSeconds(1, 120)).toBe(0.5);
     expect(quarterNotesToSeconds(2, 60)).toBe(2);
+  });
+
+  it('resolves the active BPM from a tempo map by document onset', () => {
+    const tempoMap: TempoMapEntry[] = [
+      { onset: 0, bpm: 120 },
+      { onset: 480, bpm: 60 },
+      { onset: 960, bpm: 90 },
+    ];
+
+    expect(tempoBpmAtOnset(tempoMap, 0, 100)).toBe(120);
+    expect(tempoBpmAtOnset(tempoMap, 479, 100)).toBe(120);
+    expect(tempoBpmAtOnset(tempoMap, 480, 100)).toBe(60);
+    expect(tempoBpmAtOnset(tempoMap, 961, 100)).toBe(90);
+    expect(tempoBpmAtOnset([], 0, 100)).toBe(100);
+  });
+
+  it('integrates wall-clock duration across tempo-map segments', () => {
+    const tempoMap: TempoMapEntry[] = [
+      { onset: 0, bpm: 120 },
+      { onset: 1, bpm: 60 },
+      { onset: 2, bpm: 90 },
+    ];
+    // 1 quarter @120 = 0.5s, 1 @60 = 1s, 2 @90 = 4/3s → 0.5+1+1.333...
+    expect(
+      quarterNotesToSecondsWithTempoMap(4, tempoMap, 1, 100),
+    ).toBeCloseTo(0.5 + 1 + 4 / 3, 5);
   });
 
   it('converts dotted-quarter position and duration to exact ticks', () => {

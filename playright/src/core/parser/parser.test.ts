@@ -8,6 +8,10 @@ import {
   ARTICULATIONS_MUSICXML,
   STRONG_ACCENT_MUSICXML,
 } from './__fixtures__/articulations.musicxml.ts';
+import { TEMPO_MAP_MUSICXML } from './__fixtures__/tempoMap.musicxml.ts';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 async function unzipScoreXmlFromMxlBuffer(buffer: ArrayBuffer): Promise<string> {
   const archive = await JSZip.loadAsync(buffer);
@@ -42,6 +46,7 @@ describe('parseMusicXmlToScript', () => {
     expect(scoreTiming).toEqual({
       divisionsPerQuarter: 480,
       tempoBpm: 100,
+      tempoMap: [{ onset: 0, bpm: 100 }],
       totalTimelineDivisions: 1440,
     });
   });
@@ -1249,5 +1254,39 @@ describe('mid-piece divisions changes', () => {
       pitch: 'D4',
       durationDivisions: 480,
     });
+  });
+
+  it('collects a tempo map from mid-score tempo directions', () => {
+    const { script, scoreTiming } = parseMusicXmlToScript(TEMPO_MAP_MUSICXML);
+
+    expect(scoreTiming.tempoBpm).toBe(120);
+    expect(scoreTiming.tempoMap).toEqual([
+      { onset: 0, bpm: 120 },
+      { onset: 1, bpm: 60 },
+      { onset: 2, bpm: 90 },
+    ]);
+    expect(scoreTiming.totalTimelineDivisions).toBe(4);
+    expect(script.map((step) => step.onset)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('reads constant-moderato mid-score tempo changes without shifting P0-1 totals', () => {
+    const assetPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../assets/constant-moderato.musicxml',
+    );
+    const xml = readFileSync(assetPath, 'utf8');
+    const { scoreTiming, script } = parseMusicXmlToScript(xml);
+    const measure16 = script.find((step) => step.measureNumber === 16);
+    const measure17 = script.find((step) => step.measureNumber === 17);
+
+    expect(scoreTiming.tempoBpm).toBe(90);
+    expect(scoreTiming.totalTimelineDivisions).toBe(3168);
+    expect(measure16).toBeDefined();
+    expect(measure17).toBeDefined();
+    expect(scoreTiming.tempoMap).toEqual([
+      { onset: 0, bpm: 90 },
+      { onset: measure16!.onset, bpm: 80 },
+      { onset: measure17!.onset, bpm: 90 },
+    ]);
   });
 });

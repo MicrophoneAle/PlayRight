@@ -16,6 +16,7 @@ import {
   quarterNotesToTickDuration,
   quartersToTicks,
   scheduledPlaybackAttackQuarterNotes,
+  tempoBpmAtOnset,
 } from './playbackTiming.ts';
 import type { FermataPlaybackContext } from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
@@ -240,7 +241,7 @@ export class PlaybackEngine {
     this.clearScheduledEvents();
     const transport = getTransport();
     transport.stop();
-    this.applyTransportBpm(scoreTiming.tempoBpm);
+    this.applyTempoForDocumentOnset(script[startIndex]?.onset ?? 0, scoreTiming);
     transport.ticks = Math.round(quartersToTicks(startOnsetQuarters, this.transportPpq()));
     this.applyStepVisual(
       derived.playbackOrder[startEntryIndex].stepIndex,
@@ -320,7 +321,7 @@ export class PlaybackEngine {
     this.isPaused = true;
     this.hasFinishedPiece = false;
 
-    this.applyTransportBpm(scoreTiming.tempoBpm);
+    this.applyTempoForDocumentOnset(0, scoreTiming);
     getTransport().ticks = 0;
     this.applyStepVisual(0, 0);
     this.audioEngine?.releaseAll();
@@ -371,6 +372,7 @@ export class PlaybackEngine {
     if (wasPlaying) {
       transport.pause();
     }
+    this.applyTempoForDocumentOnset(script[stepIndex].onset, scoreTiming);
     transport.ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
     this.hasFinishedPiece = false;
     this.seekTargetEntryIndex = entryIndex;
@@ -396,12 +398,24 @@ export class PlaybackEngine {
   }
 
   setTempoFactor(factor: number): void {
-    const { scoreTiming } = useEngineStore.getState();
+    const { script, scoreTiming } = useEngineStore.getState();
     if (!scoreTiming) {
       return;
     }
 
-    getTransport().bpm.value = scoreTiming.tempoBpm * factor;
+    const transport = getTransport();
+    const divisionsPerQuarter = scoreTiming.divisionsPerQuarter;
+    const documentOnset =
+      script && script.length > 0
+        ? this.documentOnsetNearTransportQuarters(
+            script,
+            transport.ticks / this.transportPpq(),
+            divisionsPerQuarter,
+          )
+        : 0;
+    getTransport().bpm.value =
+      tempoBpmAtOnset(scoreTiming.tempoMap, documentOnset, scoreTiming.tempoBpm) *
+      factor;
   }
 
   /** Re-push active note highlights after layout changes (e.g. header toggle). */
@@ -442,9 +456,38 @@ export class PlaybackEngine {
     return getTransport().PPQ;
   }
 
-  private applyTransportBpm(baseTempoBpm: number): void {
+  private applyTempoForDocumentOnset(
+    documentOnset: number,
+    scoreTiming: {
+      tempoBpm: number;
+      tempoMap: { onset: number; bpm: number }[];
+    },
+  ): void {
     const { tempoFactor } = useEngineStore.getState();
-    getTransport().bpm.value = baseTempoBpm * tempoFactor;
+    getTransport().bpm.value =
+      tempoBpmAtOnset(scoreTiming.tempoMap, documentOnset, scoreTiming.tempoBpm) *
+      tempoFactor;
+  }
+
+  /**
+   * Best-effort document onset for the current transport position when only
+   * tick time is known (tempo-factor slider mid-playback). Prefers the latest
+   * step whose musical onset is at or before the transport quarter position.
+   */
+  private documentOnsetNearTransportQuarters(
+    script: PlaybackScript,
+    transportQuarters: number,
+    divisionsPerQuarter: number,
+  ): number {
+    const targetDivisions = transportQuarters * divisionsPerQuarter;
+    let best = script[0]?.onset ?? 0;
+    for (const step of script) {
+      if (step.onset > targetDivisions) {
+        break;
+      }
+      best = step.onset;
+    }
+    return best;
   }
 
   /** Compute (or reuse) whole-script timing data; see ScheduleDerivedData for why this is cached. */
@@ -1037,6 +1080,34 @@ export class PlaybackEngine {
           if (attackTick <= transportNow) {
             attackTick = transportNow + 1;
             attackTimeText = `${attackTick}i`;
+          }
+        }
+
+        // Mid-score tempo map: when this entry's document-onset BPM differs from
+        // the previous entry's, retarget Transport.bpm at the attack tick so
+        // subsequent tick→wall-clock conversion follows the new marking.
+        // tempoFactor is read inside the callback so the settings slider stays live.
+        if (entryIndex > 0) {
+          const entryBpm = tempoBpmAtOnset(
+            scoreTiming.tempoMap,
+            step.onset,
+            scoreTiming.tempoBpm,
+          );
+          const previousBpm = tempoBpmAtOnset(
+            scoreTiming.tempoMap,
+            script[playbackOrder[entryIndex - 1].stepIndex].onset,
+            scoreTiming.tempoBpm,
+          );
+          if (entryBpm !== previousBpm) {
+            const tempoEventId = transport.scheduleOnce(() => {
+              try {
+                const { tempoFactor } = useEngineStore.getState();
+                transport.bpm.value = entryBpm * tempoFactor;
+              } catch (err) {
+                console.error('[PlaybackEngine] tempo-map callback failed (skipped):', err);
+              }
+            }, attackTimeText);
+            this.scheduledEventIds.push(tempoEventId);
           }
         }
 

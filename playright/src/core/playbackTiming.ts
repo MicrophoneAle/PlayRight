@@ -1,4 +1,4 @@
-import type { Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type { Hand, PlaybackScript, ScriptNote, TempoMapEntry } from '../types/index.ts';
 
 /** Musical onset of a step in quarter-note units. */
 export function stepOnsetQuarterNotes(
@@ -19,6 +19,78 @@ export function noteDurationQuarterNotes(
 /** Wall-clock seconds for a quarter-note span at the given BPM. */
 export function quarterNotesToSeconds(quarterNotes: number, bpm: number): number {
   return quarterNotes * (60 / bpm);
+}
+
+/**
+ * BPM active at a document-order onset (canonical divisions). Entries must be
+ * sorted by onset ascending; the last marking with onset <= target wins.
+ */
+export function tempoBpmAtOnset(
+  tempoMap: TempoMapEntry[],
+  onset: number,
+  fallbackBpm: number,
+): number {
+  if (tempoMap.length === 0) {
+    return fallbackBpm;
+  }
+
+  let active = tempoMap[0].bpm;
+  for (const entry of tempoMap) {
+    if (entry.onset > onset) {
+      break;
+    }
+    active = entry.bpm;
+  }
+  return active;
+}
+
+/**
+ * Wall-clock seconds from musical quarter 0 through `endQuarterNotes`, walking
+ * tempo-map segments. Used for library duration; play transport uses Tone BPM
+ * changes on the tick timeline instead.
+ */
+export function quarterNotesToSecondsWithTempoMap(
+  endQuarterNotes: number,
+  tempoMap: TempoMapEntry[],
+  divisionsPerQuarter: number,
+  fallbackBpm: number,
+): number {
+  if (endQuarterNotes <= 0) {
+    return 0;
+  }
+
+  const map =
+    tempoMap.length > 0
+      ? tempoMap
+      : [{ onset: 0, bpm: fallbackBpm }];
+  let seconds = 0;
+  let cursorQuarters = 0;
+
+  for (let i = 0; i < map.length; i += 1) {
+    const segmentStartQuarters = map[i].onset / divisionsPerQuarter;
+    const segmentEndQuarters =
+      i + 1 < map.length
+        ? map[i + 1].onset / divisionsPerQuarter
+        : endQuarterNotes;
+    const from = Math.max(cursorQuarters, segmentStartQuarters);
+    const to = Math.min(endQuarterNotes, segmentEndQuarters);
+    if (to > from) {
+      seconds += quarterNotesToSeconds(to - from, map[i].bpm);
+      cursorQuarters = to;
+    }
+    if (cursorQuarters >= endQuarterNotes) {
+      break;
+    }
+  }
+
+  if (cursorQuarters < endQuarterNotes) {
+    seconds += quarterNotesToSeconds(
+      endQuarterNotes - cursorQuarters,
+      map[map.length - 1]?.bpm ?? fallbackBpm,
+    );
+  }
+
+  return seconds;
 }
 
 /** Pre-schedule this many quarter-note beats ahead of the transport. */

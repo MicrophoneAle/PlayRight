@@ -823,31 +823,111 @@ function extractTempoFromDirectionChildren(directionChildren: unknown[]): number
   return null;
 }
 
-function extractTempoFromMeasureChildren(measureChildren: unknown[]): number | null {
-  for (const child of measureChildren) {
+function readDirectionOffsetDivisions(directionChildren: unknown[]): number {
+  for (const child of directionChildren) {
     if (!isRecord(child)) {
       continue;
     }
 
     const tag = Object.keys(child).find((key) => key !== ':@');
-
-    if (tag === 'sound') {
-      const tempo = readTempoFromSoundWrapper(child);
-      if (tempo !== null) {
-        return tempo;
-      }
-      continue;
-    }
-
-    if (tag === 'direction' && Array.isArray(child.direction)) {
-      const tempo = extractTempoFromDirectionChildren(child.direction);
-      if (tempo !== null) {
-        return tempo;
-      }
+    if (tag === 'offset') {
+      return Math.max(0, toNumber(readOrderedText(child.offset), 0));
     }
   }
 
-  return null;
+  return 0;
+}
+
+/** Duration / chord / grace flags for a raw ordered `<note>` wrapper. */
+function readNoteTimelineFlags(noteChildren: unknown[]): {
+  duration: number;
+  isChord: boolean;
+  isGrace: boolean;
+} {
+  let duration = 0;
+  let isChord = false;
+  let isGrace = false;
+
+  for (const child of noteChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (tag === 'duration') {
+      duration = toNumber(readOrderedText(child.duration), 0);
+    } else if (tag === 'chord') {
+      isChord = true;
+    } else if (tag === 'grace') {
+      isGrace = true;
+    }
+  }
+
+  return { duration, isChord, isGrace };
+}
+
+function readControlDuration(controlChildren: unknown[]): number {
+  for (const child of controlChildren) {
+    if (!isRecord(child)) {
+      continue;
+    }
+
+    const tag = Object.keys(child).find((key) => key !== ':@');
+    if (tag === 'duration') {
+      return toNumber(readOrderedText(child.duration), 0);
+    }
+  }
+
+  return 0;
+}
+
+function toCanonicalTimelineDuration(
+  duration: number,
+  divisionsAtNote: number,
+  canonicalDivisionsPerQuarter: number,
+): number {
+  if (divisionsAtNote <= 0) {
+    return Math.max(0, duration);
+  }
+
+  return Math.round((duration * canonicalDivisionsPerQuarter) / divisionsAtNote);
+}
+
+/**
+ * Collapse raw tempo hits into a sorted map: one entry per distinct onset
+ * (later wins), drop consecutive duplicate BPMs, and guarantee an onset-0 row.
+ */
+function finalizeTempoMap(
+  hits: Array<{ onset: number; bpm: number }>,
+): { tempoBpm: number; tempoMap: Array<{ onset: number; bpm: number }> } {
+  if (hits.length === 0) {
+    return {
+      tempoBpm: DEFAULT_TEMPO_BPM,
+      tempoMap: [{ onset: 0, bpm: DEFAULT_TEMPO_BPM }],
+    };
+  }
+
+  const sorted = [...hits].sort((a, b) => a.onset - b.onset || a.bpm - b.bpm);
+  const byOnset = new Map<number, number>();
+  for (const hit of sorted) {
+    byOnset.set(hit.onset, hit.bpm);
+  }
+
+  const collapsed: Array<{ onset: number; bpm: number }> = [];
+  for (const [onset, bpm] of [...byOnset.entries()].sort((a, b) => a[0] - b[0])) {
+    if (collapsed.length > 0 && collapsed[collapsed.length - 1].bpm === bpm) {
+      continue;
+    }
+    collapsed.push({ onset, bpm });
+  }
+
+  const tempoBpm = collapsed[0].bpm;
+  if (collapsed[0].onset > 0) {
+    // Preserve legacy "first marking applies from the start" for mid-score-only marks.
+    collapsed[0] = { onset: 0, bpm: tempoBpm };
+  }
+
+  return { tempoBpm, tempoMap: collapsed };
 }
 
 function resolveDivisionsPerQuarter(observed: number[]): number {
@@ -886,12 +966,16 @@ export function resolveCanonicalDivisionsPerQuarter(
   return resolveDivisionsPerQuarter(observed);
 }
 
-function collectScoreTiming(rawXmlObj: unknown[]): {
+function collectScoreTiming(
+  rawXmlObj: unknown[],
+  canonicalDivisionsPerQuarter: number,
+): {
   divisionsPerQuarter: number;
   tempoBpm: number;
+  tempoMap: Array<{ onset: number; bpm: number }>;
 } {
   const divisionsValues: number[] = [];
-  let tempoBpm: number | null = null;
+  const tempoHits: Array<{ onset: number; bpm: number }> = [];
 
   const scorePartwiseEntry = rawXmlObj.find(
     (entry) => isRecord(entry) && entry['score-partwise'] != null,
@@ -901,6 +985,7 @@ function collectScoreTiming(rawXmlObj: unknown[]): {
     return {
       divisionsPerQuarter: DEFAULT_DIVISIONS_PER_QUARTER,
       tempoBpm: DEFAULT_TEMPO_BPM,
+      tempoMap: [{ onset: 0, bpm: DEFAULT_TEMPO_BPM }],
     };
   }
 
@@ -908,6 +993,8 @@ function collectScoreTiming(rawXmlObj: unknown[]): {
     (entry) => isRecord(entry) && entry.part != null,
   );
 
+  // Divisions sampling still walks every part; the tempo map walks the first
+  // part only (MusicXML tempo directions live on the top staff / first part).
   for (const partEntry of partEntries) {
     if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
       continue;
@@ -916,13 +1003,6 @@ function collectScoreTiming(rawXmlObj: unknown[]): {
     for (const measureWrapper of partEntry.part) {
       if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
         continue;
-      }
-
-      if (tempoBpm === null) {
-        const measureTempo = extractTempoFromMeasureChildren(measureWrapper.measure);
-        if (measureTempo !== null) {
-          tempoBpm = measureTempo;
-        }
       }
 
       for (const child of measureWrapper.measure) {
@@ -943,22 +1023,112 @@ function collectScoreTiming(rawXmlObj: unknown[]): {
     }
   }
 
+  const firstPart = partEntries[0];
+  if (isRecord(firstPart) && Array.isArray(firstPart.part)) {
+    let divisions = DEFAULT_DIVISIONS_PER_QUARTER;
+    let currentTime = 0;
+
+    const pushTempo = (bpm: number, offsetDivisions: number) => {
+      const onset = Math.max(
+        0,
+        currentTime +
+          toCanonicalTimelineDuration(
+            offsetDivisions,
+            divisions,
+            canonicalDivisionsPerQuarter,
+          ),
+      );
+      tempoHits.push({ onset, bpm });
+    };
+
+    for (const measureWrapper of firstPart.part) {
+      if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
+        continue;
+      }
+
+      for (const child of measureWrapper.measure) {
+        if (!isRecord(child)) {
+          continue;
+        }
+
+        const tag = Object.keys(child).find((key) => key !== ':@');
+
+        if (tag === 'attributes' && Array.isArray(child.attributes)) {
+          const nextDivisions = extractDivisions(child.attributes);
+          if (nextDivisions !== null && nextDivisions > 0) {
+            divisions = nextDivisions;
+          }
+          continue;
+        }
+
+        if (tag === 'sound') {
+          const tempo = readTempoFromSoundWrapper(child);
+          if (tempo !== null) {
+            pushTempo(tempo, 0);
+          }
+          continue;
+        }
+
+        if (tag === 'direction' && Array.isArray(child.direction)) {
+          const tempo = extractTempoFromDirectionChildren(child.direction);
+          if (tempo !== null) {
+            pushTempo(tempo, readDirectionOffsetDivisions(child.direction));
+          }
+          continue;
+        }
+
+        if (tag === 'note' && Array.isArray(child.note)) {
+          const flags = readNoteTimelineFlags(child.note);
+          if (!flags.isGrace && !flags.isChord && flags.duration > 0) {
+            currentTime += toCanonicalTimelineDuration(
+              flags.duration,
+              divisions,
+              canonicalDivisionsPerQuarter,
+            );
+          }
+          continue;
+        }
+
+        if ((tag === 'backup' || tag === 'forward') && Array.isArray(child[tag])) {
+          const controlDuration = readControlDuration(child[tag] as unknown[]);
+          const advance = toCanonicalTimelineDuration(
+            controlDuration,
+            divisions,
+            canonicalDivisionsPerQuarter,
+          );
+          currentTime =
+            tag === 'backup'
+              ? Math.max(0, currentTime - advance)
+              : currentTime + advance;
+        }
+      }
+    }
+  }
+
+  const { tempoBpm, tempoMap } = finalizeTempoMap(tempoHits);
+
   return {
     divisionsPerQuarter: resolveDivisionsPerQuarter(divisionsValues),
-    tempoBpm: tempoBpm ?? DEFAULT_TEMPO_BPM,
+    tempoBpm,
+    tempoMap,
   };
 }
 
-export function extractScoreTiming(rawXmlObj: unknown): {
+export function extractScoreTiming(
+  rawXmlObj: unknown,
+  canonicalDivisionsPerQuarter: number = DEFAULT_DIVISIONS_PER_QUARTER,
+): {
   divisionsPerQuarter: number;
   tempoBpm: number;
+  tempoMap: Array<{ onset: number; bpm: number }>;
 } {
   if (Array.isArray(rawXmlObj)) {
-    return collectScoreTiming(rawXmlObj);
+    return collectScoreTiming(rawXmlObj, canonicalDivisionsPerQuarter);
   }
 
   return {
     divisionsPerQuarter: DEFAULT_DIVISIONS_PER_QUARTER,
     tempoBpm: DEFAULT_TEMPO_BPM,
+    tempoMap: [{ onset: 0, bpm: DEFAULT_TEMPO_BPM }],
   };
 }
