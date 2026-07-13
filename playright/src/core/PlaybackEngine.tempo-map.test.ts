@@ -73,20 +73,21 @@ describe('PlaybackEngine tempo map', () => {
     const scheduledCallbacks = scheduleOnce.mock.calls as unknown as Array<
       [(() => void) | undefined, ...unknown[]]
     >;
+    let simulatedBpm = 120;
     for (const call of scheduledCallbacks) {
       const callback = call[0];
       if (typeof callback !== 'function') {
         continue;
       }
-      const previous = transportBpm.value;
+      transportBpm.value = simulatedBpm;
       try {
         callback();
       } catch {
         // Note/visual callbacks may throw without a full Tone/DOM setup.
       }
-      if (transportBpm.value !== previous) {
+      if (transportBpm.value !== simulatedBpm) {
         bpmFromCallbacks.push(transportBpm.value);
-        transportBpm.value = previous;
+        simulatedBpm = transportBpm.value;
       }
     }
 

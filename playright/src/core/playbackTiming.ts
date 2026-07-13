@@ -45,6 +45,36 @@ export function tempoBpmAtOnset(
 }
 
 /**
+ * Per-playback-entry BPM from the document-onset tempo map. Does not assume
+ * monotonically increasing document onsets — repeat/jump orders may revisit
+ * earlier onsets, and the map lookup stays keyed on score position.
+ */
+export function tempoBpmsAlongPlaybackOrder(
+  script: PlaybackScript,
+  playbackOrder: Array<{ stepIndex: number }>,
+  tempoMap: TempoMapEntry[],
+  fallbackBpm: number,
+): number[] {
+  return playbackOrder.map((entry) =>
+    tempoBpmAtOnset(tempoMap, script[entry.stepIndex].onset, fallbackBpm),
+  );
+}
+
+/**
+ * Playback-order entry indices where Transport BPM should change relative to
+ * the previous entry (the schedule condition used by PlaybackEngine).
+ */
+export function tempoChangePlaybackEntryIndices(bpmsAlongOrder: number[]): number[] {
+  const indices: number[] = [];
+  for (let entryIndex = 1; entryIndex < bpmsAlongOrder.length; entryIndex += 1) {
+    if (bpmsAlongOrder[entryIndex] !== bpmsAlongOrder[entryIndex - 1]) {
+      indices.push(entryIndex);
+    }
+  }
+  return indices;
+}
+
+/**
  * Wall-clock seconds from musical quarter 0 through `endQuarterNotes`, walking
  * tempo-map segments. Used for library duration; play transport uses Tone BPM
  * changes on the tick timeline instead.

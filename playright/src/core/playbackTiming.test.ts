@@ -34,6 +34,8 @@ import {
   stepHasPlaybackFermataHold,
   stepOnsetQuarterNotes,
   tempoBpmAtOnset,
+  tempoBpmsAlongPlaybackOrder,
+  tempoChangePlaybackEntryIndices,
 } from './playbackTiming.ts';
 import type { PlaybackScript, TempoMapEntry } from '../types/index.ts';
 
@@ -78,6 +80,29 @@ describe('playbackTiming', () => {
     expect(
       quarterNotesToSecondsWithTempoMap(4, tempoMap, 1, 100),
     ).toBeCloseTo(0.5 + 1 + 4 / 3, 5);
+  });
+
+  it('derives playback-order BPM sequences without assuming rising document onsets', () => {
+    const script: PlaybackScript = [
+      { order: 0, onset: 0, measureNumber: 1, notes: [] },
+      { order: 1, onset: 1, measureNumber: 2, notes: [] },
+      { order: 2, onset: 2, measureNumber: 3, notes: [] },
+    ];
+    const tempoMap: TempoMapEntry[] = [
+      { onset: 0, bpm: 120 },
+      { onset: 2, bpm: 60 },
+    ];
+    // Fabricated repeat: visit 0,1,2 then back to 1,2
+    const order = [
+      { stepIndex: 0 },
+      { stepIndex: 1 },
+      { stepIndex: 2 },
+      { stepIndex: 1 },
+      { stepIndex: 2 },
+    ];
+    const bpms = tempoBpmsAlongPlaybackOrder(script, order, tempoMap, 100);
+    expect(bpms).toEqual([120, 120, 60, 120, 60]);
+    expect(tempoChangePlaybackEntryIndices(bpms)).toEqual([2, 3, 4]);
   });
 
   it('converts dotted-quarter position and duration to exact ticks', () => {
