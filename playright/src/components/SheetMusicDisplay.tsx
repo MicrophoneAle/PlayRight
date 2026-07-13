@@ -860,6 +860,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
+      data-testid="sheet-music"
       onPointerDown={handleSheetPointerDown}
       onPointerUp={handleSheetPointerSeek}
       onPointerCancel={clearSheetPointerStart}

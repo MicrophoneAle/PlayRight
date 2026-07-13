@@ -2,12 +2,15 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ClerkProvider } from '@clerk/react'
 import './core/audioIdleCallbackPatch.ts'
+import './core/e2eHarness.ts'
 import './index.css'
 import App from './App.tsx'
 import { practiceEngine } from './core/PracticeEngine.ts'
 import { playbackEngine } from './core/PlaybackEngine.ts'
 
-const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? ''
+const publishableKey =
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ||
+  (import.meta.env.VITE_E2E === '1' ? 'pk_test_e2e_placeholder' : '')
 
 practiceEngine.ensureStoreSubscription()
 playbackEngine.ensureStoreSubscription()
