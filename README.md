@@ -112,7 +112,7 @@ During play mode, computer piano keys are disabled; LH/RH toggle and scope shift
 | Auth | Clerk |
 | Storage | Supabase (Postgres + RLS) |
 | Parsing | Custom MusicXML pipeline (`fast-xml-parser`, Zod) |
-| Tests | Vitest |
+| Tests | Vitest (unit), Playwright (browser E2E) |
 
 ## Getting started
 
@@ -175,21 +175,35 @@ npm run preview
 
 ### Test
 
+Unit tests (Vitest, Node):
+
 ```bash
 cd playright
 npm test
 ```
 
+Browser E2E (Playwright + Chromium; real OSMD sheet sync). First time only, install the browser:
+
+```powershell
+cd playright
+npm run test:e2e:install
+npm run test:e2e
+```
+
+E2E starts Vite with `VITE_E2E=1`, which attaches `window.__playrightE2E` so tests can load MusicXML without Clerk sign-in. Keep the suite small — high-signal sheet paths only (`e2e/sheet-sync.spec.ts`).
+
 ## Project structure
 
 ```
 playright/
+├── e2e/                # Playwright browser E2E (sheet load/highlight/scroll/click/seek)
 ├── src/
 │   ├── components/     # UI (Dashboard, Lid, SheetMusicDisplay, PianoKeyboard, …)
 │   ├── core/           # Practice engine, playback, input, audio, parser, scroll sync
 │   ├── store/          # Zustand (useEngineStore)
 │   └── types/
 ├── supabase/           # RLS policies and schema helpers for score library
+├── playwright.config.ts
 └── public/
 ```
 
@@ -209,6 +223,7 @@ playright/
 | `twoHandMapping.ts` | Finger key → hand/finger mapping for two-hand mode |
 | `fingeringPredictor.ts` | Auto-fingering from score geometry and hand-span settings |
 | `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll; play-mode incremental highlights, visual dedupe, and rAF-coalesced sync |
+| `e2eHarness.ts` | Browser E2E control surface (`window.__playrightE2E` when `VITE_E2E=1`): load XML, practice/play seek, highlight/scroll probes |
 | `parser/` | MusicXML/MXL → practice script (ties, chords, timing) |
 | `scoreLibrary.ts` | Supabase CRUD, library duration/measure metrics from MusicXML, manual fingerings |
 
@@ -219,7 +234,7 @@ The Vercel project root directory is `playright/`. Ensure environment variables 
 ## Roadmap
 
 - [ ] Additional practice modes and scoring
-- [ ] Deeper OSMD integration tests (scroll/highlight behavior in browser)
+- [x] Browser OSMD E2E: load → render, practice highlight, line scroll, sheet click-jump, play-mode seek (Playwright)
 - [x] Hand-independent sheet scroll: consistent line framing across LH/RH and one-hand/two-hand; stable collapsible header; scrollable settings panel
 - [x] Play mode with tempo control, seek, replay, and sheet/keyboard duration sync
 - [x] Fermata playback: 2× hold, carry-forward into abutting sustained chords, integer Transport ticks, seek/release cleanup
@@ -237,6 +252,7 @@ Annotated git tags mark stable milestones:
 
 | Tag | Description |
 |-----|-------------|
+| `checkpoint-sheet-e2e` | Playwright Chromium E2E for real OSMD sheet sync (load/render, practice highlight, system scroll, click-jump, play seek) via `VITE_E2E` harness; Vitest remains the unit suite |
 | `checkpoint-library-play-sync` | Score library two-column list + duration sort; play-mode visual release aligned to audio (overlapping holds); pedal markings restored with OSMD fallback |
 | `checkpoint-play-performance` | Play mode steady tempo on long/dense scores: rolling schedule window, rIC audio-node disposal, incremental highlight diff + visual dedupe, rAF-coalesced sheet sync off transport callbacks |
 | `checkpoint-hand-scroll-ui` | Hand-independent sheet scroll across LH/RH/two-hand; stable collapsible header; scrollable settings panel; keyboard shortcuts and header layout polish |

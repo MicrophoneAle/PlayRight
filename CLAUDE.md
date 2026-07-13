@@ -3,7 +3,7 @@
 ## 1. Project Overview & Tech Stack
 
 - **Core Mission:** Browser-based piano practice app. Load MusicXML/MXL scores, practice one or both hands with a computer keyboard mapped to a movable piano scope, assign fingerings in program mode, and play along with OSMD-rendered sheet music and synchronized highlights.
-- **Stack:** React 19, TypeScript, Vite, Tailwind CSS v4, Zustand, Tone.js, OpenSheetMusicDisplay 2, Clerk (auth), Supabase (Postgres + RLS), custom MusicXML parser (`fast-xml-parser`, Zod), Vitest.
+- **Stack:** React 19, TypeScript, Vite, Tailwind CSS v4, Zustand, Tone.js, OpenSheetMusicDisplay 2, Clerk (auth), Supabase (Postgres + RLS), custom MusicXML parser (`fast-xml-parser`, Zod), Vitest (unit), Playwright (browser E2E).
 - **Architectural Patterns:**
   - **Client-only SPA** — no Next.js/server actions; all logic runs in the browser.
   - **Singleton engines** — `PracticeEngine`, `FingeringProgramEngine`, and `PlaybackEngine` are module singletons wired once in `App.tsx` with shared `AudioEngine` and `InputManager`.
@@ -19,6 +19,8 @@ PlayRight/
 ├── README.md                 # User-facing docs and checkpoints
 ├── package.json              # Root deps (includes opensheetmusicdisplay)
 └── playright/                # Vite app (Vercel root directory)
+    ├── e2e/                  # Playwright sheet/OSMD browser E2E
+    ├── playwright.config.ts  # Chromium + Vite webServer (`VITE_E2E=1`)
     ├── src/
     │   ├── App.tsx           # Engine wiring, input routing, auth ref
     │   ├── components/       # Dashboard, SheetMusicDisplay, PianoKeyboard, …
@@ -42,6 +44,8 @@ PlayRight/
 | `playright/src/core/parser/MusicXMLMapper.ts` | MusicXML → script timing and note extraction (ties, chords, measures) |
 | `playright/src/core/fingeringPredictor.ts` | Auto-fingering; applies manual fingerings and sets `playingHand` for crossovers |
 | `playright/src/core/sheetMusicPracticeSync.ts` | OSMD highlight + line-based scroll sync |
+| `playright/src/core/e2eHarness.ts` | `window.__playrightE2E` when `VITE_E2E=1` (load XML, seek, highlight/scroll probes for Playwright) |
+| `playright/e2e/sheet-sync.spec.ts` | Minimal OSMD browser E2E: render, highlight, scroll, click-jump, play seek |
 | `playright/src/core/scoreLibrary.ts` | Supabase CRUD for scores and `manual_fingerings` |
 | `playright/src/types/index.ts` | `ManualFingeringValue`, `fingeringKey()`, `resolveManualAssignment()` |
 | `playright/src/components/SheetMusicDisplay.tsx` | OSMD mount, deliberate click → program seek |
@@ -60,9 +64,10 @@ PlayRight/
 - **Style / lint:**
   - TypeScript strict; use `.ts` / `.tsx` import extensions (e.g. `'../core/foo.ts'`).
   - Functional React components; hooks for side effects.
-  - ESLint flat config (`playright/eslint.config.js`); run `npm run lint` and `npm test` in `playright/`.
+  - ESLint flat config (`playright/eslint.config.js`); run `npm run lint` and `npm test` in `playright/`. For sheet/OSMD regressions, also `npm run test:e2e` (once: `npm run test:e2e:install`).
   - Prefer minimal, focused diffs; match existing naming and module boundaries.
   - Do not add markdown docs unless asked (README / this file are exceptions).
+  - **E2E harness:** Only attach `window.__playrightE2E` under `VITE_E2E=1`. Keep `e2e/` small and high-signal; do not expand into exhaustive UI coverage without request.
 
 ## 4. Known Roadblocks & Historical Pitfalls
 
@@ -78,11 +83,12 @@ PlayRight/
 - **Audio init:** Tone.js requires a user gesture; `App.tsx` warms audio on first pointer/keydown.
 - **Large score assets:** Bundled `.musicxml` files (especially multi-thousand-line scores) are for fixtures/regression—do not read or diff them unless working on parser/load behavior.
 - **Build hygiene:** Unused imports and strict `ManualFingeringMap` literals have broken Vercel builds before—keep `npm run build` clean.
+- **Sheet sync unit vs E2E:** `sheetMusicPracticeSync*.test.ts` mocks OSMD (logic only). Real render/scroll/click regressions need Playwright (`e2e/sheet-sync.spec.ts`). Practice highlights require an active practice session (`startPractice`) so `expectedMidiNotes` is non-empty; constrain the sheet with `flex: 0 0 auto` when forcing wrap/scroll in tests.
 
 ## 5. Token Efficiency & Output Protocols (Strict)
 
 - **Code modifications:** Provide targeted snippets or diffs. Do not output unchanged wrapper code or entire files.
 - **Exclusions:** Do not read or analyze `node_modules/`, `dist/`, large bundled `.musicxml` assets, log dumps, or minified scripts unless the task explicitly requires it.
 - **Brevity:** Omit conversational fluff and lengthy post-code explanations. Let the code speak for itself.
-- **Verification:** After substantive changes, run `npm test` and `npm run build` from `playright/` (not the repo root).
-- **Checkpoints:** Stable milestones use annotated git tags (`checkpoint-*`); update README Checkpoints table when tagging. Latest: `checkpoint-library-play-sync` (score library sort UI, play-mode visual duration sync, pedal display restore).
+- **Verification:** After substantive changes, run `npm test` and `npm run build` from `playright/` (not the repo root). For sheet/OSMD sync changes, also `npm run test:e2e`.
+- **Checkpoints:** Stable milestones use annotated git tags (`checkpoint-*`); update README Checkpoints table when tagging. Latest: `checkpoint-sheet-e2e` (Playwright OSMD browser E2E for load/highlight/scroll/click/play seek).
