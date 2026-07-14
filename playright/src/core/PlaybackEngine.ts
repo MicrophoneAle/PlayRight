@@ -1236,8 +1236,10 @@ export class PlaybackEngine {
             this.applyStepVisual(stepIndex, entryIndex);
 
             for (const { pressId, note, playedDuration } of stepPresses) {
-              // note.hasAccent / note.hasMarcato: deferred velocity emphasis. AudioEngine
-              // already threads velocity through Sampler.triggerAttack; not wired here.
+              // note.hasAccent / note.hasMarcato: deferred velocity/loudness emphasis only.
+              // AudioEngine already threads velocity through Sampler.triggerAttack; not wired
+              // here. Marcato's duration shortening IS applied - it's baked into
+              // playedDuration via playbackTiming's resolveNotePlaybackDurationQuarterNotes.
               engine.scheduleAttackRelease(note.midi, playedDuration, time);
 
               // Repeated-attack detection consults ENTRY adjacency: a backward
