@@ -6,6 +6,10 @@ import { parseMusicXmlToScript } from './parser/index.ts';
 import { prepareScriptWithFingering } from './fingeringPredictor.ts';
 import { practiceEngine } from './PracticeEngine.ts';
 import { playbackEngine } from './PlaybackEngine.ts';
+import {
+  playbackDurationQuarterNotes,
+  buildFermataPlaybackContext,
+} from './playbackTiming.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 export const SHEET_HIGHLIGHT_COLOR = '#10b981';
@@ -18,6 +22,22 @@ export interface PlayRightE2EHarness {
   seekPractice: (stepIndex: number) => void;
   setPlayMode: (enabled: boolean) => void;
   seekPlayback: (stepIndex: number) => void;
+  startPlayback: () => Promise<void>;
+  stopPlayback: () => void;
+  isPlaybackFinished: () => boolean;
+  isPlaybackActive: () => boolean;
+  /** Per-step played duration (quarter notes) using the live store script. */
+  probePlayedDurations: () => Array<{
+    pitch: string;
+    playedQn: number;
+    hasTenuto?: boolean;
+    hasStaccatissimo?: boolean;
+    hasDetachedLegato?: boolean;
+    hasMarcato?: boolean;
+    hasStaccato?: boolean;
+    hasAccent?: boolean;
+    hasFermata?: boolean;
+  }>;
   getSheetScrollTop: () => number;
   getSheetOverflow: () => {
     scrollTop: number;
@@ -85,6 +105,86 @@ function installE2EHarness(): void {
 
     seekPlayback(stepIndex) {
       playbackEngine.seekToStep(stepIndex);
+    },
+
+    async startPlayback() {
+      const before = useEngineStore.getState();
+      if (!before.script || !before.scoreTiming) {
+        throw new Error(
+          `cannot play: script=${Boolean(before.script)} scoreTiming=${Boolean(before.scoreTiming)}`,
+        );
+      }
+      try {
+        const tone = await import('tone');
+        await Promise.race([
+          tone.start(),
+          new Promise<void>((resolve) => {
+            window.setTimeout(resolve, 500);
+          }),
+        ]);
+        const ctx = tone.getContext();
+        if (ctx.state !== 'running') {
+          void ctx.resume();
+        }
+      } catch {
+        // Headless unlock best-effort.
+      }
+      await playbackEngine.play();
+      const after = useEngineStore.getState();
+      if (!after.isPlaybackActive) {
+        throw new Error(
+          'playbackEngine.play() returned without activating playback (audioEngine missing?)',
+        );
+      }
+    },
+
+    stopPlayback() {
+      playbackEngine.stop();
+    },
+
+    isPlaybackFinished() {
+      return useEngineStore.getState().isPlaybackFinished;
+    },
+
+    isPlaybackActive() {
+      return useEngineStore.getState().isPlaybackActive;
+    },
+
+    probePlayedDurations() {
+      const state = useEngineStore.getState();
+      const script = state.script;
+      const divisions = state.scoreTiming?.divisionsPerQuarter ?? 480;
+      if (!script) {
+        return [];
+      }
+      const fermataContext = buildFermataPlaybackContext(script, divisions);
+      return script.map((step, stepIndex) => {
+        const note = step.notes[0];
+        const written =
+          (note.durationDivisions ?? divisions) / divisions;
+        const playedQn = playbackDurationQuarterNotes(written, note.tiedToNext ?? false, {
+          isFinalNote: stepIndex === script.length - 1,
+          hasFermata:
+            (note.hasFermata ?? false) ||
+            fermataContext.carryForwardSteps.has(stepIndex),
+          hasStaccato: note.hasStaccato ?? false,
+          hasStaccatissimo: note.hasStaccatissimo ?? false,
+          hasTenuto: note.hasTenuto ?? false,
+          hasDetachedLegato: note.hasDetachedLegato ?? false,
+          hasMarcato: note.hasMarcato ?? false,
+        });
+        return {
+          pitch: note.pitch,
+          playedQn,
+          ...(note.hasTenuto ? { hasTenuto: true } : {}),
+          ...(note.hasStaccatissimo ? { hasStaccatissimo: true } : {}),
+          ...(note.hasDetachedLegato ? { hasDetachedLegato: true } : {}),
+          ...(note.hasMarcato ? { hasMarcato: true } : {}),
+          ...(note.hasStaccato ? { hasStaccato: true } : {}),
+          ...(note.hasAccent ? { hasAccent: true } : {}),
+          ...(note.hasFermata ? { hasFermata: true } : {}),
+        };
+      });
     },
 
     getSheetScrollTop() {

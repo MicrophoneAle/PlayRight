@@ -100,6 +100,8 @@ function App() {
       inputManager.destroy();
       playbackEngine.dispose();
       audioEngine.destroy();
+      // Allow StrictMode remount to re-attach the singleton engines' audio.
+      initializedRef.current = false;
     };
   }, []);
 

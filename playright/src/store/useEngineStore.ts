@@ -633,6 +633,8 @@ export const useEngineStore = create<EngineState>((set) => {
         AUTO_FINGERING_STORAGE_KEY,
         enabled ? 'true' : 'false',
       );
+      // Apply the setting immediately so UI/tests do not wait on ML recompute.
+      set({ autoFingering: enabled });
       const state = useEngineStore.getState();
       void (async () => {
         const script = state.script
@@ -645,25 +647,40 @@ export const useEngineStore = create<EngineState>((set) => {
             )
           : null;
 
-        set(script ? { autoFingering: enabled, script } : { autoFingering: enabled });
+        if (!script) {
+          return;
+        }
+        // Drop stale recomputes if the user toggled again while ML was busy.
+        if (useEngineStore.getState().autoFingering !== enabled) {
+          return;
+        }
+        set({ script });
       })();
     },
     setHandSpan: (span) => {
       window.localStorage.setItem(HAND_SPAN_STORAGE_KEY, String(span));
+      // Apply span immediately; ML-backed predictFingering can stall under load
+      // and used to leave handSpan stuck at the previous preset until await finished.
+      set({ handSpan: span });
       const state = useEngineStore.getState();
       void (async () => {
-        const handSpan = span;
         const script = state.script
           ? await applyFingeringSettings(
               state.script,
               state.autoFingering,
-              handSpan,
+              span,
               state.overrideScoreFingerings,
               state.scoreTiming?.divisionsPerQuarter,
             )
           : null;
 
-        set(script ? { handSpan, script } : { handSpan });
+        if (!script) {
+          return;
+        }
+        if (useEngineStore.getState().handSpan !== span) {
+          return;
+        }
+        set({ script });
       })();
     },
     setOverrideScoreFingerings: (enabled) => {

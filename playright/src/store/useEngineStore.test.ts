@@ -25,6 +25,16 @@ vi.mock('tone', () => ({
   getDraw: () => ({ schedule: vi.fn() }),
 }));
 
+// Keep store unit tests off the real ONNX session. Full-suite contention on
+// wasm/model init was leaving setHandSpan stuck awaiting predictFingering.
+vi.mock('../core/aiFingeringInference.ts', () => ({
+  getMLFingerCosts: async () => [],
+  initFingeringModel: async () => undefined,
+  disposeFingeringModel: () => undefined,
+  wasFingeringModelInitialized: () => false,
+  resetFingeringModelForTests: () => undefined,
+}));
+
 const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
 const HAND_SPAN_STORAGE_KEY = 'playright-hand-span';
 
@@ -141,13 +151,13 @@ describe('useEngineStore settings and mode', () => {
     useEngineStore.getState().actions.setAutoFingering(false);
 
     expect(storage.get(AUTO_FINGERING_STORAGE_KEY)).toBe('false');
+    expect(useEngineStore.getState().autoFingering).toBe(false);
 
     await vi.waitFor(() => {
-      expect(useEngineStore.getState().autoFingering).toBe(false);
+      expect(useEngineStore.getState().script).not.toBe(before.script);
     });
 
     const after = useEngineStore.getState();
-    expect(after.script).not.toBe(before.script);
     expect(after.currentStepIndex).toBe(1);
     expect(after.isPracticeActive).toBe(true);
     expect(after.hasPracticeStarted).toBe(true);
@@ -166,14 +176,15 @@ describe('useEngineStore settings and mode', () => {
     useEngineStore.getState().actions.setHandSpan(1.15);
 
     expect(storage.get(HAND_SPAN_STORAGE_KEY)).toBe('1.15');
+    expect(useEngineStore.getState().handSpan).toBe(1.15);
 
     await vi.waitFor(() => {
-      expect(useEngineStore.getState().handSpan).toBe(1.15);
+      expect(useEngineStore.getState().script).not.toBe(before.script);
     });
 
     const after = useEngineStore.getState();
     expect(HAND_SPAN_PRESETS).toContain(after.handSpan);
-    expect(after.script).not.toBe(before.script);
+    expect(after.handSpan).toBe(1.15);
     expect(after.currentStepIndex).toBe(1);
     expect(after.isPracticeActive).toBe(true);
     expect(after.hasPracticeStarted).toBe(true);

@@ -39,7 +39,18 @@ export class AudioEngine {
 
   warm(): Promise<void> {
     if (!this.warmPromise) {
-      this.warmPromise = this.prepareAudio();
+      // E2E: do not block on Tone.start()/audio unlock; transport scheduling
+      // still advances step visuals, and the preview synth is best-effort.
+      this.warmPromise =
+        import.meta.env.VITE_E2E === '1'
+          ? Promise.resolve().then(() => {
+              try {
+                this.primeOutput();
+              } catch {
+                // ignore headless audio unlock failures
+              }
+            })
+          : this.prepareAudio();
     }
     return this.warmPromise;
   }
@@ -52,6 +63,14 @@ export class AudioEngine {
   async init(): Promise<void> {
     await this.warm();
     if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    // Headless browser E2E (`VITE_E2E=1`): skip remote piano sample fetch.
+    // Tone.loaded() otherwise hangs cold runs; transport + duration math still work.
+    // Notes fall back to the lightweight preview synth below.
+    if (import.meta.env.VITE_E2E === '1') {
+      this.initPromise = Promise.resolve();
       return this.initPromise;
     }
 
@@ -124,11 +143,14 @@ export class AudioEngine {
     this.resumeContextIfNeeded();
 
     const note = midiToNote(midi);
+    const playSeconds = Tone.Time(playDuration).toSeconds();
+
     if (!this.isReady) {
+      // E2E / pre-sampler: still schedule audible preview tones so headless
+      // runs exercise note-on/off timing rather than going fully silent.
+      this.previewSynth.triggerAttackRelease(note, playSeconds, time, velocity);
       return;
     }
-
-    const playSeconds = Tone.Time(playDuration).toSeconds();
 
     // Release any lingering voice so repeated pitches re-articulate with the
     // same gap as transitions to a different pitch.
