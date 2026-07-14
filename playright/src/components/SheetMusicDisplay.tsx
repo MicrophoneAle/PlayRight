@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   CursorType,
   OpenSheetMusicDisplay,
+  SystemLinesEnum,
+  VexFlowMeasure,
 } from "opensheetmusicdisplay";
 import {
   buildPracticeVisualIndex,
@@ -120,7 +122,44 @@ function normalizeMeasureNumberPositions(container: HTMLElement): void {
   }
 }
 
+let repeatBarlineWidthPatched = false;
+
+/**
+ * OSMD only adds `RepeatEndStartPadding` for combined :||: (DotsBoldBoldDots).
+ * Lone repeat-end (DotsThinBold) / start (BoldThinDots) still return a fixed
+ * under-count (~1 unit), so last notes — especially with staccato — collide
+ * with the drawn barline. Mirror the combined-repeat padding for those kinds.
+ */
+function ensureRepeatBarlineWidthPadding(): void {
+  if (repeatBarlineWidthPatched) {
+    return;
+  }
+  repeatBarlineWidthPatched = true;
+
+  type MeasureWithRules = {
+    getLineWidth(line: SystemLinesEnum): number;
+    rules: { RepeatEndStartPadding: number };
+  };
+  const proto = VexFlowMeasure.prototype as unknown as MeasureWithRules;
+  const original = proto.getLineWidth;
+  proto.getLineWidth = function (
+    this: MeasureWithRules,
+    line: SystemLinesEnum,
+  ): number {
+    const width = original.call(this, line);
+    if (
+      line === SystemLinesEnum.DotsThinBold ||
+      line === SystemLinesEnum.BoldThinDots
+    ) {
+      return width + this.rules.RepeatEndStartPadding;
+    }
+    return width;
+  };
+}
+
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
+  ensureRepeatBarlineWidthPadding();
+
   const rules = osmd.EngravingRules;
   rules.PageTopMargin = 6;
   rules.TitleTopDistance = 0;
@@ -131,18 +170,15 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
 
   // compacttight defaults MeasureRightMargin=0 and VoiceSpacing to (0.65, 2),
   // which packs the last beat (and staccato/accent glyphs) against the
-  // following barline — especially visible before thick repeat-end bars.
-  // MeasureRightMargin reserves exit padding in OSMD's measure-width math
-  // (default 0). VoiceSpacing is what actually moves VexFlow note placement
-  // away from the bar; nudge from compacttight toward OSMD's non-tight
-  // defaults (0.85 / 3.0) without fully undoing compact layout.
-  // Empirically 0.74 / 2.5 clears last-note/barline overlap on articulation
-  // fixtures (~10% measure-width growth) vs 0.78 / 2.75 (~15%).
+  // following barline. VoiceSpacing is what moves VexFlow note placement away
+  // from ordinary bars; nudge toward OSMD's non-tight defaults (0.85 / 3.0).
   rules.MeasureRightMargin = 1.0;
   rules.VoiceSpacingMultiplierVexflow = 0.74;
   rules.VoiceSpacingAddendVexflow = 2.5;
-  // Combined :||: (DotsBoldBoldDots) under-counts width in VexFlow; default 2.0.
-  rules.RepeatEndStartPadding = 3.5;
+  // Widens measured end/start instruction width for repeats (see patch above).
+  // OSMD default 2.0; PR #1061 noted ~6 can be needed for dense :||: — articulations
+  // at ending-1 / repeat-end need similar headroom on lone DotsThinBold.
+  rules.RepeatEndStartPadding = 5.0;
 }
 
 const SHEET_TOP_CLEARANCE_EXPANDED_PX = 16;
