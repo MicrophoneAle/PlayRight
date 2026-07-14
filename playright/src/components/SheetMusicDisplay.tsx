@@ -128,6 +128,21 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.SystemComposerDistance = 0;
   rules.SystemLyricistDistance = 0;
   rules.MeasureNumberLabelOffset = 2;
+
+  // compacttight defaults MeasureRightMargin=0 and VoiceSpacing to (0.65, 2),
+  // which packs the last beat (and staccato/accent glyphs) against the
+  // following barline — especially visible before thick repeat-end bars.
+  // MeasureRightMargin reserves exit padding in OSMD's measure-width math
+  // (default 0). VoiceSpacing is what actually moves VexFlow note placement
+  // away from the bar; nudge from compacttight toward OSMD's non-tight
+  // defaults (0.85 / 3.0) without fully undoing compact layout.
+  // Empirically 0.74 / 2.5 clears last-note/barline overlap on articulation
+  // fixtures (~10% measure-width growth) vs 0.78 / 2.75 (~15%).
+  rules.MeasureRightMargin = 1.0;
+  rules.VoiceSpacingMultiplierVexflow = 0.74;
+  rules.VoiceSpacingAddendVexflow = 2.5;
+  // Combined :||: (DotsBoldBoldDots) under-counts width in VexFlow; default 2.0.
+  rules.RepeatEndStartPadding = 3.5;
 }
 
 const SHEET_TOP_CLEARANCE_EXPANDED_PX = 16;
