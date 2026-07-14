@@ -39,7 +39,11 @@ export interface NormalizedNote {
   measureNumber: number;
   hasFermata: boolean;
   hasStaccato: boolean;
+  hasStaccatissimo: boolean;
   hasAccent: boolean;
+  hasMarcato: boolean;
+  hasTenuto: boolean;
+  hasDetachedLegato: boolean;
   partIndex: number;
   partCount: number;
 }
@@ -290,8 +294,11 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
 
         if (
           articulationTag === 'staccato' ||
+          articulationTag === 'staccatissimo' ||
           articulationTag === 'accent' ||
-          articulationTag === 'strong-accent'
+          articulationTag === 'strong-accent' ||
+          articulationTag === 'tenuto' ||
+          articulationTag === 'detached-legato'
         ) {
           articulations[articulationTag] = true;
         }
@@ -397,13 +404,24 @@ function hasStaccatoNotation(note: RawRecord): boolean {
   return getArticulationsRecord(note)?.staccato != null;
 }
 
-function hasAccentNotation(note: RawRecord): boolean {
-  const articulations = getArticulationsRecord(note);
-  if (!articulations) {
-    return false;
-  }
+function hasStaccatissimoNotation(note: RawRecord): boolean {
+  return getArticulationsRecord(note)?.staccatissimo != null;
+}
 
-  return articulations.accent != null || articulations['strong-accent'] != null;
+function hasAccentNotation(note: RawRecord): boolean {
+  return getArticulationsRecord(note)?.accent != null;
+}
+
+function hasMarcatoNotation(note: RawRecord): boolean {
+  return getArticulationsRecord(note)?.['strong-accent'] != null;
+}
+
+function hasTenutoNotation(note: RawRecord): boolean {
+  return getArticulationsRecord(note)?.tenuto != null;
+}
+
+function hasDetachedLegatoNotation(note: RawRecord): boolean {
+  return getArticulationsRecord(note)?.['detached-legato'] != null;
 }
 
 function extractGraceStealTime(note: RawRecord): GraceStealTime | undefined {
@@ -584,7 +602,11 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     measureNumber: measureContext.measureNumber,
     hasFermata: hasFermataNotation(note),
     hasStaccato: hasStaccatoNotation(note),
+    hasStaccatissimo: hasStaccatissimoNotation(note),
     hasAccent: hasAccentNotation(note),
+    hasMarcato: hasMarcatoNotation(note),
+    hasTenuto: hasTenutoNotation(note),
+    hasDetachedLegato: hasDetachedLegatoNotation(note),
     partIndex: measureContext.partIndex,
     partCount: measureContext.partCount,
   };

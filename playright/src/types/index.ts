@@ -18,8 +18,19 @@ export interface ScriptNote {
   hasFermata?: boolean;
   /** True when the score marks staccato on this note. */
   hasStaccato?: boolean;
-  /** True when the score marks accent or strong-accent on this note. */
+  /** True when the score marks staccatissimo on this note. */
+  hasStaccatissimo?: boolean;
+  /** True when the score marks plain accent (`<accent/>`) on this note. */
   hasAccent?: boolean;
+  /** True when the score marks marcato (`<strong-accent/>`) on this note. */
+  hasMarcato?: boolean;
+  /** True when the score marks tenuto on this note. */
+  hasTenuto?: boolean;
+  /**
+   * True when the score marks detached-legato (portato) on this note.
+   * MusicXML encodes this as `<detached-legato/>`, distinct from slur pairing.
+   */
+  hasDetachedLegato?: boolean;
 }
 
 /** A tempo change on the document-order timeline (canonical divisions). */
