@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   CursorType,
   OpenSheetMusicDisplay,
-  SystemLinesEnum,
+  unitInPixels,
   VexFlowMeasure,
 } from "opensheetmusicdisplay";
 import {
@@ -122,43 +122,69 @@ function normalizeMeasureNumberPositions(container: HTMLElement): void {
   }
 }
 
-let repeatBarlineWidthPatched = false;
+let repeatBarlineLayoutPatched = false;
 
 /**
- * OSMD only adds `RepeatEndStartPadding` for combined :||: (DotsBoldBoldDots).
- * Lone repeat-end (DotsThinBold) / start (BoldThinDots) still return a fixed
- * under-count (~1 unit), so last notes — especially with staccato — collide
- * with the drawn barline. Mirror the combined-repeat padding for those kinds.
+ * OSMD places repeat-end SystemLines at `BorderRight - getLineWidth(...)`, and
+ * its `formatVoices` ignores the width argument — it always `formatToStave`s to
+ * the full VF stave. Inflating end instruction width therefore cancels out.
+ *
+ * Wrap assigned `formatVoices` for measures that end with a line-repetition:
+ * temporarily shrink the stave while formatting so notes finish earlier, then
+ * restore width so the system line still sits at the real measure end.
  */
-function ensureRepeatBarlineWidthPadding(): void {
-  if (repeatBarlineWidthPatched) {
+function ensureRepeatEndNoteClearance(): void {
+  if (repeatBarlineLayoutPatched) {
     return;
   }
-  repeatBarlineWidthPatched = true;
+  repeatBarlineLayoutPatched = true;
 
-  type MeasureWithRules = {
-    getLineWidth(line: SystemLinesEnum): number;
+  type FormatVoicesFn = (width: number, parent: unknown) => void;
+  type MeasureSlot = {
+    endsWithLineRepetition(): boolean;
+    getVFStave(): { getWidth(): number; setWidth(w: number): unknown };
     rules: { RepeatEndStartPadding: number };
+    _playrightFormatVoices?: FormatVoicesFn | undefined;
   };
-  const proto = VexFlowMeasure.prototype as unknown as MeasureWithRules;
-  const original = proto.getLineWidth;
-  proto.getLineWidth = function (
-    this: MeasureWithRules,
-    line: SystemLinesEnum,
-  ): number {
-    const width = original.call(this, line);
-    if (
-      line === SystemLinesEnum.DotsThinBold ||
-      line === SystemLinesEnum.BoldThinDots
-    ) {
-      return width + this.rules.RepeatEndStartPadding;
-    }
-    return width;
-  };
+
+  Object.defineProperty(VexFlowMeasure.prototype, 'formatVoices', {
+    configurable: true,
+    enumerable: true,
+    get(this: MeasureSlot) {
+      return this._playrightFormatVoices;
+    },
+    set(this: MeasureSlot, fn: FormatVoicesFn | undefined) {
+      if (typeof fn !== 'function') {
+        this._playrightFormatVoices = fn;
+        return;
+      }
+      this._playrightFormatVoices = (width: number, parent: unknown) => {
+        if (!this.endsWithLineRepetition()) {
+          return fn.call(this, width, parent);
+        }
+        const clearancePx = this.rules.RepeatEndStartPadding * unitInPixels;
+        if (!(clearancePx > 0)) {
+          return fn.call(this, width, parent);
+        }
+        const stave = this.getVFStave();
+        const savedWidth = stave.getWidth();
+        // Early formatMeasures passes can run before the stave has a real width.
+        if (!(savedWidth > clearancePx + 1)) {
+          return fn.call(this, width, parent);
+        }
+        stave.setWidth(savedWidth - clearancePx);
+        try {
+          return fn.call(this, width, parent);
+        } finally {
+          stave.setWidth(savedWidth);
+        }
+      };
+    },
+  });
 }
 
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
-  ensureRepeatBarlineWidthPadding();
+  ensureRepeatEndNoteClearance();
 
   const rules = osmd.EngravingRules;
   rules.PageTopMargin = 6;
@@ -169,16 +195,14 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.MeasureNumberLabelOffset = 2;
 
   // compacttight defaults MeasureRightMargin=0 and VoiceSpacing to (0.65, 2),
-  // which packs the last beat (and staccato/accent glyphs) against the
-  // following barline. VoiceSpacing is what moves VexFlow note placement away
-  // from ordinary bars; nudge toward OSMD's non-tight defaults (0.85 / 3.0).
+  // which packs the last beat (and staccato/accent glyphs) against barlines.
+  // Nudge VoiceSpacing toward OSMD's non-tight defaults (0.85 / 3.0).
   rules.MeasureRightMargin = 1.0;
-  rules.VoiceSpacingMultiplierVexflow = 0.74;
-  rules.VoiceSpacingAddendVexflow = 2.5;
-  // Widens measured end/start instruction width for repeats (see patch above).
-  // OSMD default 2.0; PR #1061 noted ~6 can be needed for dense :||: — articulations
-  // at ending-1 / repeat-end need similar headroom on lone DotsThinBold.
-  rules.RepeatEndStartPadding = 5.0;
+  rules.VoiceSpacingMultiplierVexflow = 0.78;
+  rules.VoiceSpacingAddendVexflow = 2.75;
+  // Format-time stave shrink before repeat-end (see patch above). Default 2.0 is
+  // for :||:; 8 OSMD units (~80px) is a clearly visible note→dot buffer.
+  rules.RepeatEndStartPadding = 8.0;
 }
 
 const SHEET_TOP_CLEARANCE_EXPANDED_PX = 16;
@@ -675,6 +699,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       fingeringPosition: "aboveorbelow",
       cursorsOptions: [OSMD_CURSOR_OPTIONS],
     });
+    // EngravingRules + formatVoices wrap must be active before load/calculate.
+    applyCompactSheetLayout(osmd);
 
     osmdRef.current = osmd;
     osmd.OnXMLRead = (xml) =>
