@@ -1,4 +1,4 @@
-import type { Hand, PlaybackScript, ScriptNote } from '../types/index.ts';
+import type { Hand, PlaybackScript, ScriptNote, TempoMapEntry } from '../types/index.ts';
 
 /** Musical onset of a step in quarter-note units. */
 export function stepOnsetQuarterNotes(
@@ -19,6 +19,108 @@ export function noteDurationQuarterNotes(
 /** Wall-clock seconds for a quarter-note span at the given BPM. */
 export function quarterNotesToSeconds(quarterNotes: number, bpm: number): number {
   return quarterNotes * (60 / bpm);
+}
+
+/**
+ * BPM active at a document-order onset (canonical divisions). Entries must be
+ * sorted by onset ascending; the last marking with onset <= target wins.
+ */
+export function tempoBpmAtOnset(
+  tempoMap: TempoMapEntry[],
+  onset: number,
+  fallbackBpm: number,
+): number {
+  if (tempoMap.length === 0) {
+    return fallbackBpm;
+  }
+
+  let active = tempoMap[0].bpm;
+  for (const entry of tempoMap) {
+    if (entry.onset > onset) {
+      break;
+    }
+    active = entry.bpm;
+  }
+  return active;
+}
+
+/**
+ * Per-playback-entry BPM from the document-onset tempo map. Does not assume
+ * monotonically increasing document onsets — repeat/jump orders may revisit
+ * earlier onsets, and the map lookup stays keyed on score position.
+ */
+export function tempoBpmsAlongPlaybackOrder(
+  script: PlaybackScript,
+  playbackOrder: Array<{ stepIndex: number }>,
+  tempoMap: TempoMapEntry[],
+  fallbackBpm: number,
+): number[] {
+  return playbackOrder.map((entry) =>
+    tempoBpmAtOnset(tempoMap, script[entry.stepIndex].onset, fallbackBpm),
+  );
+}
+
+/**
+ * Playback-order entry indices where Transport BPM should change relative to
+ * the previous entry (the schedule condition used by PlaybackEngine).
+ */
+export function tempoChangePlaybackEntryIndices(bpmsAlongOrder: number[]): number[] {
+  const indices: number[] = [];
+  for (let entryIndex = 1; entryIndex < bpmsAlongOrder.length; entryIndex += 1) {
+    if (bpmsAlongOrder[entryIndex] !== bpmsAlongOrder[entryIndex - 1]) {
+      indices.push(entryIndex);
+    }
+  }
+  return indices;
+}
+
+/**
+ * Wall-clock seconds from musical quarter 0 through `endQuarterNotes`, walking
+ * tempo-map segments. Used for library duration; play transport uses Tone BPM
+ * changes on the tick timeline instead.
+ */
+export function quarterNotesToSecondsWithTempoMap(
+  endQuarterNotes: number,
+  tempoMap: TempoMapEntry[],
+  divisionsPerQuarter: number,
+  fallbackBpm: number,
+): number {
+  if (endQuarterNotes <= 0) {
+    return 0;
+  }
+
+  const map =
+    tempoMap.length > 0
+      ? tempoMap
+      : [{ onset: 0, bpm: fallbackBpm }];
+  let seconds = 0;
+  let cursorQuarters = 0;
+
+  for (let i = 0; i < map.length; i += 1) {
+    const segmentStartQuarters = map[i].onset / divisionsPerQuarter;
+    const segmentEndQuarters =
+      i + 1 < map.length
+        ? map[i + 1].onset / divisionsPerQuarter
+        : endQuarterNotes;
+    const from = Math.max(cursorQuarters, segmentStartQuarters);
+    const to = Math.min(endQuarterNotes, segmentEndQuarters);
+    if (to > from) {
+      seconds += quarterNotesToSeconds(to - from, map[i].bpm);
+      cursorQuarters = to;
+    }
+    if (cursorQuarters >= endQuarterNotes) {
+      break;
+    }
+  }
+
+  if (cursorQuarters < endQuarterNotes) {
+    seconds += quarterNotesToSeconds(
+      endQuarterNotes - cursorQuarters,
+      map[map.length - 1]?.bpm ?? fallbackBpm,
+    );
+  }
+
+  return seconds;
 }
 
 /** Pre-schedule this many quarter-note beats ahead of the transport. */
@@ -54,6 +156,39 @@ export const PLAYBACK_FERMATA_HOLD_FACTOR = 2;
 export const PLAYBACK_STACCATO_DURATION_RATIO = 0.5;
 
 /**
+ * Play-mode fraction of a staccatissimo note's written length - more clipped
+ * than plain staccato but kept above the universal 0.25 floor below (see
+ * `basePlaybackDurationQuarterNotes`) so the articulation gap still has room
+ * to compound on top, the same way it does for staccato, instead of being
+ * swallowed by the floor at every note length.
+ */
+export const PLAYBACK_STACCATISSIMO_DURATION_RATIO = 0.3;
+
+/**
+ * Play-mode fraction of a tenuto note's written length: the full value.
+ * Tenuto suppresses the normal articulation gap entirely (see
+ * `basePlaybackDurationQuarterNotes`) rather than compounding with it -
+ * the opposite of staccato's shortening.
+ */
+export const PLAYBACK_TENUTO_DURATION_RATIO = 1;
+
+/**
+ * Play-mode fraction of a detached-legato (portato) note's written length -
+ * between tenuto's full hold and staccato's ~half, giving a "connected but
+ * gently separated" character distinct from both.
+ */
+export const PLAYBACK_DETACHED_LEGATO_DURATION_RATIO = 0.75;
+
+/**
+ * Play-mode fraction of a marcato note's written length - detached like
+ * staccato but usually less extreme, so it sits between plain staccato and
+ * detached-legato. Marcato's loudness/emphasis component is a v1 no-op (see
+ * PlaybackEngine's scheduleAttackRelease comment); only duration shortening
+ * is applied here.
+ */
+export const PLAYBACK_MARCATO_DURATION_RATIO = 0.7;
+
+/**
  * Safety cap on the EXTRA hold time a fermata can add, in quarter notes
  * (tempo-independent, matching this module's other units). Backstops the
  * unify-reference fix above in case a fermata ever lands on an unusually
@@ -71,6 +206,68 @@ export interface PlaybackDurationOptions {
   followedByConsecutiveSameNote?: boolean;
   /** Play mode only: shorten held duration for staccato-marked notes. */
   hasStaccato?: boolean;
+  /** Play mode only: shorten held duration further for staccatissimo-marked notes. */
+  hasStaccatissimo?: boolean;
+  /** Play mode only: hold the full written duration, suppressing the articulation gap. */
+  hasTenuto?: boolean;
+  /** Play mode only: light separation for detached-legato (portato) notes. */
+  hasDetachedLegato?: boolean;
+  /** Play mode only: shorten held duration for marcato-marked notes (loudness is a v1 no-op). */
+  hasMarcato?: boolean;
+}
+
+type ArticulationDurationOptions = Pick<
+  PlaybackDurationOptions,
+  'hasStaccato' | 'hasStaccatissimo' | 'hasTenuto' | 'hasDetachedLegato' | 'hasMarcato'
+>;
+
+interface ArticulationDurationEffect {
+  ratio: number;
+  suppressGap: boolean;
+}
+
+/**
+ * Resolves which single articulation drives the duration when a note somehow
+ * carries more than one (rare, but not forbidden by MusicXML). Precedence,
+ * most-authoritative first:
+ *  1. Tenuto always wins, gap suppressed - real scores pair a staccato dot
+ *     with a tenuto line to notate "mezzo staccato"/portato, which reads
+ *     closer to a full-value tenuto hold than a plain staccato clip, so
+ *     tenuto overriding staccato matches that convention rather than
+ *     fighting it.
+ *  2. Staccatissimo, then staccato, then marcato, then detached-legato -
+ *     ordered from most to least clipped, so an accidental double-marking
+ *     among the shortening articulations resolves to the more specific one.
+ */
+function resolveArticulationDurationEffect(
+  options: ArticulationDurationOptions,
+): ArticulationDurationEffect {
+  if (options.hasTenuto) {
+    return { ratio: PLAYBACK_TENUTO_DURATION_RATIO, suppressGap: true };
+  }
+  if (options.hasStaccatissimo) {
+    return { ratio: PLAYBACK_STACCATISSIMO_DURATION_RATIO, suppressGap: false };
+  }
+  if (options.hasStaccato) {
+    return { ratio: PLAYBACK_STACCATO_DURATION_RATIO, suppressGap: false };
+  }
+  if (options.hasMarcato) {
+    return { ratio: PLAYBACK_MARCATO_DURATION_RATIO, suppressGap: false };
+  }
+  if (options.hasDetachedLegato) {
+    return { ratio: PLAYBACK_DETACHED_LEGATO_DURATION_RATIO, suppressGap: false };
+  }
+  return { ratio: 1, suppressGap: false };
+}
+
+/** True for any articulation that clips duration below the written length (tenuto never does). */
+function hasDurationShorteningArticulation(options: ArticulationDurationOptions): boolean {
+  return Boolean(
+    options.hasStaccatissimo ||
+      options.hasStaccato ||
+      options.hasMarcato ||
+      options.hasDetachedLegato,
+  );
 }
 
 function basePlaybackDurationQuarterNotes(
@@ -78,27 +275,37 @@ function basePlaybackDurationQuarterNotes(
   tiedToNext: boolean,
   options: Pick<
     PlaybackDurationOptions,
-    'isFinalNote' | 'followedByConsecutiveSameNote' | 'hasStaccato'
+    | 'isFinalNote'
+    | 'followedByConsecutiveSameNote'
+    | 'hasStaccato'
+    | 'hasStaccatissimo'
+    | 'hasTenuto'
+    | 'hasDetachedLegato'
+    | 'hasMarcato'
   >,
 ): number {
   if (tiedToNext || writtenQuarterNotes <= 0) {
     return writtenQuarterNotes;
   }
 
-  // A staccato final note is meant to sound clipped, not ring out - the only
-  // exception to "final note plays its full written length" is staccato
-  // explicitly asking for less.
-  if (options.isFinalNote && !options.hasStaccato) {
+  // A final note marked with a duration-shortening articulation is meant to
+  // sound clipped, not ring out - the only exception to "final note plays
+  // its full written length" is one of those articulations explicitly
+  // asking for less. Tenuto never shortens, so it never trips this branch.
+  if (options.isFinalNote && !hasDurationShorteningArticulation(options)) {
     return writtenQuarterNotes;
   }
 
-  const staccatoBaseQuarterNotes = options.hasStaccato
-    ? writtenQuarterNotes * PLAYBACK_STACCATO_DURATION_RATIO
-    : writtenQuarterNotes;
+  const { ratio, suppressGap } = resolveArticulationDurationEffect(options);
+  const articulatedBaseQuarterNotes = writtenQuarterNotes * ratio;
+
+  if (suppressGap) {
+    return articulatedBaseQuarterNotes;
+  }
 
   const gap = articulationGapQuarterNotes(writtenQuarterNotes, options);
   const minPlayDuration = writtenQuarterNotes * 0.25;
-  return Math.max(staccatoBaseQuarterNotes - gap, minPlayDuration);
+  return Math.max(articulatedBaseQuarterNotes - gap, minPlayDuration);
 }
 
 export interface FermataPlaybackContext {
@@ -606,6 +813,10 @@ export function notePlaybackDurationOptions(
       playbackNoteKey(stepIndex, note.hand, note.midi),
     ),
     hasStaccato: note.hasStaccato ?? false,
+    hasStaccatissimo: note.hasStaccatissimo ?? false,
+    hasTenuto: note.hasTenuto ?? false,
+    hasDetachedLegato: note.hasDetachedLegato ?? false,
+    hasMarcato: note.hasMarcato ?? false,
   };
 }
 

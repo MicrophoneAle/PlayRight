@@ -18,13 +18,38 @@ export interface ScriptNote {
   hasFermata?: boolean;
   /** True when the score marks staccato on this note. */
   hasStaccato?: boolean;
-  /** True when the score marks accent or strong-accent on this note. */
+  /** True when the score marks staccatissimo on this note. */
+  hasStaccatissimo?: boolean;
+  /** True when the score marks plain accent (`<accent/>`) on this note. */
   hasAccent?: boolean;
+  /** True when the score marks marcato (`<strong-accent/>`) on this note. */
+  hasMarcato?: boolean;
+  /** True when the score marks tenuto on this note. */
+  hasTenuto?: boolean;
+  /**
+   * True when the score marks detached-legato (portato) on this note.
+   * MusicXML encodes this as `<detached-legato/>`, distinct from slur pairing.
+   */
+  hasDetachedLegato?: boolean;
+}
+
+/** A tempo change on the document-order timeline (canonical divisions). */
+export interface TempoMapEntry {
+  /** Onset in canonical divisions from the start of the part. */
+  onset: number;
+  bpm: number;
 }
 
 export interface ScoreTiming {
   divisionsPerQuarter: number;
+  /** Opening / first-found tempo (backward-compatible single-BPM consumers). */
   tempoBpm: number;
+  /**
+   * All tempo markings in document order, keyed by canonical-division onset.
+   * Always starts at onset 0 (DEFAULT or first marking back-filled). Play mode
+   * consults this map; practice is hit-based and ignores it.
+   */
+  tempoMap: TempoMapEntry[];
   /** Canonical-division cursor after the full score timeline walk (includes rests). */
   totalTimelineDivisions: number;
 }

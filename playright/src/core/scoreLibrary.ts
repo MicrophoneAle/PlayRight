@@ -1,7 +1,7 @@
 import type { ManualFingeringKey, ManualFingeringMap } from '../types/index.ts';
 import { fingeringKey, graceFingeringKey, isFinger } from '../types/index.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
-import { pieceEndQuarterNotes, quarterNotesToSeconds } from './playbackTiming.ts';
+import { pieceEndQuarterNotes, quarterNotesToSecondsWithTempoMap } from './playbackTiming.ts';
 import { getSupabase } from './supabaseClient.ts';
 
 export interface SavedScore {
@@ -130,8 +130,10 @@ export function deriveLibraryEntryMetrics(rawXml: string): {
       script,
       scoreTiming.divisionsPerQuarter,
     );
-    const durationSeconds = quarterNotesToSeconds(
+    const durationSeconds = quarterNotesToSecondsWithTempoMap(
       endQuarters,
+      scoreTiming.tempoMap,
+      scoreTiming.divisionsPerQuarter,
       scoreTiming.tempoBpm,
     );
 

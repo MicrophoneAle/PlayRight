@@ -67,6 +67,7 @@ describe('PlaybackEngine playback visuals', () => {
     const scoreTiming: ScoreTiming = {
       divisionsPerQuarter: 480,
       tempoBpm: 120,
+      tempoMap: [{ onset: 0, bpm: 120 }],
       totalTimelineDivisions: 480,
     };
 

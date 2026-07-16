@@ -1,6 +1,7 @@
 import {
   disposeFingeringModel,
   initFingeringModel,
+  wasFingeringModelInitialized,
 } from './aiFingeringInference.ts';
 import { isMlFingeringEnabled } from './fingeringMlConfig.ts';
 import { fingeringProgramEngine } from './FingeringProgramEngine.ts';
@@ -31,7 +32,11 @@ export function resetSessionOnPageHide(): void {
   void disposeFingeringModel();
 }
 
-/** After a bfcache restore, rebuild ONNX and clear stale in-memory state. */
+/**
+ * After a bfcache restore, clear stale runtime state. Re-init ONNX only when
+ * ML was already loaded earlier in this page lifetime — never eagerly fetch
+ * WASM/model for a session that never used auto-fingering.
+ */
 export async function restoreSessionAfterPageShow(
   persisted: boolean,
 ): Promise<void> {
@@ -39,10 +44,13 @@ export async function restoreSessionAfterPageShow(
     return;
   }
 
+  const shouldRestoreMl =
+    wasFingeringModelInitialized() && isMlFingeringEnabled();
+
   resetRuntimeSession();
   await disposeFingeringModel();
 
-  if (!isMlFingeringEnabled()) {
+  if (!shouldRestoreMl) {
     return;
   }
 

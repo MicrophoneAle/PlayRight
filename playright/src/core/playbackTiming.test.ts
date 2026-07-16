@@ -24,16 +24,25 @@ import {
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_EXTRA_QUARTERS,
   PLAYBACK_CONSECUTIVE_SAME_NOTE_GAP_MAX_RATIO,
+  PLAYBACK_DETACHED_LEGATO_DURATION_RATIO,
   PLAYBACK_FERMATA_HOLD_FACTOR,
+  PLAYBACK_MARCATO_DURATION_RATIO,
+  PLAYBACK_STACCATISSIMO_DURATION_RATIO,
+  PLAYBACK_STACCATO_DURATION_RATIO,
+  PLAYBACK_TENUTO_DURATION_RATIO,
   quarterNotesToSeconds,
+  quarterNotesToSecondsWithTempoMap,
   quarterNotesToTickDuration,
   quartersToTicks,
   quartersToTransportTickTime,
   scheduledPlaybackAttackQuarterNotes,
   stepHasPlaybackFermataHold,
   stepOnsetQuarterNotes,
+  tempoBpmAtOnset,
+  tempoBpmsAlongPlaybackOrder,
+  tempoChangePlaybackEntryIndices,
 } from './playbackTiming.ts';
-import type { PlaybackScript } from '../types/index.ts';
+import type { PlaybackScript, TempoMapEntry } from '../types/index.ts';
 
 describe('playbackTiming', () => {
   it('converts step onset from divisions to quarter notes', () => {
@@ -50,6 +59,55 @@ describe('playbackTiming', () => {
   it('converts quarter notes to wall-clock seconds at a given BPM', () => {
     expect(quarterNotesToSeconds(1, 120)).toBe(0.5);
     expect(quarterNotesToSeconds(2, 60)).toBe(2);
+  });
+
+  it('resolves the active BPM from a tempo map by document onset', () => {
+    const tempoMap: TempoMapEntry[] = [
+      { onset: 0, bpm: 120 },
+      { onset: 480, bpm: 60 },
+      { onset: 960, bpm: 90 },
+    ];
+
+    expect(tempoBpmAtOnset(tempoMap, 0, 100)).toBe(120);
+    expect(tempoBpmAtOnset(tempoMap, 479, 100)).toBe(120);
+    expect(tempoBpmAtOnset(tempoMap, 480, 100)).toBe(60);
+    expect(tempoBpmAtOnset(tempoMap, 961, 100)).toBe(90);
+    expect(tempoBpmAtOnset([], 0, 100)).toBe(100);
+  });
+
+  it('integrates wall-clock duration across tempo-map segments', () => {
+    const tempoMap: TempoMapEntry[] = [
+      { onset: 0, bpm: 120 },
+      { onset: 1, bpm: 60 },
+      { onset: 2, bpm: 90 },
+    ];
+    // 1 quarter @120 = 0.5s, 1 @60 = 1s, 2 @90 = 4/3s → 0.5+1+1.333...
+    expect(
+      quarterNotesToSecondsWithTempoMap(4, tempoMap, 1, 100),
+    ).toBeCloseTo(0.5 + 1 + 4 / 3, 5);
+  });
+
+  it('derives playback-order BPM sequences without assuming rising document onsets', () => {
+    const script: PlaybackScript = [
+      { order: 0, onset: 0, measureNumber: 1, notes: [] },
+      { order: 1, onset: 1, measureNumber: 2, notes: [] },
+      { order: 2, onset: 2, measureNumber: 3, notes: [] },
+    ];
+    const tempoMap: TempoMapEntry[] = [
+      { onset: 0, bpm: 120 },
+      { onset: 2, bpm: 60 },
+    ];
+    // Fabricated repeat: visit 0,1,2 then back to 1,2
+    const order = [
+      { stepIndex: 0 },
+      { stepIndex: 1 },
+      { stepIndex: 2 },
+      { stepIndex: 1 },
+      { stepIndex: 2 },
+    ];
+    const bpms = tempoBpmsAlongPlaybackOrder(script, order, tempoMap, 100);
+    expect(bpms).toEqual([120, 120, 60, 120, 60]);
+    expect(tempoChangePlaybackEntryIndices(bpms)).toEqual([2, 3, 4]);
   });
 
   it('converts dotted-quarter position and duration to exact ticks', () => {
@@ -130,6 +188,138 @@ describe('playbackTiming', () => {
     const staccato = playbackDurationQuarterNotes(written, false, { hasStaccato: true });
     expect(staccato).toBeGreaterThan(0);
     expect(staccato).toBeCloseTo(written * 0.25, 5);
+  });
+
+  it('holds tenuto notes through their full written duration, suppressing the articulation gap', () => {
+    const normal = playbackDurationQuarterNotes(1);
+    const tenuto = playbackDurationQuarterNotes(1, false, { hasTenuto: true });
+
+    expect(PLAYBACK_TENUTO_DURATION_RATIO).toBe(1);
+    expect(tenuto).toBe(1);
+    expect(tenuto).toBeGreaterThan(normal);
+  });
+
+  it('shortens staccatissimo notes further than plain staccato, compounding with the articulation gap', () => {
+    // written=1: staccatissimo base 0.3, gap 0.035 -> 0.265 (vs staccato's 0.465).
+    const staccatissimo = playbackDurationQuarterNotes(1, false, {
+      hasStaccatissimo: true,
+    });
+    const staccato = playbackDurationQuarterNotes(1, false, { hasStaccato: true });
+
+    expect(staccatissimo).toBeCloseTo(0.265, 5);
+    expect(staccatissimo).toBeLessThan(staccato);
+    expect(staccatissimo).toBeGreaterThan(0);
+  });
+
+  it('very short staccatissimo notes are floored, never clipped to silence', () => {
+    const written = 0.05;
+    const staccatissimo = playbackDurationQuarterNotes(written, false, {
+      hasStaccatissimo: true,
+    });
+
+    expect(staccatissimo).toBeGreaterThan(0);
+    expect(staccatissimo).toBeCloseTo(written * 0.25, 5);
+  });
+
+  it('shortens detached-legato (portato) notes less than staccato, giving a distinct light separation', () => {
+    // written=1: detached-legato base 0.75, gap 0.035 -> 0.715.
+    const detachedLegato = playbackDurationQuarterNotes(1, false, {
+      hasDetachedLegato: true,
+    });
+    const staccato = playbackDurationQuarterNotes(1, false, { hasStaccato: true });
+    const tenuto = playbackDurationQuarterNotes(1, false, { hasTenuto: true });
+
+    expect(detachedLegato).toBeCloseTo(0.715, 5);
+    expect(detachedLegato).toBeGreaterThan(staccato);
+    expect(detachedLegato).toBeLessThan(tenuto);
+  });
+
+  it('shortens marcato notes similar to staccato but less extreme', () => {
+    // written=1: marcato base 0.7, gap 0.035 -> 0.665.
+    const marcato = playbackDurationQuarterNotes(1, false, { hasMarcato: true });
+    const staccato = playbackDurationQuarterNotes(1, false, { hasStaccato: true });
+    const detachedLegato = playbackDurationQuarterNotes(1, false, {
+      hasDetachedLegato: true,
+    });
+
+    expect(marcato).toBeCloseTo(0.665, 5);
+    expect(marcato).toBeGreaterThan(staccato);
+    expect(marcato).toBeLessThan(detachedLegato);
+    expect(PLAYBACK_MARCATO_DURATION_RATIO).toBeGreaterThan(PLAYBACK_STACCATO_DURATION_RATIO);
+  });
+
+  it('none of the four new articulations shorten a tied note (attack/onset timing is untouched)', () => {
+    expect(playbackDurationQuarterNotes(1, true, { hasTenuto: true })).toBe(1);
+    expect(playbackDurationQuarterNotes(1, true, { hasStaccatissimo: true })).toBe(1);
+    expect(playbackDurationQuarterNotes(1, true, { hasDetachedLegato: true })).toBe(1);
+    expect(playbackDurationQuarterNotes(1, true, { hasMarcato: true })).toBe(1);
+  });
+
+  it('a staccatissimo/marcato/detached-legato final note is clipped instead of ringing through its full written length', () => {
+    const written = 4;
+    const gapMax = PLAYBACK_ARTICULATION_GAP_MAX_QUARTERS;
+
+    const staccatissimoFinal = playbackDurationQuarterNotes(written, false, {
+      isFinalNote: true,
+      hasStaccatissimo: true,
+    });
+    const marcatoFinal = playbackDurationQuarterNotes(written, false, {
+      isFinalNote: true,
+      hasMarcato: true,
+    });
+    const detachedLegatoFinal = playbackDurationQuarterNotes(written, false, {
+      isFinalNote: true,
+      hasDetachedLegato: true,
+    });
+    const tenutoFinal = playbackDurationQuarterNotes(written, false, {
+      isFinalNote: true,
+      hasTenuto: true,
+    });
+
+    expect(staccatissimoFinal).toBeCloseTo(
+      written * PLAYBACK_STACCATISSIMO_DURATION_RATIO - gapMax,
+      5,
+    );
+    expect(marcatoFinal).toBeCloseTo(written * PLAYBACK_MARCATO_DURATION_RATIO - gapMax, 5);
+    expect(detachedLegatoFinal).toBeCloseTo(
+      written * PLAYBACK_DETACHED_LEGATO_DURATION_RATIO - gapMax,
+      5,
+    );
+    // Tenuto never shortens, so a tenuto final note still rings through in full
+    // (same as an unmarked final note) - it never trips the shortening branch.
+    expect(tenutoFinal).toBe(written);
+  });
+
+  it('when a note is marked both tenuto and staccato, tenuto wins (full hold, no gap)', () => {
+    const tenutoStaccato = playbackDurationQuarterNotes(1, false, {
+      hasTenuto: true,
+      hasStaccato: true,
+    });
+    const plainTenuto = playbackDurationQuarterNotes(1, false, { hasTenuto: true });
+    const plainStaccato = playbackDurationQuarterNotes(1, false, { hasStaccato: true });
+
+    expect(tenutoStaccato).toBe(plainTenuto);
+    expect(tenutoStaccato).not.toBeCloseTo(plainStaccato, 1);
+  });
+
+  it('all four new articulations produce audibly distinct durations from each other and from staccato', () => {
+    const durations = {
+      staccato: playbackDurationQuarterNotes(1, false, { hasStaccato: true }),
+      staccatissimo: playbackDurationQuarterNotes(1, false, { hasStaccatissimo: true }),
+      tenuto: playbackDurationQuarterNotes(1, false, { hasTenuto: true }),
+      detachedLegato: playbackDurationQuarterNotes(1, false, { hasDetachedLegato: true }),
+      marcato: playbackDurationQuarterNotes(1, false, { hasMarcato: true }),
+    };
+
+    const values = Object.values(durations);
+    const uniqueValues = new Set(values.map((value) => value.toFixed(6)));
+    expect(uniqueValues.size).toBe(values.length);
+
+    // Ascending clip order: staccatissimo < staccato < marcato < detachedLegato < tenuto.
+    expect(durations.staccatissimo).toBeLessThan(durations.staccato);
+    expect(durations.staccato).toBeLessThan(durations.marcato);
+    expect(durations.marcato).toBeLessThan(durations.detachedLegato);
+    expect(durations.detachedLegato).toBeLessThan(durations.tenuto);
   });
 
   it('uses a slightly shorter release when the same pitch re-attacks on the next step', () => {

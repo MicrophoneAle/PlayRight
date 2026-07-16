@@ -19,7 +19,7 @@ export class MusicXMLParser {
       MusicXMLNormalizer.normalize(raw);
     const flatElements = partElements.flat();
     const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flatElements);
-    const { tempoBpm } = extractScoreTiming(raw);
+    const { tempoBpm, tempoMap } = extractScoreTiming(raw, canonicalDivisionsPerQuarter);
     const partMaps = partElements.map((part) =>
       MusicXMLMapper.mapToDomain(part, canonicalDivisionsPerQuarter),
     );
@@ -46,6 +46,7 @@ export class MusicXMLParser {
       scoreTiming: {
         divisionsPerQuarter: canonicalDivisionsPerQuarter,
         tempoBpm,
+        tempoMap,
         totalTimelineDivisions,
       },
       warnings: [...warnings, ...normalizeWarnings, ...flow.warnings, ...resolveWarnings],

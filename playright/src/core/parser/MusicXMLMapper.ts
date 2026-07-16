@@ -259,7 +259,11 @@ function createScriptNote(
     ...(element.isTieStart ? { tiedToNext: true } : {}),
     ...(element.hasFermata ? { hasFermata: true } : {}),
     ...(element.hasStaccato ? { hasStaccato: true } : {}),
+    ...(element.hasStaccatissimo ? { hasStaccatissimo: true } : {}),
     ...(element.hasAccent ? { hasAccent: true } : {}),
+    ...(element.hasMarcato ? { hasMarcato: true } : {}),
+    ...(element.hasTenuto ? { hasTenuto: true } : {}),
+    ...(element.hasDetachedLegato ? { hasDetachedLegato: true } : {}),
     ...(finger !== null ? { fingerSource: 'score' as const } : {}),
   };
 }

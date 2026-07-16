@@ -5,9 +5,14 @@ import { MINIMAL_MUSICXML } from './__fixtures__/minimal.musicxml.ts';
 import { TIE_AND_SYNC_MUSICXML } from './__fixtures__/tieAndSync.musicxml.ts';
 import { MOMS_LIKE_THESE_MUSICXML } from './__fixtures__/momsLikeThese.musicxml.ts';
 import {
+  ARTICULATIONS_EXTENDED_MUSICXML,
   ARTICULATIONS_MUSICXML,
   STRONG_ACCENT_MUSICXML,
 } from './__fixtures__/articulations.musicxml.ts';
+import { TEMPO_MAP_MUSICXML } from './__fixtures__/tempoMap.musicxml.ts';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 async function unzipScoreXmlFromMxlBuffer(buffer: ArrayBuffer): Promise<string> {
   const archive = await JSZip.loadAsync(buffer);
@@ -42,6 +47,7 @@ describe('parseMusicXmlToScript', () => {
     expect(scoreTiming).toEqual({
       divisionsPerQuarter: 480,
       tempoBpm: 100,
+      tempoMap: [{ onset: 0, bpm: 100 }],
       totalTimelineDivisions: 1440,
     });
   });
@@ -216,33 +222,125 @@ describe('parseMusicXmlToScript', () => {
       hasStaccato: true,
     });
     expect(c4.hasAccent).toBeFalsy();
+    expect(c4.hasMarcato).toBeFalsy();
+    expect(c4.hasTenuto).toBeFalsy();
+    expect(c4.hasStaccatissimo).toBeFalsy();
+    expect(c4.hasDetachedLegato).toBeFalsy();
 
     expect(d4).toMatchObject({
       pitch: 'D4',
       hasAccent: true,
     });
     expect(d4.hasStaccato).toBeFalsy();
+    expect(d4.hasMarcato).toBeFalsy();
 
     expect(e4).toMatchObject({ pitch: 'E4' });
     expect(e4.hasStaccato).toBeFalsy();
     expect(e4.hasAccent).toBeFalsy();
+    expect(e4.hasMarcato).toBeFalsy();
 
     expect(f4).toMatchObject({
       pitch: 'F4',
       hasStaccato: true,
       hasAccent: true,
     });
+    expect(f4.hasMarcato).toBeFalsy();
   });
 
-  it('maps strong-accent to hasAccent', () => {
+  it('maps strong-accent to hasMarcato (not hasAccent)', () => {
     const { script } = parseMusicXmlToScript(STRONG_ACCENT_MUSICXML);
     const g4 = script[0].notes[0];
 
     expect(g4).toMatchObject({
       pitch: 'G4',
+      hasMarcato: true,
+    });
+    expect(g4.hasAccent).toBeFalsy();
+    expect(g4.hasStaccato).toBeFalsy();
+  });
+
+  it('parses tenuto, staccatissimo, detached-legato, marcato, accent, and combinations without changing timing', () => {
+    const { script, scoreTiming } = parseMusicXmlToScript(
+      ARTICULATIONS_EXTENDED_MUSICXML,
+    );
+
+    // P0-1 onset table: one quarter note each at 480 divisions — unchanged by flags.
+    const onsetTable = script.map((step) => ({
+      onset: step.onset,
+      pitch: step.notes[0].pitch,
+      durationDivisions: step.notes[0].durationDivisions,
+    }));
+    // eslint-disable-next-line no-console -- intentional P0-1 onset dump for articulation regression
+    console.log('[articulations-extended] P0-1 onset table:', onsetTable);
+
+    expect(script).toHaveLength(8);
+    expect(script.map((step) => step.onset)).toEqual([
+      0, 480, 960, 1440, 1920, 2400, 2880, 3360,
+    ]);
+    expect(script.every((step) => step.notes[0].durationDivisions === 480)).toBe(
+      true,
+    );
+    expect(scoreTiming.totalTimelineDivisions).toBe(3840);
+
+    const [
+      tenuto,
+      staccatissimo,
+      detachedLegato,
+      marcato,
+      accent,
+      tenutoAccent,
+      plain,
+      staccatoMarcato,
+    ] = script.map((step) => step.notes[0]);
+
+    expect(tenuto).toMatchObject({ pitch: 'C4', hasTenuto: true });
+    expect(tenuto.hasAccent).toBeFalsy();
+    expect(tenuto.hasMarcato).toBeFalsy();
+    expect(tenuto.hasStaccato).toBeFalsy();
+    expect(tenuto.hasStaccatissimo).toBeFalsy();
+    expect(tenuto.hasDetachedLegato).toBeFalsy();
+
+    expect(staccatissimo).toMatchObject({
+      pitch: 'D4',
+      hasStaccatissimo: true,
+    });
+    expect(staccatissimo.hasStaccato).toBeFalsy();
+    expect(staccatissimo.hasTenuto).toBeFalsy();
+
+    expect(detachedLegato).toMatchObject({
+      pitch: 'E4',
+      hasDetachedLegato: true,
+    });
+    expect(detachedLegato.hasStaccato).toBeFalsy();
+    expect(detachedLegato.hasTenuto).toBeFalsy();
+
+    expect(marcato).toMatchObject({ pitch: 'F4', hasMarcato: true });
+    expect(marcato.hasAccent).toBeFalsy();
+
+    expect(accent).toMatchObject({ pitch: 'G4', hasAccent: true });
+    expect(accent.hasMarcato).toBeFalsy();
+
+    expect(tenutoAccent).toMatchObject({
+      pitch: 'A4',
+      hasTenuto: true,
       hasAccent: true,
     });
-    expect(g4.hasStaccato).toBeFalsy();
+    expect(tenutoAccent.hasMarcato).toBeFalsy();
+
+    expect(plain).toMatchObject({ pitch: 'B4' });
+    expect(plain.hasTenuto).toBeFalsy();
+    expect(plain.hasStaccatissimo).toBeFalsy();
+    expect(plain.hasDetachedLegato).toBeFalsy();
+    expect(plain.hasAccent).toBeFalsy();
+    expect(plain.hasMarcato).toBeFalsy();
+    expect(plain.hasStaccato).toBeFalsy();
+
+    expect(staccatoMarcato).toMatchObject({
+      pitch: 'C5',
+      hasStaccato: true,
+      hasMarcato: true,
+    });
+    expect(staccatoMarcato.hasAccent).toBeFalsy();
   });
 
   it('merges a multi-measure tie into one long note at the first onset', () => {
@@ -1249,5 +1347,39 @@ describe('mid-piece divisions changes', () => {
       pitch: 'D4',
       durationDivisions: 480,
     });
+  });
+
+  it('collects a tempo map from mid-score tempo directions', () => {
+    const { script, scoreTiming } = parseMusicXmlToScript(TEMPO_MAP_MUSICXML);
+
+    expect(scoreTiming.tempoBpm).toBe(120);
+    expect(scoreTiming.tempoMap).toEqual([
+      { onset: 0, bpm: 120 },
+      { onset: 1, bpm: 60 },
+      { onset: 2, bpm: 90 },
+    ]);
+    expect(scoreTiming.totalTimelineDivisions).toBe(4);
+    expect(script.map((step) => step.onset)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('reads constant-moderato mid-score tempo changes without shifting P0-1 totals', () => {
+    const assetPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../assets/constant-moderato.musicxml',
+    );
+    const xml = readFileSync(assetPath, 'utf8');
+    const { scoreTiming, script } = parseMusicXmlToScript(xml);
+    const measure16 = script.find((step) => step.measureNumber === 16);
+    const measure17 = script.find((step) => step.measureNumber === 17);
+
+    expect(scoreTiming.tempoBpm).toBe(90);
+    expect(scoreTiming.totalTimelineDivisions).toBe(3168);
+    expect(measure16).toBeDefined();
+    expect(measure17).toBeDefined();
+    expect(scoreTiming.tempoMap).toEqual([
+      { onset: 0, bpm: 90 },
+      { onset: measure16!.onset, bpm: 80 },
+      { onset: measure17!.onset, bpm: 90 },
+    ]);
   });
 });

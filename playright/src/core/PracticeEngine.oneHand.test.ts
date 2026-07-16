@@ -135,7 +135,12 @@ describe('PracticeEngine one-hand progression', () => {
 
     engine.handleNoteOn(60);
     flushAdvance();
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+    expect(useEngineStore.getState().isPracticeActive).toBe(true);
+
+    engine.handleNoteOff(60);
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().isPracticeActive).toBe(false);
   });
 
   it('pause clears expected notes without rewinding the step', () => {
@@ -365,7 +370,12 @@ describe('PracticeEngine one-hand progression', () => {
 
     engine.handleNoteOn(64);
     flushAdvance();
+    expect(useEngineStore.getState().isPracticeActive).toBe(true);
+    expect(audio.noteOff).not.toHaveBeenCalled();
+
+    engine.handleNoteOff(64);
     expect(useEngineStore.getState().isPracticeActive).toBe(false);
+    expect(audio.noteOff).toHaveBeenCalledWith(64);
   });
 
   it('does not advance repeated steps while the same key stays held', () => {

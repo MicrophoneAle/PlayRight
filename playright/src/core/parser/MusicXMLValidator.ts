@@ -12,7 +12,11 @@ const ScriptNoteSchema = z.object({
   tiedToNext: z.boolean().optional(),
   hasFermata: z.boolean().optional(),
   hasStaccato: z.boolean().optional(),
+  hasStaccatissimo: z.boolean().optional(),
   hasAccent: z.boolean().optional(),
+  hasMarcato: z.boolean().optional(),
+  hasTenuto: z.boolean().optional(),
+  hasDetachedLegato: z.boolean().optional(),
 });
 
 /** Mirrors {@link GraceNoteInfo} */

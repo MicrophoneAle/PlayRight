@@ -8,7 +8,15 @@ import {
 import { isMlFingeringEnabled } from './fingeringMlConfig.ts';
 
 let session: ort.InferenceSession | null = null;
+/** Shared in-flight init so concurrent callers await one create(), not many. */
 let initPromise: Promise<void> | null = null;
+/**
+ * True after a successful InferenceSession.create in this page lifetime.
+ * Survives dispose() so bfcache restore can re-init only when ML was actually used.
+ */
+let sessionHadBeenInitialized = false;
+/** Bumped on dispose so an in-flight create that finishes late is discarded. */
+let initGeneration = 0;
 let inferenceChain: Promise<unknown> = Promise.resolve();
 
 function enqueueInference<T>(run: () => Promise<T>): Promise<T> {
@@ -18,6 +26,11 @@ function enqueueInference<T>(run: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return result;
+}
+
+/** True if ML was successfully loaded at least once this page lifetime. */
+export function wasFingeringModelInitialized(): boolean {
+  return sessionHadBeenInitialized;
 }
 
 export async function initFingeringModel(
@@ -36,12 +49,21 @@ export async function initFingeringModel(
     return initPromise;
   }
 
+  const generation = initGeneration;
   initPromise = (async () => {
     try {
-      session = await ort.InferenceSession.create(modelUrl);
+      const created = await ort.InferenceSession.create(modelUrl);
+      if (generation !== initGeneration) {
+        await created.release();
+        return;
+      }
+      session = created;
+      sessionHadBeenInitialized = true;
       console.log('ONNX Model loaded successfully!');
     } finally {
-      initPromise = null;
+      if (generation === initGeneration) {
+        initPromise = null;
+      }
     }
   })();
 
@@ -49,6 +71,7 @@ export async function initFingeringModel(
 }
 
 export async function disposeFingeringModel(): Promise<void> {
+  initGeneration += 1;
   inferenceChain = Promise.resolve();
   const activeSession = session;
   session = null;
@@ -59,9 +82,18 @@ export async function disposeFingeringModel(): Promise<void> {
   }
 }
 
+/** Test-only: dispose session and clear the page-lifetime init flag. */
+export async function resetFingeringModelForTests(): Promise<void> {
+  await disposeFingeringModel();
+  sessionHadBeenInitialized = false;
+}
+
 /**
  * Returns a 2D array of costs.
  * result[noteIndex][finger - 1] = cost
+ *
+ * Lazily initializes the ONNX session on first use when ML is enabled.
+ * Concurrent callers share the same in-flight init promise.
  */
 export async function getMLFingerCosts(
   phraseNotes: NoteEvent[],
@@ -71,8 +103,14 @@ export async function getMLFingerCosts(
     return [];
   }
 
-  if (initPromise) {
-    await initPromise;
+  if (!isMlFingeringEnabled()) {
+    return [];
+  }
+
+  try {
+    await initFingeringModel();
+  } catch {
+    return [];
   }
 
   if (!session) {

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   CursorType,
   OpenSheetMusicDisplay,
+  unitInPixels,
+  VexFlowMeasure,
 } from "opensheetmusicdisplay";
 import {
   buildPracticeVisualIndex,
@@ -120,7 +122,70 @@ function normalizeMeasureNumberPositions(container: HTMLElement): void {
   }
 }
 
+let repeatBarlineLayoutPatched = false;
+
+/**
+ * OSMD places repeat-end SystemLines at `BorderRight - getLineWidth(...)`, and
+ * its `formatVoices` ignores the width argument — it always `formatToStave`s to
+ * the full VF stave. Inflating end instruction width therefore cancels out.
+ *
+ * Wrap assigned `formatVoices` for measures that end with a line-repetition:
+ * temporarily shrink the stave while formatting so notes finish earlier, then
+ * restore width so the system line still sits at the real measure end.
+ */
+function ensureRepeatEndNoteClearance(): void {
+  if (repeatBarlineLayoutPatched) {
+    return;
+  }
+  repeatBarlineLayoutPatched = true;
+
+  type FormatVoicesFn = (width: number, parent: unknown) => void;
+  type MeasureSlot = {
+    endsWithLineRepetition(): boolean;
+    getVFStave(): { getWidth(): number; setWidth(w: number): unknown };
+    rules: { RepeatEndStartPadding: number };
+    _playrightFormatVoices?: FormatVoicesFn | undefined;
+  };
+
+  Object.defineProperty(VexFlowMeasure.prototype, 'formatVoices', {
+    configurable: true,
+    enumerable: true,
+    get(this: MeasureSlot) {
+      return this._playrightFormatVoices;
+    },
+    set(this: MeasureSlot, fn: FormatVoicesFn | undefined) {
+      if (typeof fn !== 'function') {
+        this._playrightFormatVoices = fn;
+        return;
+      }
+      this._playrightFormatVoices = (width: number, parent: unknown) => {
+        if (!this.endsWithLineRepetition()) {
+          return fn.call(this, width, parent);
+        }
+        const clearancePx = this.rules.RepeatEndStartPadding * unitInPixels;
+        if (!(clearancePx > 0)) {
+          return fn.call(this, width, parent);
+        }
+        const stave = this.getVFStave();
+        const savedWidth = stave.getWidth();
+        // Early formatMeasures passes can run before the stave has a real width.
+        if (!(savedWidth > clearancePx + 1)) {
+          return fn.call(this, width, parent);
+        }
+        stave.setWidth(savedWidth - clearancePx);
+        try {
+          return fn.call(this, width, parent);
+        } finally {
+          stave.setWidth(savedWidth);
+        }
+      };
+    },
+  });
+}
+
 function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
+  ensureRepeatEndNoteClearance();
+
   const rules = osmd.EngravingRules;
   rules.PageTopMargin = 6;
   rules.TitleTopDistance = 0;
@@ -128,6 +193,16 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.SystemComposerDistance = 0;
   rules.SystemLyricistDistance = 0;
   rules.MeasureNumberLabelOffset = 2;
+
+  // compacttight defaults MeasureRightMargin=0 and VoiceSpacing to (0.65, 2),
+  // which packs the last beat (and staccato/accent glyphs) against barlines.
+  // Nudge VoiceSpacing toward OSMD's non-tight defaults (0.85 / 3.0).
+  rules.MeasureRightMargin = 1.0;
+  rules.VoiceSpacingMultiplierVexflow = 0.78;
+  rules.VoiceSpacingAddendVexflow = 2.75;
+  // Format-time stave shrink before repeat-end (see patch above). Default 2.0 is
+  // for :||:; 8 OSMD units (~80px) is a clearly visible note→dot buffer.
+  rules.RepeatEndStartPadding = 8.0;
 }
 
 const SHEET_TOP_CLEARANCE_EXPANDED_PX = 16;
@@ -624,6 +699,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       fingeringPosition: "aboveorbelow",
       cursorsOptions: [OSMD_CURSOR_OPTIONS],
     });
+    // EngravingRules + formatVoices wrap must be active before load/calculate.
+    applyCompactSheetLayout(osmd);
 
     osmdRef.current = osmd;
     osmd.OnXMLRead = (xml) =>
@@ -860,6 +937,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   return (
     <div
       ref={containerRef}
+      data-testid="sheet-music"
       onPointerDown={handleSheetPointerDown}
       onPointerUp={handleSheetPointerSeek}
       onPointerCancel={clearSheetPointerStart}
