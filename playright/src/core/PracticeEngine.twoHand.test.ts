@@ -158,6 +158,28 @@ describe('PracticeEngine two-hand finger press', () => {
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
   });
 
+  it('ends practice on the final note release, not on press', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    flushAdvance();
+
+    expect(useEngineStore.getState().isPracticeActive).toBe(true);
+    expect(audio.noteOff).not.toHaveBeenCalled();
+
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(useEngineStore.getState().isPracticeActive).toBe(false);
+    expect(audio.noteOff).toHaveBeenCalledWith(60);
+  });
+
   it('does not advance after the first hand in a two-note step until the second hand is hit', () => {
     makeScript([
       {
@@ -330,7 +352,13 @@ describe('PracticeEngine two-hand finger press', () => {
 
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     flushAdvance();
-    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+    expect(useEngineStore.getState().isPracticeActive).toBe(true);
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
+
+    engine.handleFingerRelease({ hand: 'L', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().isPracticeActive).toBe(false);
   });
 });

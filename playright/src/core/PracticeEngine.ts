@@ -21,6 +21,10 @@ export class PracticeEngine {
   private activeFingerSounds = new Map<string, number>();
   private practicePressTracker = new PlayingMidiPressTracker();
   private storeSubscriptionInitialized = false;
+  /** Last step is hit but final held notes must release before practice ends. */
+  private pendingPieceCompletion = false;
+  /** MIDI pitches from the completed final step still held down. */
+  private pendingFinalStepMidis = new Set<number>();
 
   /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -70,6 +74,8 @@ export class PracticeEngine {
 
     actions.setHasPracticeStarted(true);
     actions.setPracticeActive(true);
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     this.loadCurrentStep({ alignScope: true });
   }
 
@@ -85,11 +91,15 @@ export class PracticeEngine {
     actions.setStepIndex(0);
     actions.setPracticeGraceCursor(null);
     actions.setPracticeActive(true);
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     this.loadCurrentStep({ alignScope: true });
   }
 
   pause(): void {
     const { actions } = useEngineStore.getState();
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     actions.setPracticeActive(false);
     actions.setExpectedNotes([]);
   }
@@ -99,6 +109,8 @@ export class PracticeEngine {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
@@ -116,6 +128,8 @@ export class PracticeEngine {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
     actions.setStepIndex(0);
     actions.setPracticeGraceCursor(null);
@@ -159,14 +173,18 @@ export class PracticeEngine {
 
   handleNoteOff(midi: number): void {
     const engine = this.audioEngine;
-    if (!engine || !this.soundingMidis.has(midi)) {
-      return;
+    if (engine && this.soundingMidis.has(midi)) {
+      engine.noteOff(midi);
+      this.soundingMidis.delete(midi);
+      this.practicePressTracker.releaseMatching((note) => note.midi === midi);
+      this.syncPracticeSoundingToStore();
     }
 
-    engine.noteOff(midi);
-    this.soundingMidis.delete(midi);
-    this.practicePressTracker.releaseMatching((note) => note.midi === midi);
-    this.syncPracticeSoundingToStore();
+    if (this.pendingPieceCompletion) {
+      this.pendingFinalStepMidis.delete(midi);
+    }
+
+    this.tryFinalizePieceCompletion();
   }
 
   handleFingerPress(mapping: FingerMapping): void {
@@ -418,6 +436,8 @@ export class PracticeEngine {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
 
     if (!playMode) {
@@ -531,6 +551,8 @@ export class PracticeEngine {
       return;
     }
 
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
     actions.setStepIndex(stepIndex);
     this.loadCurrentStep({
@@ -627,20 +649,42 @@ export class PracticeEngine {
 
     const nextIndex = currentStepIndex + 1;
 
-    actions.setStepIndex(nextIndex);
-    actions.setPracticeGraceCursor(null);
-
     if (nextIndex >= script.length) {
-      actions.setPracticeActive(false);
-      actions.setExpectedNotes([]);
-      this.hitNoteIndices.clear();
-      this.expectedNotes.clear();
-      this.practiceNotesForStep = [];
-      this.clearPracticeSoundingInStore();
+      this.pendingPieceCompletion = true;
+      this.pendingFinalStepMidis = new Set(
+        this.practiceNotesForStep.map((note) => note.midi),
+      );
+      this.tryFinalizePieceCompletion();
       return;
     }
 
+    actions.setStepIndex(nextIndex);
+    actions.setPracticeGraceCursor(null);
+
     this.loadCurrentStep();
+  }
+
+  private tryFinalizePieceCompletion(): void {
+    if (!this.pendingPieceCompletion) {
+      return;
+    }
+
+    if (this.pendingFinalStepMidis.size > 0) {
+      return;
+    }
+
+    this.pendingPieceCompletion = false;
+    this.pendingFinalStepMidis.clear();
+    const { script, actions } = useEngineStore.getState();
+    if (script) {
+      actions.setStepIndex(script.length);
+    }
+    actions.setPracticeActive(false);
+    actions.setExpectedNotes([]);
+    this.hitNoteIndices.clear();
+    this.expectedNotes.clear();
+    this.practiceNotesForStep = [];
+    this.clearPracticeSoundingInStore();
   }
 }
 
