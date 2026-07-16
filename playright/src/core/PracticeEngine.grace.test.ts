@@ -204,7 +204,13 @@ describe('PracticeEngine grace-note walk', () => {
       engine.handleFingerPress({ hand: 'R', finger: 5 });
       engine.handleFingerPress({ hand: 'L', finger: 1 });
       flushAdvance();
+      expect(useEngineStore.getState().currentStepIndex).toBe(1);
+      expect(useEngineStore.getState().isPracticeActive).toBe(true);
+
+      engine.handleFingerRelease({ hand: 'R', finger: 5 });
+      engine.handleFingerRelease({ hand: 'L', finger: 1 });
       expect(useEngineStore.getState().currentStepIndex).toBe(2);
+      expect(useEngineStore.getState().isPracticeActive).toBe(false);
     });
 
     it('requires a fingered grace run before its main chord, gated by finger', () => {
@@ -255,7 +261,13 @@ describe('PracticeEngine grace-note walk', () => {
       engine.handleFingerPress({ hand: 'R', finger: 5 });
       engine.handleFingerPress({ hand: 'L', finger: 1 });
       flushAdvance();
+      expect(useEngineStore.getState().currentStepIndex).toBe(1);
+      expect(useEngineStore.getState().isPracticeActive).toBe(true);
+
+      engine.handleFingerRelease({ hand: 'R', finger: 5 });
+      engine.handleFingerRelease({ hand: 'L', finger: 1 });
       expect(useEngineStore.getState().currentStepIndex).toBe(2);
+      expect(useEngineStore.getState().isPracticeActive).toBe(false);
     });
   });
 });
