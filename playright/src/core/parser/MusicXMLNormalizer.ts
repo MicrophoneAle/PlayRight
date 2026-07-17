@@ -44,6 +44,10 @@ export interface NormalizedNote {
   hasMarcato: boolean;
   hasTenuto: boolean;
   hasDetachedLegato: boolean;
+  /** Slur `number` attributes (default 1) for `<slur type="start">` tags on this note. */
+  slurStarts: number[];
+  /** Slur `number` attributes (default 1) for `<slur type="stop">` tags on this note. */
+  slurStops: number[];
   partIndex: number;
   partCount: number;
 }
@@ -260,6 +264,8 @@ function orderedChildrenToRecord(children: unknown[]): RawRecord {
 function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
   const record: RawRecord = {};
   const tied: RawRecord[] = [];
+  const slurStarts: number[] = [];
+  const slurStops: number[] = [];
 
   for (const child of notationChildren) {
     if (!isRecord(child)) {
@@ -272,6 +278,20 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
       for (const type of readTieTypesFromWrapper(child, 'tied')) {
         tied.push({ '@_type': type });
       }
+      continue;
+    }
+
+    if (tag === 'slur') {
+      const attrs = isRecord(child[':@']) ? child[':@'] : {};
+      const slurType = attrs['@_type'];
+      const slurNumber = toNumber(attrs['@_number'], 1);
+      if (slurType === 'start') {
+        slurStarts.push(slurNumber);
+      } else if (slurType === 'stop') {
+        slurStops.push(slurNumber);
+      }
+      // type="continue" is not membership-defining (start/stop alone bound a
+      // slur's range) - no bundled fixture uses it, confirmed by inspection.
       continue;
     }
 
@@ -329,6 +349,12 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
 
   if (tied.length > 0) {
     record.tied = tied;
+  }
+  if (slurStarts.length > 0) {
+    record.slurStarts = slurStarts;
+  }
+  if (slurStops.length > 0) {
+    record.slurStops = slurStops;
   }
 
   return record;
@@ -422,6 +448,18 @@ function hasTenutoNotation(note: RawRecord): boolean {
 
 function hasDetachedLegatoNotation(note: RawRecord): boolean {
   return getArticulationsRecord(note)?.['detached-legato'] != null;
+}
+
+function extractSlurNumbers(note: RawRecord, key: 'slurStarts' | 'slurStops'): number[] {
+  const notations = note.notations;
+  if (!isRecord(notations)) {
+    return [];
+  }
+
+  const value = notations[key];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is number => typeof entry === 'number')
+    : [];
 }
 
 function extractGraceStealTime(note: RawRecord): GraceStealTime | undefined {
@@ -607,6 +645,8 @@ function normalizeNote(rawNote: unknown, measureContext: MeasureContext): Normal
     hasMarcato: hasMarcatoNotation(note),
     hasTenuto: hasTenutoNotation(note),
     hasDetachedLegato: hasDetachedLegatoNotation(note),
+    slurStarts: extractSlurNumbers(note, 'slurStarts'),
+    slurStops: extractSlurNumbers(note, 'slurStops'),
     partIndex: measureContext.partIndex,
     partCount: measureContext.partCount,
   };

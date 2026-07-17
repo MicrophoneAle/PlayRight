@@ -17,6 +17,7 @@ const ScriptNoteSchema = z.object({
   hasMarcato: z.boolean().optional(),
   hasTenuto: z.boolean().optional(),
   hasDetachedLegato: z.boolean().optional(),
+  slurLegatoNext: z.boolean().optional(),
 });
 
 /** Mirrors {@link GraceNoteInfo} */

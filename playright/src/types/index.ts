@@ -31,6 +31,13 @@ export interface ScriptNote {
    * MusicXML encodes this as `<detached-legato/>`, distinct from slur pairing.
    */
   hasDetachedLegato?: boolean;
+  /**
+   * True when this note connects legato into the next note of its voice under
+   * a `<slur>` - tie-like, durational only (see playbackTiming.ts consumer).
+   * Set on every member of a slur's range except the last (the phrase-ending
+   * note plays its own gap normally). Absent by default; positive flag only.
+   */
+  slurLegatoNext?: boolean;
 }
 
 /** A tempo change on the document-order timeline (canonical divisions). */

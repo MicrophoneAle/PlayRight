@@ -137,6 +137,125 @@ function registerOpenTie(
   openTies.set(tieKey, noteIndex);
 }
 
+function slurKeyFor(voiceKey: string, slurNumber: number): string {
+  return `${voiceKey}:${slurNumber}`;
+}
+
+function addOpenSlurNumber(
+  openSlurNumbersByVoice: Map<string, Set<number>>,
+  voiceKey: string,
+  slurNumber: number,
+): void {
+  const existing = openSlurNumbersByVoice.get(voiceKey);
+  if (existing) {
+    existing.add(slurNumber);
+  } else {
+    openSlurNumbersByVoice.set(voiceKey, new Set([slurNumber]));
+  }
+}
+
+function removeOpenSlurNumber(
+  openSlurNumbersByVoice: Map<string, Set<number>>,
+  voiceKey: string,
+  slurNumber: number,
+): void {
+  openSlurNumbersByVoice.get(voiceKey)?.delete(slurNumber);
+}
+
+/**
+ * Every genuinely new note created in a voice while a slur is open becomes a
+ * member - the XML `<slur>` tag only marks the start/stop note; notes in
+ * between inherit membership implicitly (mirrors how a chord sibling inherits
+ * onset from its anchor by document-order position, not an explicit tag).
+ * Tie-continuation notes (merge into an earlier ScriptNote, create nothing
+ * new) and grace notes (never become members) must never call this.
+ */
+function appendToOpenSlurs(
+  openSlurs: Map<string, number[]>,
+  openSlurNumbersByVoice: Map<string, Set<number>>,
+  voiceKey: string,
+  noteIndex: number,
+): void {
+  const numbers = openSlurNumbersByVoice.get(voiceKey);
+  if (!numbers) {
+    return;
+  }
+
+  for (const slurNumber of numbers) {
+    openSlurs.get(slurKeyFor(voiceKey, slurNumber))?.push(noteIndex);
+  }
+}
+
+/**
+ * Open a slur accumulator. `firstMemberIndex` is null when the start lands on
+ * a grace note (delegates to whatever main note appends next); a colliding
+ * re-start silently discards the orphaned prior members (never finalized, so
+ * nothing is ever mismarked) - same degrade-safe posture as registerOpenTie.
+ */
+function openSlur(
+  openSlurs: Map<string, number[]>,
+  openSlurNumbersByVoice: Map<string, Set<number>>,
+  voiceKey: string,
+  slurNumber: number,
+  firstMemberIndex: number | null,
+): void {
+  openSlurs.set(
+    slurKeyFor(voiceKey, slurNumber),
+    firstMemberIndex === null ? [] : [firstMemberIndex],
+  );
+  addOpenSlurNumber(openSlurNumbersByVoice, voiceKey, slurNumber);
+}
+
+/**
+ * Close a slur: every accumulated member except the last connects legato into
+ * the next note (the last member is the phrase-ending note and keeps its own
+ * normal gap). A dangling/unopened stop or an empty (grace-to-grace) member
+ * list is a safe no-op - nothing to mark either way.
+ */
+function closeSlur(
+  openSlurs: Map<string, number[]>,
+  openSlurNumbersByVoice: Map<string, Set<number>>,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
+  voiceKey: string,
+  slurNumber: number,
+): void {
+  const key = slurKeyFor(voiceKey, slurNumber);
+  const members = openSlurs.get(key);
+  if (members === undefined) {
+    return;
+  }
+
+  for (let index = 0; index < members.length - 1; index += 1) {
+    absoluteNotes[members[index]].note.slurLegatoNext = true;
+  }
+
+  openSlurs.delete(key);
+  removeOpenSlurNumber(openSlurNumbersByVoice, voiceKey, slurNumber);
+}
+
+/** Slur starts with no matching stop by end of the voice/piece: discard, warn, never invent legato to end-of-piece. */
+function clearDanglingOpenSlurs(
+  openSlurs: Map<string, number[]>,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
+  warnings: string[],
+): void {
+  for (const members of openSlurs.values()) {
+    if (members.length === 0) {
+      warnings.push(
+        'A slur start on a grace run has no matching stop before the next main note; no legato applied.',
+      );
+      continue;
+    }
+
+    const first = absoluteNotes[members[0]];
+    warnings.push(
+      `A slur starting at onset ${first.onset} (measure ${first.measureNumber}) has no matching stop; no legato applied.`,
+    );
+  }
+
+  openSlurs.clear();
+}
+
 function fullMeasureDurationDivisions(
   element: NormalizedNote,
   canonicalDivisionsPerQuarter: number,
@@ -330,6 +449,8 @@ export interface MapToDomainResult {
   script: PlaybackScript;
   /** Canonical-division cursor after walking the full part timeline (includes rests). */
   finalTimelineDivisions: number;
+  /** Non-fatal parse notices (currently: dangling slur starts). */
+  warnings: string[];
 }
 
 export { getMidiNumber, formatPitch } from './pitch.ts';
@@ -353,6 +474,9 @@ export class MusicXMLMapper {
       graceBefore?: GraceNoteInfo[];
     }> = [];
     const openTies = new Map<string, number>();
+    const openSlurs = new Map<string, number[]>();
+    const openSlurNumbersByVoice = new Map<string, Set<number>>();
+    const warnings: string[] = [];
     const multiStaffPart = partUsesMultipleStaves(elements);
 
     const flushPendingTimeAdvance = (): void => {
@@ -393,6 +517,20 @@ export class MusicXMLMapper {
       if (element.isGrace) {
         if (element.hasPlayablePitch) {
           pendingGraceNotes.push(createGraceNoteInfo(element, multiStaffPart));
+
+          // Graces never become slur members (GraceNoteInfo carries no flag).
+          // A stop delegates to whatever main note(s) already accumulated
+          // since the slur opened (empty when it never reached one - a
+          // grace-to-grace slur - a correct no-op). A start delegates
+          // forward: opened with no first member, seeded by the next new
+          // note appended via appendToOpenSlurs below.
+          const graceVoiceKey = voiceStreamKey(element);
+          for (const slurNumber of element.slurStops) {
+            closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, graceVoiceKey, slurNumber);
+          }
+          for (const slurNumber of element.slurStarts) {
+            openSlur(openSlurs, openSlurNumbersByVoice, graceVoiceKey, slurNumber, null);
+          }
         }
         continue;
       }
@@ -436,7 +574,28 @@ export class MusicXMLMapper {
         element.isTieStart && !element.isTieStop && openTies.has(tieKey);
 
       if (isTieEnd || isTieMiddle || isImplicitTieContinue) {
+        // Captured BEFORE merging: mergeOpenTie may delete this tie's entry
+        // when it closes. A tie-stop merges into an earlier ScriptNote
+        // rather than creating a new one, so a slur boundary on this element
+        // must resolve to that MERGED note, never a phantom new entry - and
+        // never at all if the "tie" turns out to have no real predecessor
+        // (mergeOpenTie finds nothing to merge into).
+        const tieMergeTargetIndex = openTies.get(tieKey);
         mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, isTieEnd);
+
+        if (tieMergeTargetIndex !== undefined) {
+          // No appendToOpenSlurs here: this note isn't a new voice member,
+          // it extends the already-accumulated merge target. Appending would
+          // double the merge target into the member list and, when a stop
+          // lands on this same tie-continuation, wrongly mark it legato
+          // instead of leaving it as the correctly-excluded last member.
+          for (const slurNumber of element.slurStops) {
+            closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, voiceKey, slurNumber);
+          }
+          for (const slurNumber of element.slurStarts) {
+            openSlur(openSlurs, openSlurNumbersByVoice, voiceKey, slurNumber, tieMergeTargetIndex);
+          }
+        }
 
         // Chord tie segments share the cursor advance of their anchor note.
         if (effectiveIsChord) {
@@ -471,6 +630,16 @@ export class MusicXMLMapper {
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }
+        // Chord siblings follow the anchor's slur membership by pure
+        // document-order position, same as ties: no chord-wide propagation,
+        // just the same append/stop/start sequence run for every new note.
+        appendToOpenSlurs(openSlurs, openSlurNumbersByVoice, voiceKey, absoluteNotes.length - 1);
+        for (const slurNumber of element.slurStops) {
+          closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, voiceKey, slurNumber);
+        }
+        for (const slurNumber of element.slurStarts) {
+          openSlur(openSlurs, openSlurNumbersByVoice, voiceKey, slurNumber, absoluteNotes.length - 1);
+        }
 
         if (!canFollowWithChordTone(element, nextNote)) {
           flushPendingTimeAdvance();
@@ -485,6 +654,13 @@ export class MusicXMLMapper {
         pendingGraceNotes = [];
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
+        }
+        appendToOpenSlurs(openSlurs, openSlurNumbersByVoice, voiceKey, absoluteNotes.length - 1);
+        for (const slurNumber of element.slurStops) {
+          closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, voiceKey, slurNumber);
+        }
+        for (const slurNumber of element.slurStarts) {
+          openSlur(openSlurs, openSlurNumbersByVoice, voiceKey, slurNumber, absoluteNotes.length - 1);
         }
 
         chordAnchorEligible = true;
@@ -501,10 +677,12 @@ export class MusicXMLMapper {
 
     flushPendingTimeAdvance();
     clearDanglingOpenTies(openTies, absoluteNotes);
+    clearDanglingOpenSlurs(openSlurs, absoluteNotes, warnings);
 
     return {
       script: groupByOnset(absoluteNotes),
       finalTimelineDivisions: currentTime,
+      warnings,
     };
   }
 }

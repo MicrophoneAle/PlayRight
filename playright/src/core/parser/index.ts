@@ -49,7 +49,13 @@ export class MusicXMLParser {
         tempoMap,
         totalTimelineDivisions,
       },
-      warnings: [...warnings, ...normalizeWarnings, ...flow.warnings, ...resolveWarnings],
+      warnings: [
+        ...warnings,
+        ...normalizeWarnings,
+        ...partMaps.flatMap((partMap) => partMap.warnings),
+        ...flow.warnings,
+        ...resolveWarnings,
+      ],
     };
   }
 }
