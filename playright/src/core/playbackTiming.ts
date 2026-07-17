@@ -214,6 +214,21 @@ export interface PlaybackDurationOptions {
   hasDetachedLegato?: boolean;
   /** Play mode only: shorten held duration for marcato-marked notes (loudness is a v1 no-op). */
   hasMarcato?: boolean;
+  /**
+   * Play mode only: hold the full written length so this note connects legato
+   * into the next note of its voice (S1 consumer of ScriptNote.slurLegatoNext;
+   * set on every slur member except the last). Yields to duration-shortening
+   * articulations (dots under a slur = portato: the note-level mark is the
+   * more specific instruction). Callers must clear this flag when the same
+   * hand+pitch re-attacks at this note's release (suppressing the gap there
+   * would merge two attacks into one continuous tone) -
+   * notePlaybackDurationOptions does so from script adjacency via
+   * slurLegatoBlockedByImmediateReattack. Only that IMMEDIATE case is a merge
+   * risk; the any-spacing followedByConsecutiveSameNote set (a pitch
+   * recurring anywhere later, i.e. most notes in tonal music) must NOT gate
+   * slur legato or the feature would be silently inert on real scores.
+   */
+  hasSlurLegatoNext?: boolean;
 }
 
 type ArticulationDurationOptions = Pick<
@@ -282,6 +297,7 @@ function basePlaybackDurationQuarterNotes(
     | 'hasTenuto'
     | 'hasDetachedLegato'
     | 'hasMarcato'
+    | 'hasSlurLegatoNext'
   >,
 ): number {
   if (tiedToNext || writtenQuarterNotes <= 0) {
@@ -301,6 +317,19 @@ function basePlaybackDurationQuarterNotes(
 
   if (suppressGap) {
     return articulatedBaseQuarterNotes;
+  }
+
+  // Slur legato: one alternative base-duration path (full written length, no
+  // gap), never a multiplier on top of another effect. Ordering is what
+  // enforces the precedence table: tenuto already returned above (idempotent
+  // - both resolve to the written length exactly once); a duration-shortening
+  // articulation (staccato/staccatissimo/marcato/detached-legato) is the more
+  // specific per-note instruction and wins by skipping this branch.
+  // Deliberately NOT gated on followedByConsecutiveSameNote: that set is
+  // any-spacing (see hasSlurLegatoNext's doc) - the immediate re-strike merge
+  // risk is handled upstream by notePlaybackDurationOptions clearing the flag.
+  if (options.hasSlurLegatoNext && !hasDurationShorteningArticulation(options)) {
+    return writtenQuarterNotes;
   }
 
   const gap = articulationGapQuarterNotes(writtenQuarterNotes, options);
@@ -799,13 +828,59 @@ export function buildFinalNoteKeySet(
   return keys;
 }
 
+/**
+ * True when this note's slur-legato release (the full written length) would
+ * land on an immediate re-attack of the same hand+pitch: the very next step
+ * attacks the same key at or before this note's written end. Only this
+ * immediate case can merge two attacks into one continuous tone - a later
+ * recurrence of the pitch (buildConsecutiveSameNoteKeySet's any-spacing set)
+ * lies beyond the suppressed release and is irrelevant to the slur.
+ */
+export function slurLegatoBlockedByImmediateReattack(
+  script: PlaybackScript,
+  stepIndex: number,
+  note: ScriptNote,
+  divisionsPerQuarter: number,
+): boolean {
+  const nextStep = script[stepIndex + 1];
+  if (nextStep === undefined) {
+    return false;
+  }
+
+  const writtenEnd =
+    script[stepIndex].onset + (note.durationDivisions ?? divisionsPerQuarter);
+  if (nextStep.onset > writtenEnd + FERMATA_ONSET_EPSILON_DIVISIONS) {
+    return false;
+  }
+
+  return nextStep.notes.some(
+    (candidate) =>
+      candidate.midi === note.midi &&
+      candidate.hand === note.hand &&
+      !isPlaybackTieContinuation(script, stepIndex + 1, candidate),
+  );
+}
+
 export function notePlaybackDurationOptions(
   stepIndex: number,
   note: ScriptNote,
   finalNoteKeys: Set<string>,
   consecutiveSameNoteKeys: Set<string>,
   fermataContext: FermataPlaybackContext,
+  /** Document script for immediate-reattack masking; omitted = flag passes through unmasked. */
+  script?: PlaybackScript,
+  divisionsPerQuarter?: number,
 ): PlaybackDurationOptions {
+  const slurLegatoNext =
+    (note.slurLegatoNext ?? false) &&
+    (script === undefined ||
+      !slurLegatoBlockedByImmediateReattack(
+        script,
+        stepIndex,
+        note,
+        divisionsPerQuarter ?? 1,
+      ));
+
   return {
     isFinalNote: finalNoteKeys.has(playbackNoteKey(stepIndex, note.hand, note.midi)),
     hasFermata: effectiveNoteHasFermata(stepIndex, note, fermataContext),
@@ -817,6 +892,7 @@ export function notePlaybackDurationOptions(
     hasTenuto: note.hasTenuto ?? false,
     hasDetachedLegato: note.hasDetachedLegato ?? false,
     hasMarcato: note.hasMarcato ?? false,
+    hasSlurLegatoNext: slurLegatoNext,
   };
 }
 
@@ -896,6 +972,8 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
           finalNoteKeys,
           consecutiveSameNoteKeys,
           fermataContext,
+          script,
+          divisionsPerQuarter,
         ),
       );
       maxDuration = Math.max(maxDuration, noteDuration);
@@ -933,6 +1011,8 @@ export function resolveNotePlaybackDurationQuarterNotes(
       finalNoteKeys,
       consecutiveSameNoteKeys,
       fermataContext,
+      script,
+      divisionsPerQuarter,
     ),
   );
 }
