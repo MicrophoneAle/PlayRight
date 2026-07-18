@@ -29,7 +29,16 @@ const TARGET_RH = [
 
 // 2026-07-07: the superseding in-sequence rule (OUT_OF_SEQUENCE_PENALTY)
 // lifted the pure-DP benchmark from 26/59 to 36/59.
-const EXPECTED_DP_MATCHES = 36;
+// 2026-07-18: the coordinated cost-tuning pass lifted it to 45/59 -
+// interval/finger-aware crossing costs + the leap gap-deviation cap fixed
+// the index 49-58 cluster (B3=1, C#4=2 reposition entry), and
+// RETURNING_PITCH_FINGER_MISMATCH at 500 (swept 250-2000; cliff between
+// 500 and 750) released the E4 lock behind indices 36-43. Remaining
+// mismatches: 29-35 (the DP switches hand position two beats later than
+// the gold) and 51-58 (repeated-note runs prefer finger 3 in the gold - a
+// pedagogical repeated-note default the geometric costs cannot express;
+// left to the ML emission).
+const EXPECTED_DP_MATCHES = 45;
 
 function rhFingersInTimelineOrder(script: PlaybackScript): (number | null)[] {
   const timeline = extractHandTimelines(script).R;
@@ -116,6 +125,9 @@ describe('chase RH fingering comparison', () => {
     // in-sequence fingerings (3-2 vs 4-3 zigzags). Hard requirement: ML must
     // not fall below 31/59; both counts still beat the pre-rule 32/59 peak
     // in violation terms (zero out-of-sequence progressions).
+    // 2026-07-18 cost-tuning pass: measured ML+DP is 40/59 (DP-only 45/59).
+    // The floor stays at the historical 31 as a hard regression stop; the
+    // console line above records the live number for future sweeps.
     expect(mlMatches).toBeGreaterThanOrEqual(31);
   });
 });

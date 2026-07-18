@@ -6,6 +6,7 @@ import {
   assignChordFingers,
   CONSECUTIVE_SAME_FINGER_PENALTY,
   CROSSING_ONTO_BLACK_COST,
+  CROSSING_WITH_FOURTH_COST,
   fingerPhrase,
   HOME_POSITION,
   LEGAL_CROSSING_COST,
@@ -102,7 +103,13 @@ describe('fingerPhrase', () => {
     const awkwardStretch = transitionCost('R', 3, 71, 5, 72);
     const thumbUnder = transitionCost('R', 4, 71, 1, 72);
     expect(thumbUnder).toBeLessThan(awkwardStretch);
-    expect(thumbUnder).toBeLessThanOrEqual(LEGAL_CROSSING_COST);
+    // 2026-07-18 crossing redesign: crossings are finger-aware - through 3
+    // stays at base cost, through 4 carries the small second-choice
+    // surcharge. This 4-under-thumb still prices far below any stretch or
+    // structural penalty.
+    expect(thumbUnder).toBeLessThanOrEqual(
+      LEGAL_CROSSING_COST + CROSSING_WITH_FOURTH_COST,
+    );
   });
 
   it('matches standard fingering when seeded from the default home position', async () => {
@@ -117,7 +124,11 @@ describe('fingerPhrase', () => {
     const fingers = await fingerPhrase(cMajorDescRh, 'R');
 
     expect(fingers.slice(0, 5)).toEqual([5, 4, 3, 2, 1]);
-    expect(transitionCost('R', 1, 65, 4, 64)).toBeLessThanOrEqual(LEGAL_CROSSING_COST);
+    // Finger-over with 4 carries the second-choice crossing surcharge since
+    // the 2026-07-18 crossing redesign (see the ascending test's comment).
+    expect(transitionCost('R', 1, 65, 4, 64)).toBeLessThanOrEqual(
+      LEGAL_CROSSING_COST + CROSSING_WITH_FOURTH_COST,
+    );
   });
 
   it('fingerPhrase on an ascending left-hand C major scale uses scale rotations', async () => {
@@ -143,7 +154,11 @@ describe('fingerPhrase', () => {
     const fingers = await fingerPhrase(phrase, 'R');
     expect(fingers[1]).toBe(3);
     expect(fingers[0]).toBeLessThan(fingers[1]);
-    expect(fingers[2]).toBeGreaterThan(fingers[1]);
+    // 2026-07-18 crossing redesign: with D4 anchored to 3, continuing 3-4-5
+    // would force a 5-crossing at G4 (now correctly priced as a
+    // non-technique), so the DP crosses under right after the anchor instead
+    // - 2-3-1-2-3, the textbook shape around a 3-anchor.
+    expect(fingers).toEqual([2, 3, 1, 2, 3]);
   });
 
   it('unifies E arpeggio pitches within one scope', async () => {
@@ -462,13 +477,19 @@ describe('predictFingering', () => {
     expect(await fingerPhrase(phrase, 'R')).toEqual([1, 5]);
   });
 
-  it('prefers pinky and thumb for left-hand octaves', async () => {
+  it('prefers thumb and pinky for left-hand octaves (mirrors RH: thumb on the pitch nearer home, pinky on the extreme)', async () => {
     const phrase: NoteEvent[] = [
       noteEvent(0, 48, 0),
       noteEvent(1, 36, 480),
     ];
 
-    expect(await fingerPhrase(phrase, 'L')).toEqual([5, 1]);
+    // C3->C2 descending octave. LH HOME_POSITION has finger1 (thumb) on the
+    // HIGHEST resting pitch and finger5 (pinky) on the lowest - the mirror of
+    // RH. So the higher note (48) takes the thumb and the lower note (36)
+    // takes the pinky, regardless of play order - fixed alongside the
+    // phraseStartCost LH sign-inversion bug (was [5,1], the un-mirrored,
+    // bugged preference).
+    expect(await fingerPhrase(phrase, 'L')).toEqual([1, 5]);
   });
 
   it('uses neighboring fingers for semitone steps on inner fingers', async () => {
@@ -524,12 +545,15 @@ describe('predictFingering', () => {
       ),
     ).toEqual([1, 5]);
 
+    // LH mirror: thumb on the higher note (48), pinky on the lower (36) - see
+    // "prefers thumb and pinky for left-hand octaves" above for the full
+    // reasoning; was [5, 1] before the phraseStartCost LH sign-inversion fix.
     expect(
       await fingerPhrase(
         [noteEvent(0, 48, 0), noteEvent(1, 36, 480)],
         'L',
       ),
-    ).toEqual([5, 1]);
+    ).toEqual([1, 5]);
   });
 });
 

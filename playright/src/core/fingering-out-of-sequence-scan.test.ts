@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseMusicXmlToScript } from './parser/index.ts';
 import {
   extractHandTimelines,
-  PHRASE_MIN_ONSET_GAP_DIVISIONS,
+  PHRASE_MIN_ONSET_GAP_QUARTERS,
   predictFingering,
   transitionCost,
 } from './fingeringPredictor.ts';
@@ -125,9 +125,18 @@ interface Violation {
 function countOutOfSequenceViolations(
   representatives: Representative[],
   hand: Hand,
+  divisionsPerQuarter: number,
 ): { violations: Violation[]; checked: number } {
   const violations: Violation[] = [];
   let checked = 0;
+
+  // Same per-piece scaling the predictor itself now uses (2026-07-18 wiring
+  // fix): the old raw 480-division constant never fired at real
+  // divisionsPerQuarter values (1-12), so this exclusion - documented above
+  // as the scan's design since day one - had silently never engaged. Pairs
+  // across a genuine rest split are free repositions in the DP (no
+  // prevContext seeding) and were never meant to be scanned.
+  const restGapDivisions = PHRASE_MIN_ONSET_GAP_QUARTERS * divisionsPerQuarter;
 
   for (let i = 1; i < representatives.length; i += 1) {
     const prev = representatives[i - 1];
@@ -138,7 +147,7 @@ function countOutOfSequenceViolations(
     if (prev.groupSize > 1 || cur.groupSize > 1) {
       continue;
     }
-    if (cur.onset - prev.onset >= PHRASE_MIN_ONSET_GAP_DIVISIONS) {
+    if (cur.onset - prev.onset >= restGapDivisions) {
       continue;
     }
 
@@ -184,7 +193,11 @@ describe('fingering out-of-sequence violation scan (durable, all 10 fixtures)', 
         });
 
         const representatives = groupRepresentatives(withFingers, hand);
-        const { violations, checked } = countOutOfSequenceViolations(representatives, hand);
+        const { violations, checked } = countOutOfSequenceViolations(
+          representatives,
+          hand,
+          scoreTiming.divisionsPerQuarter,
+        );
         totalChecked += checked;
         for (const v of violations) {
           report.push(

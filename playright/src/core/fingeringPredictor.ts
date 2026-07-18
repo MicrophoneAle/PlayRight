@@ -124,8 +124,31 @@ export const PHRASE_MAX_DIRECTIONAL_RUN = 5;
 /**
  * Split when consecutive onsets for this hand are separated by at least this many
  * MusicXML divisions (one quarter note when divisions=480).
+ *
+ * @deprecated Raw-division threshold that assumed 480 divisions/quarter; real
+ * fixtures use 1-12, so this never fired on any of them. Retained only as the
+ * legacy fallback scale (and for the out-of-sequence scan, where an
+ * effectively-infinite gate just means every adjacent pair is checked - the
+ * strictest possible behavior). Internal phrase logic now uses
+ * PHRASE_MIN_ONSET_GAP_QUARTERS x divisionsPerQuarter.
  */
 export const PHRASE_MIN_ONSET_GAP_DIVISIONS = 480;
+
+/**
+ * Quarter-note onset gap at/above which a rest split starts a new fingering
+ * phrase, scaled per-piece by divisionsPerQuarter (the original 480-division
+ * constant's intent, which never engaged because real divisionsPerQuarter
+ * values are 1-12). Set to 4 quarters, not the nominal 1 the old constant
+ * implied at 480dpq. The gap measured here is ONSET-to-onset distance, not
+ * rest length, so small thresholds shred ordinary melodies (2026-07-18
+ * sweep: at 1 quarter chase RH went 2 phrases -> 68 and the gold benchmark
+ * 36/59 -> ~22/59; at 2 quarters DP held 36 but ML+DP fell 38/59 -> 30/59 -
+ * shorter phrases starve the emission model of context). 4 quarters keeps
+ * chase bit-identical (36/59 DP, 38/59 ML) while real whole-measure-scale
+ * rests finally split phrases on the other fixtures (kyrie L 3->11 phrases,
+ * fanfare L 1->3, morns R 5->7, ...).
+ */
+export const PHRASE_MIN_ONSET_GAP_QUARTERS = 4;
 
 function groupTimelineOnsets(timeline: NoteEvent[]): NoteEvent[][] {
   if (timeline.length === 0) {
@@ -168,10 +191,21 @@ function monophonicContourMidi(group: NoteEvent[]): number | null {
   return group.length === 1 ? group[0].midi : null;
 }
 
-export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
+export function segmentIntoPhrases(
+  timeline: NoteEvent[],
+  divisionsPerQuarter?: number,
+): NoteEvent[][] {
   if (timeline.length === 0) {
     return [];
   }
+
+  // Legacy fallback: callers that do not know the piece's divisions (older
+  // tests, synthetic 480-scale fixtures) keep the historical 480-division
+  // threshold bit for bit.
+  const restGapDivisions =
+    divisionsPerQuarter !== undefined
+      ? PHRASE_MIN_ONSET_GAP_QUARTERS * divisionsPerQuarter
+      : PHRASE_MIN_ONSET_GAP_DIVISIONS;
 
   const onsetGroups = groupTimelineOnsets(timeline);
   if (onsetGroups.length === 1) {
@@ -203,7 +237,7 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
     const onsetGap = next[0].onset - previous[0].onset;
     const expandedSpan = onsetGroupSpan(minMidi, maxMidi, next);
     const exceedsFrame = expandedSpan > PHRASE_MAX_FRAME_SPAN;
-    const exceedsRestGap = onsetGap >= PHRASE_MIN_ONSET_GAP_DIVISIONS;
+    const exceedsRestGap = onsetGap >= restGapDivisions;
 
     const nextContourMidi = monophonicContourMidi(next);
     let exceedsDirectionalRun = false;
@@ -250,23 +284,39 @@ export function segmentIntoPhrases(timeline: NoteEvent[]): NoteEvent[][] {
   return phrases;
 }
 
-/** Ideal right-hand pitch distance in semitones (lower finger -> higher finger). */
-export const IDEAL: Record<string, number> = {
-  '1-2': 4,
-  '1-3': 7,
-  '1-4': 9,
-  '1-5': 12,
-  '2-3': 2,
-  '2-4': 4,
-  '2-5': 7,
-  '3-4': 2,
-  '3-5': 4,
-  '4-5': 2,
-};
-
 export const SAME_FINGER_REPEATED_COST = 0;
 export const CONSECUTIVE_SAME_FINGER_PENALTY = 50_000;
 export const LEGAL_CROSSING_COST = 1.0;
+/**
+ * A real thumb crossing covers a step or a third; beyond that the "crossing"
+ * is physically a reposition and should not undercut reposition-priced
+ * alternatives. Spans over this many semitones pay
+ * CROSSING_SPAN_COST_PER_SEMITONE for each extra semitone (2026-07-18
+ * sweep: flat 1.0 crossings let 5-then-thumb-under-a-fifth beat every
+ * properly repositioned hand frame on the chase 49-58 cluster).
+ */
+export const CROSSING_SPAN_FREE_SEMITONES = 4;
+export const CROSSING_SPAN_COST_PER_SEMITONE = 40;
+/**
+ * Crossing preference among the non-thumb finger: 3 is the schooled default
+ * (free), 4 is common but second choice (small surcharge), 5-over/under-1 is
+ * not a standard technique at all and must not price like one - large
+ * surcharge, still far below OUT_OF_SEQUENCE_PENALTY so the DP can pick it
+ * when a passage genuinely leaves no alternative.
+ */
+export const CROSSING_WITH_FOURTH_COST = 15;
+export const CROSSING_WITH_FIFTH_COST = 300;
+/**
+ * At an octave or more the hand repositions outright - no finger pair
+ * "stretches" the interval, so the cubic gapDeviationPenalty (which reads
+ * finger distance vs a notional stretch ideal) stops being meaningful and
+ * mostly bans pedagogically normal reposition fingerings (chase 49-58: the
+ * gold C#4=2 -> C#5=3 across an octave scores 2700 under the cube - the DP
+ * literally cannot choose it). Cap the deviation penalty for such leaps;
+ * direction/bonus terms still apply.
+ */
+export const LEAP_REPOSITION_SEMITONES = 12;
+export const LEAP_GAP_DEVIATION_CAP = 200;
 export const CONTRACTION_BASE = 5.0;
 export const CONTRACTION_PER_SEMITONE = 0.5;
 export const INNER_FINGER_RETREAT_PENALTY = 150;
@@ -280,14 +330,28 @@ export const REPEAT_PITCH_FINGER_MISMATCH = 2200;
 /**
  * Max onset gap (score divisions) between same-pitch notes still treated as one
  * short repeat run for finger-consistency enforcement.
+ *
+ * @deprecated 480-divisions-per-quarter assumption; on real fixtures
+ * (divisionsPerQuarter 1-12) this window was effectively infinite, chaining
+ * same-pitch notes many quarters apart into one "run" (e.g. chase's E4 lock
+ * across a 2-quarter rest that drove the index 29-43 error cluster). Internal
+ * run detection now uses REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS x
+ * divisionsPerQuarter; this remains the legacy fallback scale.
  */
 export const REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS = 480;
+
+/**
+ * Quarter-note version of the same-pitch run window, scaled per-piece by
+ * divisionsPerQuarter (the original constant's design intent: 480 divisions =
+ * one quarter at 480dpq).
+ */
+export const REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS = 1;
 /**
  * Do not force finger cohesion across very long repeated-note passages (e.g.
  * extended tremolo); only the most recent short run is reinforced.
  */
 export const REPEAT_PITCH_RUN_MAX_LENGTH = 12;
-export const RETURNING_PITCH_FINGER_MISMATCH = 2000;
+export const RETURNING_PITCH_FINGER_MISMATCH = 500;
 /**
  * Superseding in-sequence rule: within one hand position, finger order must
  * follow pitch direction (RH up = higher finger, LH up = lower finger).
@@ -409,7 +473,6 @@ export function transitionCost(
   pPrev: number,
   fCur: Finger,
   pCur: number,
-  _spanScale = 1,
 ): number {
   const interval = signedInterval(hand, pPrev, pCur);
   const absInterval = Math.abs(interval);
@@ -425,15 +488,28 @@ export function transitionCost(
   const expectedAscending = fCur > fPrev;
   const actuallyAscending = interval > 0;
   let cost = gapDeviationPenalty(fingerGap, idealGap);
+  if (absInterval >= LEAP_REPOSITION_SEMITONES) {
+    cost = Math.min(cost, LEAP_GAP_DEVIATION_CAP);
+  }
 
-  if (expectedAscending !== actuallyAscending && interval !== 0) {
+  const inSequence = expectedAscending === actuallyAscending;
+
+  if (!inSequence && interval !== 0) {
     if (isLegalCrossing(hand, fPrev, fCur, actuallyAscending)) {
       // Thumb-under onto a black key is classically avoided; surcharge it so
       // the DP cannot ladder cheap crossings through black-key thumbs.
       const thumbUnderOntoBlack = fCur === 1 && isBlackKey(pCur);
+      // Interval- and finger-aware crossing price: a small crossing through
+      // 3 stays near-free; a wide span is really a reposition, and crossing
+      // with 5 is not a standard technique (see the constants' docs).
+      const crossingFinger = fCur === 1 ? fPrev : fCur;
       cost =
         LEGAL_CROSSING_COST +
-        (thumbUnderOntoBlack ? CROSSING_ONTO_BLACK_COST : 0);
+        (thumbUnderOntoBlack ? CROSSING_ONTO_BLACK_COST : 0) +
+        CROSSING_SPAN_COST_PER_SEMITONE *
+          Math.max(0, absInterval - CROSSING_SPAN_FREE_SEMITONES) +
+        (crossingFinger === 4 ? CROSSING_WITH_FOURTH_COST : 0) +
+        (crossingFinger === 5 ? CROSSING_WITH_FIFTH_COST : 0);
     } else {
       cost += CONTRACTION_BASE + CONTRACTION_PER_SEMITONE * absInterval;
       // In-sequence rule: within a hand position (small interval), finger
@@ -476,7 +552,18 @@ export function transitionCost(
     cost += INNER_FINGER_RETREAT_PENALTY;
   }
 
-  cost -= openFramePairBonus(fPrev, fCur, absInterval);
+  // The open-frame reward only makes sense when the finger order AGREES with
+  // the pitch direction - a genuine 1..5 hand frame spanning the interval.
+  // Awarding it on crossings let the bonus (-250) turn a non-technique like
+  // 5-over-1 across a fifth into the cheapest path by two orders of
+  // magnitude (measured on the river-flows F#3-C#4-F#4 LH arpeggio: 1-5-3
+  // totalled -241.5 vs the correct 5-3-1 at 1.5, decided entirely by this
+  // bonus riding the zeroed-out crossing branch). Chord scoring
+  // (scoreChordFingerAssignment) keeps the bonus unconditionally - chord
+  // assignments are monotonic by construction, so no crossing can occur.
+  if (inSequence) {
+    cost -= openFramePairBonus(fPrev, fCur, absInterval);
+  }
 
   if (absInterval >= 12) {
     const isPreferredOctavePair =
@@ -560,12 +647,21 @@ export function phraseStartCost(
       return Math.abs(finger - 2) * PHRASE_START_BIAS;
     }
   } else {
+    // LH: signedInterval already flips sign so "> 0" means the direction in
+    // which finger number naturally increases (thumb->pinky = high->low
+    // pitch for LH, per HOME_POSITION). interval > 0 here means the phrase
+    // moves toward LOWER pitch after the start note - the natural (thumb->
+    // pinky) direction - so the start note should bias toward finger 1
+    // (thumb), leaving room to move outward through 2,3,4,5 as pitch falls.
+    // interval < 0 means the phrase moves toward HIGHER pitch, the opposite
+    // of the natural finger direction, so bias toward finger 5 (pinky) to
+    // leave room to move back toward the thumb as pitch rises.
     if (interval > 0) {
-      return (5 - finger) * PHRASE_START_BIAS;
+      return (finger - 1) * PHRASE_START_BIAS;
     }
 
     if (interval < 0) {
-      return (finger - 1) * PHRASE_START_BIAS;
+      return (5 - finger) * PHRASE_START_BIAS;
     }
   }
 
@@ -617,6 +713,7 @@ function copyFirstFingerMap(source: Map<number, Finger>): Map<number, Finger> {
 function shortSamePitchFollow(
   notes: NoteEvent[],
   index: number,
+  repeatGapDivisions: number,
 ): { active: boolean; anchorIndex: number | null } {
   if (index === 0) {
     return { active: false, anchorIndex: null };
@@ -631,7 +728,7 @@ function shortSamePitchFollow(
     }
 
     const onsetGap = current.onset - previous.onset;
-    if (onsetGap > 0 && onsetGap <= REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS) {
+    if (onsetGap > 0 && onsetGap <= repeatGapDivisions) {
       let contiguous = true;
       for (let j = i + 1; j < index; j += 1) {
         if (notes[j].midi !== current.midi) {
@@ -671,7 +768,11 @@ function fingerAtAnchor(
   return finger;
 }
 
-function samePitchRunLength(notes: NoteEvent[], index: number): number {
+function samePitchRunLength(
+  notes: NoteEvent[],
+  index: number,
+  repeatGapDivisions: number,
+): number {
   let run = 1;
   let cursor = index;
 
@@ -685,7 +786,7 @@ function samePitchRunLength(notes: NoteEvent[], index: number): number {
       }
 
       const onsetGap = current.onset - notes[i].onset;
-      if (onsetGap > 0 && onsetGap <= REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS) {
+      if (onsetGap > 0 && onsetGap <= repeatGapDivisions) {
         let contiguous = true;
         for (let j = i + 1; j < cursor; j += 1) {
           if (notes[j].midi !== current.midi) {
@@ -750,14 +851,18 @@ function allowsRunRootHardLock(
   return interval <= 0;
 }
 
-function runRootAuthoredAnchor(notes: NoteEvent[], index: number): Finger | null {
-  if (!shortSamePitchFollow(notes, index).active) {
+function runRootAuthoredAnchor(
+  notes: NoteEvent[],
+  index: number,
+  repeatGapDivisions: number,
+): Finger | null {
+  if (!shortSamePitchFollow(notes, index, repeatGapDivisions).active) {
     return null;
   }
 
   let cursor = index;
   while (true) {
-    const follow = shortSamePitchFollow(notes, cursor);
+    const follow = shortSamePitchFollow(notes, cursor, repeatGapDivisions);
     if (!follow.active || follow.anchorIndex === null) {
       return null;
     }
@@ -778,16 +883,28 @@ function runRootAuthoredAnchor(notes: NoteEvent[], index: number): Finger | null
 export async function fingerPhrase(
   notes: NoteEvent[],
   hand: Hand,
-  spanScale = 1,
+  /**
+   * Dead parameter kept only for positional compatibility (many callers pass
+   * later arguments): the hand-span preset never fed any cost term. See
+   * PredictFingeringOptions.spanScale for the retained public routing.
+   */
+  _spanScale?: number,
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
-  _divisionsPerQuarter?: number,
+  divisionsPerQuarter?: number,
   mlCostWeight = ML_COST_WEIGHT,
   prevContext?: PhraseSeedContext,
 ): Promise<Finger[]> {
   if (notes.length === 0) {
     return [];
   }
+
+  // Same legacy fallback as segmentIntoPhrases: no divisions info means the
+  // historical 480-division window.
+  const repeatGapDivisions =
+    divisionsPerQuarter !== undefined
+      ? REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS * divisionsPerQuarter
+      : REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS;
 
   const mlCosts =
     mlCostWeight > 0 ? await getMLFingerCosts(notes, hand) : [];
@@ -817,7 +934,6 @@ export async function fingerPhrase(
             prevContext.midi,
             finger,
             note.midi,
-            spanScale,
           );
         }
         if (startHome !== undefined) {
@@ -839,12 +955,13 @@ export async function fingerPhrase(
         continue;
       }
 
-      const repeatFollow = shortSamePitchFollow(notes, index);
+      const repeatFollow = shortSamePitchFollow(notes, index, repeatGapDivisions);
       const inShortRepeatRun =
         repeatFollow.active &&
         repeatFollow.anchorIndex !== null &&
         note.authoredFinger === null &&
-        samePitchRunLength(notes, index) <= REPEAT_PITCH_RUN_MAX_LENGTH;
+        samePitchRunLength(notes, index, repeatGapDivisions) <=
+          REPEAT_PITCH_RUN_MAX_LENGTH;
       const anchorNote =
         repeatFollow.anchorIndex !== null
           ? notes[repeatFollow.anchorIndex]
@@ -861,7 +978,7 @@ export async function fingerPhrase(
 
         let anchorFinger: Finger | null = null;
         const runRootAuthored = inShortRepeatRun
-          ? runRootAuthoredAnchor(notes, index)
+          ? runRootAuthoredAnchor(notes, index, repeatGapDivisions)
           : null;
         if (inShortRepeatRun && anchorNote !== null) {
           anchorFinger =
@@ -881,7 +998,6 @@ export async function fingerPhrase(
           notes[index - 1].midi,
           finger,
           note.midi,
-          spanScale,
         );
 
         let repeatPitchPenalty = 0;
@@ -972,7 +1088,6 @@ function chordIdealFingerGap(midiSpan: number): number {
 function scoreChordFingerAssignment(
   chord: NoteEvent[],
   fingers: Finger[],
-  _spanScale = 1,
 ): number {
   let cost = 0;
 
@@ -1105,7 +1220,6 @@ function selectBestFiveChordIndices(chord: NoteEvent[]): number[] {
 function assignChordFingersToPlayableNotes(
   chord: NoteEvent[],
   hand: Hand,
-  spanScale = 1,
 ): Finger[] {
   let bestAssignment: Finger[] | null = null;
   let bestCost = Infinity;
@@ -1115,7 +1229,7 @@ function assignChordFingersToPlayableNotes(
       continue;
     }
 
-    const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
+    const cost = scoreChordFingerAssignment(chord, assignment);
     if (
       bestAssignment === null ||
       chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
@@ -1127,7 +1241,7 @@ function assignChordFingersToPlayableNotes(
 
   if (bestAssignment === null) {
     for (const assignment of monotonicChordFingerAssignments(hand, chord.length)) {
-      const cost = scoreChordFingerAssignment(chord, assignment, spanScale);
+      const cost = scoreChordFingerAssignment(chord, assignment);
       if (
         bestAssignment === null ||
         chordAssignmentBeats(assignment, cost, bestAssignment, bestCost)
@@ -1148,7 +1262,6 @@ function assignChordFingersToPlayableNotes(
 export function assignChordFingers(
   chord: NoteEvent[],
   hand: Hand,
-  spanScale = 1,
 ): (Finger | null)[] {
   if (chord.length === 0) {
     return [];
@@ -1164,7 +1277,6 @@ export function assignChordFingers(
     const playableFingers = assignChordFingersToPlayableNotes(
       playableNotes,
       hand,
-      spanScale,
     );
     const result: (Finger | null)[] = chord.map(() => null);
 
@@ -1175,7 +1287,7 @@ export function assignChordFingers(
     return result;
   }
 
-  return assignChordFingersToPlayableNotes(chord, hand, spanScale);
+  return assignChordFingersToPlayableNotes(chord, hand);
 }
 
 function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
@@ -1200,7 +1312,8 @@ function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
 export async function fingerPhraseWithChords(
   phrase: NoteEvent[],
   hand: Hand,
-  spanScale = 1,
+  /** Dead parameter kept for positional compatibility; see fingerPhrase. */
+  _spanScale?: number,
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
   divisionsPerQuarter?: number,
@@ -1229,7 +1342,7 @@ export async function fingerPhraseWithChords(
 
     // Chords are always main-step tones (a grace onset is always length 1 -
     // graces before one main note are sequential, never simultaneous).
-    const chordFingers = assignChordFingers(onset, hand, spanScale);
+    const chordFingers = assignChordFingers(onset, hand);
     chordFingersByGroup.set(groupKey, chordFingers);
 
     const representativeIndex = hand === 'R' ? onset.length - 1 : 0;
@@ -1249,7 +1362,7 @@ export async function fingerPhraseWithChords(
   const solved = await fingerPhrase(
     representatives,
     hand,
-    spanScale,
+    1,
     startHome,
     repeatFinger,
     divisionsPerQuarter,
@@ -1337,16 +1450,19 @@ function phraseEndSeed(
 async function predictFingersForHand(
   script: PlaybackScript,
   hand: Hand,
-  spanScale: number,
   divisionsPerQuarter?: number,
   mlCostWeight = ML_COST_WEIGHT,
 ): Promise<(Finger | null)[]> {
   const timeline = extractHandTimelines(script)[hand];
-  const phrases = segmentIntoPhrases(timeline);
+  const phrases = segmentIntoPhrases(timeline, divisionsPerQuarter);
   const fingers: (Finger | null)[] = [];
   const lastFingerByMidi = new Map<number, Finger>();
   let previousSeed: PhraseSeedContext | null = null;
   let previousEndOnset: number | null = null;
+  const restGapDivisions =
+    divisionsPerQuarter !== undefined
+      ? PHRASE_MIN_ONSET_GAP_QUARTERS * divisionsPerQuarter
+      : PHRASE_MIN_ONSET_GAP_DIVISIONS;
 
   for (let phraseIndex = 0; phraseIndex < phrases.length; phraseIndex += 1) {
     const phrase = phrases[phraseIndex];
@@ -1357,13 +1473,13 @@ async function predictFingersForHand(
     // after a genuine rest the hand repositions freely.
     const temporallyAdjacent =
       previousEndOnset !== null &&
-      phrase[0].onset - previousEndOnset < PHRASE_MIN_ONSET_GAP_DIVISIONS;
+      phrase[0].onset - previousEndOnset < restGapDivisions;
     const prevContext =
       temporallyAdjacent && previousSeed !== null ? previousSeed : undefined;
     const phraseFingers = await fingerPhraseWithChords(
       phrase,
       hand,
-      spanScale,
+      1,
       startHome,
       repeatFinger,
       divisionsPerQuarter,
@@ -1388,6 +1504,14 @@ async function predictFingersForHand(
 }
 
 export interface PredictFingeringOptions {
+  /**
+   * Reserved routing for the user-facing hand-span preset (0.85/1/1.15 flows
+   * in here from the store as `handSpan`). 2026-07-18 dead-code audit: no
+   * cost term has ever consumed it, so it currently has NO effect on
+   * prediction. Kept (rather than deleted) because it is the store/UI's only
+   * conduit for a future span-aware cost model; removing it would churn the
+   * public signatures in useEngineStore/Lid/e2eHarness for zero behavior.
+   */
   spanScale?: number;
   /** When true, score-authored fingerings are replaced by prediction; manual always wins. */
   overrideScore?: boolean;
@@ -1400,13 +1524,12 @@ export async function predictFingering(
   script: PlaybackScript,
   options: PredictFingeringOptions = {},
 ): Promise<PlaybackScript> {
-  const spanScale = options.spanScale ?? 1;
   const overrideScore = options.overrideScore ?? false;
   const divisionsPerQuarter = options.divisionsPerQuarter;
   const mlCostWeight = options.mlCostWeight ?? ML_COST_WEIGHT;
   const [leftFingers, rightFingers] = await Promise.all([
-    predictFingersForHand(script, 'L', spanScale, divisionsPerQuarter, mlCostWeight),
-    predictFingersForHand(script, 'R', spanScale, divisionsPerQuarter, mlCostWeight),
+    predictFingersForHand(script, 'L', divisionsPerQuarter, mlCostWeight),
+    predictFingersForHand(script, 'R', divisionsPerQuarter, mlCostWeight),
   ]);
   const fingersByHand: Record<Hand, (Finger | null)[]> = {
     L: leftFingers,
