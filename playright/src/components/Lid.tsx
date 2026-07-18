@@ -10,7 +10,7 @@ import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
 import { fetchScoreById, fetchScoreLibrary, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { isSupabaseConfigured } from '../core/supabaseClient.ts';
-import { useEngineStore, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
+import { useEngineStore, surfaceMlFingeringFallbackWarning, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { FingeringMode, Hand, ManualFingeringMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
 import { computeAnchorDropdownPosition, SETTINGS_PANEL_WIDTH } from '../core/anchorDropdownPosition.ts';
 import { SHIFT_MODE_LABELS } from '../core/shiftMode.ts';
@@ -100,6 +100,7 @@ export function Lid() {
       state.overrideScoreFingerings,
       scoreTiming,
     );
+    surfaceMlFingeringFallbackWarning(state.autoFingering);
 
     return { script: prepared, manualFingerings: migratedFingerings };
   };

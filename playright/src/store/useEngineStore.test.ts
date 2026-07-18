@@ -3,6 +3,7 @@ import type { PlaybackScript } from '../types/index.ts';
 import {
   HAND_SPAN_PRESETS,
   selectIsPracticeActive,
+  surfaceMlFingeringFallbackWarning,
   useEngineStore,
 } from './useEngineStore.ts';
 
@@ -27,12 +28,15 @@ vi.mock('tone', () => ({
 
 // Keep store unit tests off the real ONNX session. Full-suite contention on
 // wasm/model init was leaving setHandSpan stuck awaiting predictFingering.
+const mockGetLastMlFingeringFallbackReason = vi.fn<() => string | null>(() => null);
+
 vi.mock('../core/aiFingeringInference.ts', () => ({
   getMLFingerCosts: async () => [],
   initFingeringModel: async () => undefined,
   disposeFingeringModel: () => undefined,
   wasFingeringModelInitialized: () => false,
   resetFingeringModelForTests: () => undefined,
+  getLastMlFingeringFallbackReason: () => mockGetLastMlFingeringFallbackReason(),
 }));
 
 const AUTO_FINGERING_STORAGE_KEY = 'playright-auto-fingering';
@@ -253,5 +257,59 @@ describe('useEngineStore settings and mode', () => {
     useEngineStore.getState().actions.setPlayMode(false);
 
     expect(useEngineStore.getState().playModeFingeringsVisible).toBe(false);
+  });
+});
+
+describe('surfaceMlFingeringFallbackWarning', () => {
+  beforeEach(() => {
+    resetStore();
+    useEngineStore.setState({ parseWarnings: [] });
+    mockGetLastMlFingeringFallbackReason.mockReset().mockReturnValue(null);
+  });
+
+  const MESSAGE =
+    'Auto-fingering AI model failed to load - using rule-based fingering instead.';
+
+  it('does nothing when auto-fingering was not requested this call, even if ML previously failed', () => {
+    mockGetLastMlFingeringFallbackReason.mockReturnValue('init-failed');
+    surfaceMlFingeringFallbackWarning(false);
+    expect(useEngineStore.getState().parseWarnings).toEqual([]);
+  });
+
+  it('does nothing when auto-fingering was requested and ML succeeded', () => {
+    mockGetLastMlFingeringFallbackReason.mockReturnValue(null);
+    surfaceMlFingeringFallbackWarning(true);
+    expect(useEngineStore.getState().parseWarnings).toEqual([]);
+  });
+
+  it('pushes the warning once when auto-fingering was requested and ML failed', () => {
+    mockGetLastMlFingeringFallbackReason.mockReturnValue('init-failed');
+    surfaceMlFingeringFallbackWarning(true);
+    expect(useEngineStore.getState().parseWarnings).toEqual([MESSAGE]);
+
+    // Calling again while still failing must not duplicate the entry.
+    surfaceMlFingeringFallbackWarning(true);
+    expect(useEngineStore.getState().parseWarnings).toEqual([MESSAGE]);
+  });
+
+  it('preserves other warnings already present when pushing/clearing', () => {
+    useEngineStore.setState({ parseWarnings: ['Some unrelated parse notice'] });
+    mockGetLastMlFingeringFallbackReason.mockReturnValue('init-failed');
+    surfaceMlFingeringFallbackWarning(true);
+    expect(useEngineStore.getState().parseWarnings).toEqual([
+      'Some unrelated parse notice',
+      MESSAGE,
+    ]);
+
+    mockGetLastMlFingeringFallbackReason.mockReturnValue(null);
+    surfaceMlFingeringFallbackWarning(true);
+    expect(useEngineStore.getState().parseWarnings).toEqual(['Some unrelated parse notice']);
+  });
+
+  it('clears the warning once ML recovers', () => {
+    useEngineStore.setState({ parseWarnings: [MESSAGE] });
+    mockGetLastMlFingeringFallbackReason.mockReturnValue(null);
+    surfaceMlFingeringFallbackWarning(true);
+    expect(useEngineStore.getState().parseWarnings).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { getLastMlFingeringFallbackReason } from '../core/aiFingeringInference.ts';
 import { applyFingeringSettings, prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { updateScoreManualFingerings } from '../core/scoreLibrary.ts';
@@ -140,6 +141,37 @@ function startFingeringProgramSession(): void {
   fingeringProgramEngine.start();
 }
 
+const ML_FINGERING_FALLBACK_WARNING =
+  'Auto-fingering AI model failed to load - using rule-based fingering instead.';
+
+/**
+ * Non-blocking visibility for a silent ML fingering degradation (bug: the DP
+ * fallback itself is intentional/reasonable, but previously had zero
+ * user-facing signal). Reuses the existing parse-warnings toast rather than a
+ * new bespoke indicator - same non-blocking, dismissible severity as a parse
+ * notice, and keeps fingeringPredictor.ts/aiFingeringInference.ts store-
+ * agnostic (only this call site touches both). Call after any auto-fingering
+ * attempt; a no-op when ML is disabled or the attempt succeeded, and clears
+ * the message again once ML recovers.
+ */
+export function surfaceMlFingeringFallbackWarning(autoFingeringWasRequested: boolean): void {
+  if (!autoFingeringWasRequested) {
+    return;
+  }
+
+  const failed = getLastMlFingeringFallbackReason() !== null;
+  const { parseWarnings, actions } = useEngineStore.getState();
+  const alreadyShown = parseWarnings.includes(ML_FINGERING_FALLBACK_WARNING);
+
+  if (failed && !alreadyShown) {
+    actions.setParseWarnings([...parseWarnings, ML_FINGERING_FALLBACK_WARNING]);
+  } else if (!failed && alreadyShown) {
+    actions.setParseWarnings(
+      parseWarnings.filter((warning) => warning !== ML_FINGERING_FALLBACK_WARNING),
+    );
+  }
+}
+
 async function reprocessScriptFromRaw(
   rawXml: string | null,
   manualFingerings: ManualFingeringMap,
@@ -164,6 +196,7 @@ async function reprocessScriptFromRaw(
     overrideScoreFingerings,
     scoreTiming,
   );
+  surfaceMlFingeringFallbackWarning(autoFingering);
 
   return { script, scoreTiming, playbackOrder };
 }
@@ -646,6 +679,7 @@ export const useEngineStore = create<EngineState>((set) => {
               state.scoreTiming?.divisionsPerQuarter,
             )
           : null;
+        surfaceMlFingeringFallbackWarning(enabled);
 
         if (!script) {
           return;
@@ -673,6 +707,7 @@ export const useEngineStore = create<EngineState>((set) => {
               state.scoreTiming?.divisionsPerQuarter,
             )
           : null;
+        surfaceMlFingeringFallbackWarning(state.autoFingering);
 
         if (!script) {
           return;
@@ -719,6 +754,7 @@ export const useEngineStore = create<EngineState>((set) => {
                 state.scoreTiming?.divisionsPerQuarter,
               )
             : null;
+          surfaceMlFingeringFallbackWarning(state.autoFingering);
 
           set(
             script

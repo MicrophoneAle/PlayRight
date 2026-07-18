@@ -19,6 +19,43 @@ let sessionHadBeenInitialized = false;
 let initGeneration = 0;
 let inferenceChain: Promise<unknown> = Promise.resolve();
 
+/**
+ * Reason ML fell back to pure-DP costs on the MOST RECENT call to
+ * getMLFingerCosts while ML was enabled (mlCostWeight > 0) - null when that
+ * call succeeded, or when ML has never been attempted this generation.
+ * Never set/cleared by the `!isMlFingeringEnabled()` early return: an
+ * intentional mlCostWeight=0 is not a failure and must not touch this state.
+ */
+let lastMlFingeringFallbackReason: 'init-failed' | 'no-session' | 'inference-failed' | null =
+  null;
+/** Dedup key for the console warning: warn once per DISTINCT reason per generation, not once per phrase. */
+let lastWarnedReason: string | null = null;
+
+/** Non-null when the most recent enabled-ML attempt fell back to pure DP; see notes above. */
+export function getLastMlFingeringFallbackReason(): typeof lastMlFingeringFallbackReason {
+  return lastMlFingeringFallbackReason;
+}
+
+function reportMlFingeringFallback(
+  reason: NonNullable<typeof lastMlFingeringFallbackReason>,
+  detail: unknown,
+): void {
+  lastMlFingeringFallbackReason = reason;
+  if (lastWarnedReason === reason) {
+    return;
+  }
+  lastWarnedReason = reason;
+  console.warn(
+    `[aiFingeringInference] ML fingering fell back to pure DP (${reason}) - subsequent auto-fingering uses rule-based costs only until the model recovers.`,
+    detail,
+  );
+}
+
+function reportMlFingeringSuccess(): void {
+  lastMlFingeringFallbackReason = null;
+  lastWarnedReason = null;
+}
+
 function enqueueInference<T>(run: () => Promise<T>): Promise<T> {
   const result = inferenceChain.then(run, run);
   inferenceChain = result.then(
@@ -76,6 +113,8 @@ export async function disposeFingeringModel(): Promise<void> {
   const activeSession = session;
   session = null;
   initPromise = null;
+  lastMlFingeringFallbackReason = null;
+  lastWarnedReason = null;
 
   if (activeSession) {
     await activeSession.release();
@@ -109,11 +148,16 @@ export async function getMLFingerCosts(
 
   try {
     await initFingeringModel();
-  } catch {
+  } catch (err) {
+    reportMlFingeringFallback('init-failed', err);
     return [];
   }
 
   if (!session) {
+    // initFingeringModel resolved without throwing but left no session -
+    // e.g. a stale generation discarded a late create(). Not an exception,
+    // but still a fallback the caller (and user) should be able to see.
+    reportMlFingeringFallback('no-session', undefined);
     return [];
   }
 
@@ -135,9 +179,25 @@ export async function getMLFingerCosts(
     FINGERING_FEATURE_COUNT,
   ]);
   const activeSession = session;
-  const results = await enqueueInference(() =>
-    activeSession.run({ note_sequence: tensor }),
-  );
+
+  let results: Awaited<ReturnType<typeof activeSession.run>>;
+  try {
+    results = await enqueueInference(() =>
+      activeSession.run({ note_sequence: tensor }),
+    );
+  } catch (err) {
+    // Previously unguarded: an inference-time failure (as opposed to an
+    // init-time failure) threw uncaught here, propagating through
+    // fingerPhrase's un-try/catch'd `await getMLFingerCosts(...)` and
+    // rejecting the whole predictFingering() Promise.all - losing BOTH
+    // hands' fingering entirely, a strictly worse outcome than the pure-DP
+    // fallback this function's contract otherwise guarantees. Bringing this
+    // path in line with the init-failure contract (catch, report, return
+    // [], let the caller fall back) rather than changing what the fallback
+    // IS.
+    reportMlFingeringFallback('inference-failed', err);
+    return [];
+  }
 
   const logits = results.finger_logits.data as Float32Array;
   const costs: number[][] = [];
@@ -159,5 +219,6 @@ export async function getMLFingerCosts(
     costs.push(noteCosts);
   }
 
+  reportMlFingeringSuccess();
   return costs;
 }
