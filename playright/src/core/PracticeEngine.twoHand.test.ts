@@ -354,11 +354,116 @@ describe('PracticeEngine two-hand finger press', () => {
     flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
     expect(useEngineStore.getState().isPracticeActive).toBe(true);
-    expect(audio.noteOn).toHaveBeenCalledTimes(2);
+    // L sounds twice (re-articulate on re-press) + R once; hits still count once each.
+    expect(audio.noteOn).toHaveBeenCalledTimes(3);
 
     engine.handleFingerRelease({ hand: 'L', finger: 1 });
     engine.handleFingerRelease({ hand: 'R', finger: 1 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
     expect(useEngineStore.getState().isPracticeActive).toBe(false);
+  });
+
+  it('re-sounds an already-hit note after a wrong press without resetting completion', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C3', midi: 48, hand: 'L', finger: 1 },
+          { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'D4', midi: 62, hand: 'R', finger: 2 }],
+      },
+    ]);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    engine.handleFingerRelease({ hand: 'L', finger: 1 });
+    expect(audio.noteOn).toHaveBeenCalledTimes(1);
+
+    // Wrong finger: silent, no advance, no completion reset.
+    engine.handleFingerPress({ hand: 'R', finger: 5 });
+    expect(audio.noteOn).toHaveBeenCalledTimes(1);
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    // Re-press already-correct L1: must sound again; still incomplete.
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    expect(audio.noteOn).toHaveBeenCalledTimes(2);
+    expect(audio.noteOn).toHaveBeenLastCalledWith(48);
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleFingerRelease({ hand: 'L', finger: 1 });
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    // Both notes satisfied at least once → advance immediately (non-final step).
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(audio.noteOn).toHaveBeenCalledWith(60);
+  });
+
+  it('re-articulates a matching grace finger while still on that grace position', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+        graceBefore: [
+          { midi: 69, pitch: 'A4', hand: 'R', kind: 'appoggiatura', finger: 3 },
+        ],
+      },
+    ]);
+    engine.start();
+    expect(useEngineStore.getState().practiceGraceCursor).toBe(0);
+
+    // First press sounds; sticky second press (no release) must re-articulate
+    // via sustainNote before the position advances on the first hit.
+    engine.handleFingerPress({ hand: 'R', finger: 3 });
+    expect(audio.noteOn).toHaveBeenCalledWith(69);
+    // Position advances synchronously once the single grace is satisfied.
+    expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
+
+    // On the main position: hit one chord tone, wrong press, re-press.
+    // (Single-note grace advances immediately, so same-position grace re-press
+    // after success is not reachable; main chord covers the principle.)
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
+          { pitch: 'E4', midi: 64, hand: 'R', finger: 3 },
+        ],
+        graceBefore: [
+          { midi: 69, pitch: 'A4', hand: 'R', kind: 'appoggiatura', finger: 2 },
+        ],
+      },
+    ]);
+    engine.start();
+    vi.mocked(audio.noteOn).mockClear();
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+    flushAdvance();
+    expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    engine.handleFingerPress({ hand: 'R', finger: 5 });
+    const callsAfterWrong = vi.mocked(audio.noteOn).mock.calls.length;
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    expect(vi.mocked(audio.noteOn).mock.calls.length).toBe(callsAfterWrong + 1);
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleFingerPress({ hand: 'R', finger: 3 });
+    flushAdvance();
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 3 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
 });

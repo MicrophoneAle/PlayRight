@@ -209,7 +209,11 @@ export function firstPositionWithinStep(
   return null;
 }
 
-/** Position-aware variant of getExpectedNoteForFinger, covering a grace's own finger too. */
+/** Position-aware variant of getExpectedNoteForFinger, covering a grace's own finger too.
+ * Returns the matching note even when it was already hit in the current position —
+ * callers (PracticeEngine.handleFingerPress) use that for re-articulation while
+ * completion marking separately no-ops on repeat hits.
+ */
 export function getExpectedNoteForFingerAtPosition(
   script: PlaybackScript,
   position: PracticePosition,

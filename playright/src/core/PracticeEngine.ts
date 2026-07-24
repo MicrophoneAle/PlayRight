@@ -194,6 +194,8 @@ export class PracticeEngine {
     }
 
     const position = this.currentPosition(currentStepIndex, practiceGraceCursor);
+    // Match any note at this position with this finger — including notes
+    // already marked hit. Wrong fingers return null and stay silent.
     const expected = getExpectedNoteForFingerAtPosition(
       script,
       position,
@@ -214,6 +216,8 @@ export class PracticeEngine {
     }
 
     if (isTwoHand) {
+      // Always (re)articulate matching finger presses for the current position,
+      // even when that note was already counted toward step completion.
       this.sustainNote(expected.midi, mapping);
     } else {
       this.playNotePreview(expected.midi);
@@ -232,6 +236,8 @@ export class PracticeEngine {
       return;
     }
 
+    // markHitAtIndex no-ops when already hit — completion state does not
+    // regress; only first hit counts toward advancement.
     this.registerPracticeHitAtIndex(hitIndex);
   }
 
@@ -412,8 +418,22 @@ export class PracticeEngine {
   }
 
   private sustainNote(midi: number, mapping: FingerMapping): void {
+    const fingerKey = `${mapping.hand}:${mapping.finger}`;
+    // Re-press of a matching finger must always produce a fresh attack, even
+    // if soundingMidis still tracks this midi (sticky hold / missed release).
+    // hitNoteIndices alone owns completion; re-articulation must not be gated
+    // by prior hit or lingering sustain state.
+    if (this.soundingMidis.has(midi)) {
+      const engine = this.audioEngine;
+      if (engine) {
+        engine.noteOff(midi);
+      }
+      this.soundingMidis.delete(midi);
+      this.practicePressTracker.releaseMatching((note) => note.midi === midi);
+    }
+
     this.attackMidi(midi, mapping.hand);
-    this.activeFingerSounds.set(`${mapping.hand}:${mapping.finger}`, midi);
+    this.activeFingerSounds.set(fingerKey, midi);
   }
 
   private playNotePreview(midi: number): void {
