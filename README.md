@@ -15,7 +15,7 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Smart scrolling** — Anchors each staff line to the treble staff top and the highest note on the full grand-staff line; scroll position stays consistent when switching LH/RH or one-hand/two-hand practice (hand-independent scroll index)
 - **Practice controls** — Start, pause, restart, and stop; practice mode is the default; chord steps require all notes before advancing
 - **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
-- **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase). Saved scores open in a two-column list with inline sort by date, name, or playback duration (parsed from each score’s MusicXML).
+- **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase). **Public** scores (e.g. River Flows In You, Runaway) are visible to everyone, including signed-out visitors. Saved scores open in a two-column list with inline sort by date, name, or playback duration (parsed from each score’s MusicXML).
 - **Settings** — Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode; scrollable panel with a slim edge scrollbar when content overflows
 - **Collapsible header** — More room for sheet music (`Z` to toggle); fixed-position collapse control that does not jump when toggled
 
@@ -155,8 +155,9 @@ Clerk and Supabase are optional for local practice: you can import a file and pr
 
 1. Create a `scores` table with `id`, `title`, `raw_xml`, `user_id`, and `created_at`.
 2. Enable [Clerk third-party auth](https://supabase.com/docs/guides/auth/third-party/clerk) in the Supabase dashboard.
-3. Run `supabase/scores_rls.sql` in the SQL editor to apply row-level security.
+3. Run `supabase/scores_rls.sql` in the SQL editor to apply row-level security (includes public-score SELECT).
 4. Run `supabase/manual_fingerings.sql` to persist per-score manual fingering overrides.
+5. Optionally run `supabase/public_scores.sql` for the public-score index (column is also added by `scores_rls.sql`).
 
 ### Run locally
 

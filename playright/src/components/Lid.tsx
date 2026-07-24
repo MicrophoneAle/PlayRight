@@ -8,7 +8,7 @@ import { migrateLegacyHandOverridesOnLoad } from '../core/manualHandOverrideMigr
 import { practiceEngine } from '../core/PracticeEngine.ts';
 import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { readMusicXmlFromFile, titleFromFileName } from '../core/readScoreFile.ts';
-import { fetchScoreById, fetchScoreLibrary, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
+import { fetchPublicScoreLibrary, fetchScoreById, fetchScoreLibrary, saveScoreToLibrary, updateScoreManualFingerings } from '../core/scoreLibrary.ts';
 import { isSupabaseConfigured } from '../core/supabaseClient.ts';
 import { useEngineStore, surfaceMlFingeringFallbackWarning, type HandSpanPreset, type ShiftMode, type SheetScrollMode, HAND_SPAN_PRESETS, TEMPO_FACTOR_MIN, TEMPO_FACTOR_MAX, TEMPO_FACTOR_STEP } from '../store/useEngineStore.ts';
 import type { FingeringMode, Hand, ManualFingeringMap, PlaybackScript, ScoreTiming } from '../types/index.ts';
@@ -113,7 +113,12 @@ export function Lid() {
   const canManageLibrary = isAuthLoaded && isSignedIn && Boolean(userId);
 
   useEffect(() => {
-    if (userId && isSupabaseConfigured()) {
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+
+    void fetchPublicScoreLibrary();
+    if (userId) {
       void fetchScoreLibrary(userId);
     }
   }, [userId]);
@@ -492,26 +497,25 @@ export function Lid() {
   };
 
   const handleSelectFromLibrary = async (id: string) => {
-    if (!userId) {
-      return;
-    }
-
-    const saved = await fetchScoreById(id, userId);
+    const saved = await fetchScoreById(id, userId ?? null);
     if (!saved) {
       return;
     }
+
+    const ownsScore = Boolean(userId && saved.user_id === userId);
+    const persistScoreId = ownsScore ? saved.id : null;
 
     try {
       const { script, scoreTiming, playbackOrder, warnings } = parseMusicXmlToScript(saved.raw_xml);
       const { script: loadedScript, manualFingerings } = await prepareScriptForLoad(
         script,
         saved.manual_fingerings,
-        saved.id,
+        persistScoreId,
         scoreTiming,
-        userId,
+        ownsScore ? userId : null,
       );
       loadScript(loadedScript, saved.raw_xml, saved.title, {
-        scoreId: saved.id,
+        scoreId: persistScoreId,
         manualFingerings,
       }, scoreTiming, playbackOrder);
       setParseWarnings(warnings);

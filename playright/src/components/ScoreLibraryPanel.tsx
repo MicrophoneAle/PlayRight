@@ -4,8 +4,10 @@ import { AlertTriangle, Download, Trash2, X } from 'lucide-react';
 import { downloadMusicXml } from '../core/readScoreFile.ts';
 import {
   deleteScoreFromLibrary,
+  fetchPublicScoreLibrary,
   fetchScoreById,
   fetchScoreLibrary,
+  PUBLIC_LIBRARY_CACHE_KEY,
   readScoreLibraryCache,
   type LibraryEntry,
 } from '../core/scoreLibrary.ts';
@@ -112,7 +114,8 @@ export function ScoreLibraryPanel({
   canDelete,
   userId,
 }: ScoreLibraryPanelProps) {
-  const [entries, setEntries] = useState<LibraryEntry[]>([]);
+  const [personalEntries, setPersonalEntries] = useState<LibraryEntry[]>([]);
+  const [publicEntries, setPublicEntries] = useState<LibraryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchFailed, setFetchFailed] = useState(false);
   const [notConfigured, setNotConfigured] = useState(false);
@@ -125,12 +128,20 @@ export function ScoreLibraryPanel({
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [gridColumns, setGridColumns] = useState(1);
   const entryRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const { sortKey, sortDirection } = parseLibrarySortOption(sortOption);
+  const sortedPublicEntries = useMemo(
+    () => sortLibraryEntries(publicEntries, 'name', 'asc'),
+    [publicEntries],
+  );
+  const sortedPersonalEntries = useMemo(
+    () => sortLibraryEntries(personalEntries, sortKey, sortDirection),
+    [personalEntries, sortKey, sortDirection],
+  );
   const sortedEntries = useMemo(
-    () => sortLibraryEntries(entries, sortKey, sortDirection),
-    [entries, sortKey, sortDirection],
+    () => [...sortedPublicEntries, ...sortedPersonalEntries],
+    [sortedPublicEntries, sortedPersonalEntries],
   );
 
   useEffect(() => {
@@ -154,32 +165,35 @@ export function ScoreLibraryPanel({
 
     if (!isSupabaseConfigured()) {
       setNotConfigured(true);
-      setEntries([]);
+      setPersonalEntries([]);
+      setPublicEntries([]);
       setLoading(false);
       return;
     }
 
-    if (!userId) {
-      setEntries([]);
-      setLoading(false);
-      return;
-    }
-
-    const cached = readScoreLibraryCache(userId);
-    if (cached) {
-      setEntries(cached);
+    const cachedPublic = readScoreLibraryCache(PUBLIC_LIBRARY_CACHE_KEY);
+    const cachedPersonal = userId ? readScoreLibraryCache(userId) : undefined;
+    if (cachedPublic && (!userId || cachedPersonal)) {
+      setPublicEntries(cachedPublic);
+      setPersonalEntries(cachedPersonal ?? []);
       setLoading(false);
       return;
     }
 
     setLoading(true);
 
-    const data = await fetchScoreLibrary(userId);
-    if (data === null) {
+    const [publicData, personalData] = await Promise.all([
+      fetchPublicScoreLibrary(),
+      userId ? fetchScoreLibrary(userId) : Promise.resolve([] as LibraryEntry[]),
+    ]);
+
+    if (publicData === null || personalData === null) {
       setFetchFailed(true);
-      setEntries([]);
+      setPublicEntries([]);
+      setPersonalEntries([]);
     } else {
-      setEntries(data);
+      setPublicEntries(publicData);
+      setPersonalEntries(personalData);
     }
 
     setLoading(false);
@@ -222,7 +236,7 @@ export function ScoreLibraryPanel({
     const observer = new ResizeObserver(updateColumns);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [isOpen, entries.length]);
+  }, [isOpen, sortedEntries.length]);
 
   useEffect(() => {
     if (!deleteTarget) {
@@ -321,7 +335,7 @@ export function ScoreLibraryPanel({
   }, [focusedIndex, sortedEntries]);
 
   const handleDownloadClick = async (entry: LibraryEntry) => {
-    if (!userId || downloadingId !== null) {
+    if (downloadingId !== null) {
       return;
     }
 
@@ -339,8 +353,11 @@ export function ScoreLibraryPanel({
     downloadMusicXml(score.title, score.raw_xml);
   };
 
+  const canDeleteEntry = (entry: LibraryEntry): boolean =>
+    canDelete && !entry.isPublic && Boolean(userId && entry.userId === userId);
+
   const handleDeleteClick = (entry: LibraryEntry) => {
-    if (!canDelete) {
+    if (!canDeleteEntry(entry)) {
       return;
     }
 
@@ -358,7 +375,7 @@ export function ScoreLibraryPanel({
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTarget || !canDelete || !userId) {
+    if (!deleteTarget || !canDeleteEntry(deleteTarget) || !userId) {
       return;
     }
 
@@ -372,11 +389,71 @@ export function ScoreLibraryPanel({
       return;
     }
 
-    setEntries((previous) =>
+    setPersonalEntries((previous) =>
       previous.filter((item) => item.id !== deleteTarget.id),
     );
     setDeleteTarget(null);
   };
+
+  const renderScoreRow = (entry: LibraryEntry, index: number) => (
+    <li key={entry.id}>
+      <div
+        ref={(element) => {
+          if (element) {
+            entryRowRefs.current.set(entry.id, element);
+          } else {
+            entryRowRefs.current.delete(entry.id);
+          }
+        }}
+        className={`flex items-stretch gap-1 rounded-md transition-colors ${
+          index === focusedIndex
+            ? 'bg-zinc-800 ring-1 ring-violet-500'
+            : 'hover:bg-zinc-800'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => handleSelect(entry.id)}
+          onMouseEnter={() => setFocusedIndex(index)}
+          className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2.5 text-left"
+        >
+          <span className="truncate text-sm font-medium text-zinc-100">
+            {entry.title}
+          </span>
+          <span className="text-xs text-zinc-500">
+            {formatCreatedAt(entry.created_at)}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            void handleDownloadClick(entry);
+          }}
+          disabled={downloadingId === entry.id}
+          aria-label={`Download ${entry.title}`}
+          title="Download MusicXML"
+          className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Download size={15} strokeWidth={2} aria-hidden />
+        </button>
+        {canDeleteEntry(entry) ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDeleteClick(entry);
+            }}
+            disabled={deletingId === entry.id}
+            aria-label={`Delete ${entry.title}`}
+            className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Trash2 size={15} strokeWidth={2} aria-hidden />
+          </button>
+        ) : null}
+      </div>
+    </li>
+  );
 
   const deleteDialog =
     deleteTarget &&
@@ -472,15 +549,15 @@ export function ScoreLibraryPanel({
         <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <h2 id="score-library-title" className="shrink-0 text-sm font-semibold text-zinc-100">
-              Saved Scores
+              Scores
             </h2>
-            {!loading && !notConfigured && userId && !fetchFailed && entries.length > 0 ? (
+            {!loading && !notConfigured && !fetchFailed && personalEntries.length > 0 ? (
               <div className="flex min-w-0 items-center gap-2">
                 <label
                   htmlFor="score-library-sort"
                   className="shrink-0 text-xs text-zinc-500"
                 >
-                  Sort by
+                  Sort yours by
                 </label>
                 <select
                   id="score-library-sort"
@@ -523,83 +600,58 @@ export function ScoreLibraryPanel({
               Score library is not configured. Add VITE_SUPABASE_URL and
               VITE_SUPABASE_ANON_KEY to your deployment environment.
             </p>
-          ) : !userId ? (
-            <p className="px-2 py-6 text-center text-sm text-zinc-500">
-              Sign in to view your saved scores.
-            </p>
           ) : fetchFailed ? (
             <p className="px-2 py-6 text-center text-sm text-zinc-500">
-              Could not load saved scores.
+              Could not load scores.
             </p>
-          ) : entries.length === 0 ? (
-            <p className="px-2 py-6 text-center text-sm text-zinc-500">No saved scores yet</p>
+          ) : sortedEntries.length === 0 ? (
+            <p className="px-2 py-6 text-center text-sm text-zinc-500">
+              {userId ? 'No scores yet' : 'No public scores yet. Sign in to save your own.'}
+            </p>
           ) : (
-            <ul
-              ref={listRef}
-              className="grid grid-cols-1 gap-1 min-[520px]:grid-cols-2"
-            >
-              {sortedEntries.map((entry, index) => (
-                <li key={entry.id}>
-                  <div
-                    ref={(element) => {
-                      if (element) {
-                        entryRowRefs.current.set(entry.id, element);
-                      } else {
-                        entryRowRefs.current.delete(entry.id);
-                      }
-                    }}
-                    className={`flex items-stretch gap-1 rounded-md transition-colors ${
-                      index === focusedIndex
-                        ? 'bg-zinc-800 ring-1 ring-violet-500'
-                        : 'hover:bg-zinc-800'
-                    }`}
+            <div ref={listRef} className="flex flex-col gap-3">
+              {sortedPublicEntries.length > 0 ? (
+                <section aria-labelledby="public-scores-heading">
+                  <h3
+                    id="public-scores-heading"
+                    className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500"
                   >
-                    <button
-                      type="button"
-                      onClick={() => handleSelect(entry.id)}
-                      onMouseEnter={() => setFocusedIndex(index)}
-                      className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2.5 text-left"
-                    >
-                      <span className="truncate text-sm font-medium text-zinc-100">
-                        {entry.title}
-                      </span>
-                      <span className="text-xs text-zinc-500">
-                        {formatCreatedAt(entry.created_at)}
-                      </span>
-                    </button>
-                    {userId ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleDownloadClick(entry);
-                        }}
-                        disabled={downloadingId === entry.id}
-                        aria-label={`Download ${entry.title}`}
-                        title="Download MusicXML"
-                        className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-violet-400 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Download size={15} strokeWidth={2} aria-hidden />
-                      </button>
-                    ) : null}
-                    {canDelete ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDeleteClick(entry);
-                        }}
-                        disabled={deletingId === entry.id}
-                        aria-label={`Delete ${entry.title}`}
-                        className="shrink-0 rounded-md px-3 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Trash2 size={15} strokeWidth={2} aria-hidden />
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    Public
+                  </h3>
+                  <ul className="grid grid-cols-1 gap-1 min-[520px]:grid-cols-2">
+                    {sortedPublicEntries.map((entry, index) =>
+                      renderScoreRow(entry, index),
+                    )}
+                  </ul>
+                </section>
+              ) : null}
+
+              {userId ? (
+                <section aria-labelledby="personal-scores-heading">
+                  <h3
+                    id="personal-scores-heading"
+                    className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                  >
+                    Your scores
+                  </h3>
+                  {sortedPersonalEntries.length === 0 ? (
+                    <p className="px-2 py-4 text-center text-sm text-zinc-500">
+                      No saved scores yet
+                    </p>
+                  ) : (
+                    <ul className="grid grid-cols-1 gap-1 min-[520px]:grid-cols-2">
+                      {sortedPersonalEntries.map((entry, index) =>
+                        renderScoreRow(entry, sortedPublicEntries.length + index),
+                      )}
+                    </ul>
+                  )}
+                </section>
+              ) : (
+                <p className="px-2 py-3 text-center text-sm text-zinc-500">
+                  Sign in to save and manage your own scores.
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>

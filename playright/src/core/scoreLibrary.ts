@@ -10,7 +10,8 @@ export interface SavedScore {
   raw_xml: string;
   manual_fingerings: ManualFingeringMap;
   created_at: string;
-  user_id: string;
+  user_id: string | null;
+  is_public: boolean;
 }
 
 export interface LibraryEntry {
@@ -21,11 +22,14 @@ export interface LibraryEntry {
   durationSeconds: number | null;
   /** Highest measure number in the score; null when XML could not be parsed. */
   measureCount: number | null;
+  isPublic: boolean;
+  userId: string | null;
 }
 
 const SCORE_SELECT_WITH_FINGERINGS =
-  'id, title, raw_xml, manual_fingerings, created_at, user_id';
-const SCORE_SELECT_BASE = 'id, title, raw_xml, created_at, user_id';
+  'id, title, raw_xml, manual_fingerings, created_at, user_id, is_public';
+const SCORE_SELECT_BASE = 'id, title, raw_xml, created_at, user_id, is_public';
+export const PUBLIC_LIBRARY_CACHE_KEY = '__public__';
 
 let loggedMissingManualFingeringsColumn = false;
 
@@ -148,6 +152,8 @@ function mapLibraryRow(row: {
   title: string;
   created_at: string;
   raw_xml: string;
+  user_id?: string | null;
+  is_public?: boolean | null;
 }): LibraryEntry {
   const { durationSeconds, measureCount } = deriveLibraryEntryMetrics(row.raw_xml);
   return {
@@ -156,7 +162,40 @@ function mapLibraryRow(row: {
     created_at: row.created_at,
     durationSeconds,
     measureCount,
+    isPublic: row.is_public === true,
+    userId: row.user_id ?? null,
   };
+}
+
+function mapSavedScore(row: {
+  id: string;
+  title: string;
+  raw_xml: string;
+  created_at: string;
+  user_id: string | null;
+  is_public?: boolean | null;
+  manual_fingerings?: unknown;
+}): SavedScore {
+  return {
+    id: row.id,
+    title: row.title,
+    raw_xml: row.raw_xml,
+    created_at: row.created_at,
+    user_id: row.user_id,
+    is_public: row.is_public === true,
+    manual_fingerings: parseManualFingerings(row.manual_fingerings),
+  };
+}
+
+function canAccessSavedScore(
+  score: Pick<SavedScore, 'user_id' | 'is_public'>,
+  userId: string | null | undefined,
+): boolean {
+  if (score.is_public) {
+    return true;
+  }
+
+  return Boolean(userId && score.user_id === userId);
 }
 
 const scoreLibraryCache = new Map<string, LibraryEntry[]>();
@@ -252,11 +291,30 @@ export async function fetchScoreLibrary(
 
   const { data, error } = await supabase
     .from('scores')
-    .select('id, title, created_at, raw_xml')
+    .select('id, title, created_at, raw_xml, user_id, is_public')
     .eq('user_id', userId)
+    .eq('is_public', false)
     .order('created_at', { ascending: false });
 
   if (error) {
+    // Older DBs may lack is_public until public_scores.sql is applied.
+    if (error.message.includes('is_public')) {
+      const fallback = await supabase
+        .from('scores')
+        .select('id, title, created_at, raw_xml, user_id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (fallback.error) {
+        console.error('[scoreLibrary] Failed to fetch library:', fallback.error.message);
+        return null;
+      }
+
+      const entries = (fallback.data ?? []).map((row) => mapLibraryRow(row));
+      scoreLibraryCache.set(userId, entries);
+      return entries;
+    }
+
     console.error('[scoreLibrary] Failed to fetch library:', error.message);
     return null;
   }
@@ -266,9 +324,49 @@ export async function fetchScoreLibrary(
   return entries;
 }
 
+export async function fetchPublicScoreLibrary(
+  options: { force?: boolean } = {},
+): Promise<LibraryEntry[] | null> {
+  if (!options.force) {
+    const cached = scoreLibraryCache.get(PUBLIC_LIBRARY_CACHE_KEY);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    console.error('[scoreLibrary] Failed to fetch public scores: Supabase not configured.');
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from('scores')
+    .select('id, title, created_at, raw_xml, user_id, is_public')
+    .eq('is_public', true)
+    .order('title', { ascending: true });
+
+  if (error) {
+    if (error.message.includes('is_public')) {
+      console.warn(
+        '[scoreLibrary] Column scores.is_public is missing. Run playright/supabase/public_scores.sql in the Supabase SQL Editor.',
+      );
+      scoreLibraryCache.set(PUBLIC_LIBRARY_CACHE_KEY, []);
+      return [];
+    }
+
+    console.error('[scoreLibrary] Failed to fetch public scores:', error.message);
+    return null;
+  }
+
+  const entries = (data ?? []).map((row) => mapLibraryRow(row));
+  scoreLibraryCache.set(PUBLIC_LIBRARY_CACHE_KEY, entries);
+  return entries;
+}
+
 export async function fetchScoreById(
   id: string,
-  userId: string,
+  userId: string | null | undefined,
 ): Promise<SavedScore | null> {
   const supabase = getSupabase();
   if (!supabase) {
@@ -280,7 +378,6 @@ export async function fetchScoreById(
     .from('scores')
     .select(SCORE_SELECT_WITH_FINGERINGS)
     .eq('id', id)
-    .eq('user_id', userId)
     .single();
 
   if (error && isMissingManualFingeringsColumn(error.message)) {
@@ -290,7 +387,6 @@ export async function fetchScoreById(
       .from('scores')
       .select(SCORE_SELECT_BASE)
       .eq('id', id)
-      .eq('user_id', userId)
       .single();
 
     if (fallback.error) {
@@ -298,21 +394,40 @@ export async function fetchScoreById(
       return null;
     }
 
-    return {
+    const score = mapSavedScore({
       ...fallback.data,
       manual_fingerings: {},
-    };
+    });
+    return canAccessSavedScore(score, userId) ? score : null;
   }
 
   if (error) {
+    // Older DBs may lack is_public; retry without it and require ownership.
+    if (error.message.includes('is_public')) {
+      const fallback = await supabase
+        .from('scores')
+        .select('id, title, raw_xml, manual_fingerings, created_at, user_id')
+        .eq('id', id)
+        .single();
+
+      if (fallback.error) {
+        console.error('[scoreLibrary] Failed to fetch score:', fallback.error.message);
+        return null;
+      }
+
+      const score = mapSavedScore({
+        ...fallback.data,
+        is_public: false,
+      });
+      return canAccessSavedScore(score, userId) ? score : null;
+    }
+
     console.error('[scoreLibrary] Failed to fetch score:', error.message);
     return null;
   }
 
-  return {
-    ...data,
-    manual_fingerings: parseManualFingerings(data.manual_fingerings),
-  };
+  const score = mapSavedScore(data);
+  return canAccessSavedScore(score, userId) ? score : null;
 }
 
 export async function updateScoreManualFingerings(

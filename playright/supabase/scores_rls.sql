@@ -12,17 +12,30 @@ alter table public.scores add column if not exists user_id text;
 create index if not exists scores_user_id_created_at_idx
   on public.scores (user_id, created_at desc);
 
--- Remove shared-library policies
+-- Remove shared-library / legacy anon policies
+drop policy if exists "Allow anon read" on public.scores;
+drop policy if exists "Allow anon insert" on public.scores;
 drop policy if exists "scores_select_anon" on public.scores;
 drop policy if exists "scores_insert_anon" on public.scores;
 drop policy if exists "scores_delete_anon" on public.scores;
 drop policy if exists "scores_select_authenticated" on public.scores;
 drop policy if exists "scores_insert_authenticated" on public.scores;
 drop policy if exists "scores_delete_authenticated" on public.scores;
+drop policy if exists "scores_select_public" on public.scores;
 drop policy if exists "scores_select_own" on public.scores;
 drop policy if exists "scores_insert_own" on public.scores;
 drop policy if exists "scores_delete_own" on public.scores;
 drop policy if exists "scores_update_own" on public.scores;
+
+-- Public curated scores: readable by anyone (see also public_scores.sql)
+alter table public.scores
+  add column if not exists is_public boolean not null default false;
+
+create policy "scores_select_public"
+  on public.scores
+  for select
+  to anon, authenticated
+  using (is_public = true);
 
 -- Clerk JWT "sub" claim must match user_id (Clerk user id, e.g. user_...)
 create policy "scores_select_own"
