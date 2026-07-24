@@ -7,7 +7,7 @@ import type {
 } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
 
-/** Legacy localStorage key prefix — kept until historical crossover data has migrated. */
+/** Legacy localStorage key prefix, kept until historical crossover data has migrated. */
 export const MANUAL_HAND_OVERRIDES_PREFIX = 'playright-hand-overrides:';
 
 type LegacyHandOverrideKey = `${number}:${number}`;
@@ -102,7 +102,7 @@ function crossoverValue(
 
 /**
  * Converts legacy onset:midi hand overrides into manual_fingerings crossover entries
- * (onset:notatedHand:midi). Only touches main-note keys — grace notes are not in this map.
+ * (onset:notatedHand:midi). Only touches main-note keys, because grace notes are not in this map.
  */
 export function migrateLegacyHandOverrides(
   script: PlaybackScript,

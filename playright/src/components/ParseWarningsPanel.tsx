@@ -3,7 +3,7 @@ import { useEngineStore } from '../store/useEngineStore.ts';
 
 /**
  * Non-blocking, dismissible surface for the current piece's parse warnings.
- * Replaces the old alert() popups: warnings stack in one scrollable list and
+ * Replaces the old alert() popups. Warnings stack in one scrollable list and
  * clear automatically when a new piece loads.
  */
 export function ParseWarningsPanel() {

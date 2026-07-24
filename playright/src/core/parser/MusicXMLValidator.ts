@@ -29,7 +29,7 @@ const GraceNoteInfoSchema = z.object({
   stealTime: z.enum(['previous', 'following']).optional(),
 });
 
-/** Mirrors {@link StepOrder} — domain field is `order`, not `orderId`. */
+/** Mirrors {@link StepOrder}. The domain field is `order`, not `orderId`. */
 const StepOrderSchema = z.object({
   order: z.number().int().min(0),
   onset: z.number().int().min(0),

@@ -44,7 +44,7 @@ def build_feature_matrix(
     midi, is_chord, prev_finger, hand are given (structural/annotation facts,
     not derivable from pitch alone). prev_midi/next_midi are the immediate
     neighbor's midi within the same (piece, annotator, hand) sequence, or NaN
-    at sequence boundaries - prev_interval/next_interval are derived from
+    at sequence boundaries. prev_interval/next_interval are derived from
     these the same way fingeringModelFeatures.ts derives them from adjacent
     NoteEvents.
     """

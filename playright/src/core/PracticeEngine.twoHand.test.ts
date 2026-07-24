@@ -354,7 +354,7 @@ describe('PracticeEngine two-hand finger press', () => {
     flushAdvance();
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
     expect(useEngineStore.getState().isPracticeActive).toBe(true);
-    // L sounds twice (re-articulate on re-press) + R once; hits still count once each.
+    // L sounds twice (re-articulate on re-press) + R once. Hits still count once each.
     expect(audio.noteOn).toHaveBeenCalledTimes(3);
 
     engine.handleFingerRelease({ hand: 'L', finger: 1 });
@@ -387,12 +387,13 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.handleFingerRelease({ hand: 'L', finger: 1 });
     expect(audio.noteOn).toHaveBeenCalledTimes(1);
 
-    // Wrong finger: silent, no advance, no completion reset.
+    // A wrong finger stays silent, with no advance and no completion reset.
     engine.handleFingerPress({ hand: 'R', finger: 5 });
     expect(audio.noteOn).toHaveBeenCalledTimes(1);
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
-    // Re-press already-correct L1: must sound again; still incomplete.
+    // Re-pressing the already-correct L1 must sound again while the step
+    // stays incomplete.
     engine.handleFingerPress({ hand: 'L', finger: 1 });
     expect(audio.noteOn).toHaveBeenCalledTimes(2);
     expect(audio.noteOn).toHaveBeenLastCalledWith(48);
@@ -420,16 +421,18 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.start();
     expect(useEngineStore.getState().practiceGraceCursor).toBe(0);
 
-    // First press sounds; sticky second press (no release) must re-articulate
-    // via sustainNote before the position advances on the first hit.
+    // The first press sounds, and a sticky second press (no release) must
+    // re-articulate via sustainNote before the position advances on the
+    // first hit.
     engine.handleFingerPress({ hand: 'R', finger: 3 });
     expect(audio.noteOn).toHaveBeenCalledWith(69);
     // Position advances synchronously once the single grace is satisfied.
     expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
 
-    // On the main position: hit one chord tone, wrong press, re-press.
-    // (Single-note grace advances immediately, so same-position grace re-press
-    // after success is not reachable; main chord covers the principle.)
+    // On the main position, hit one chord tone, make a wrong press, then
+    // re-press. (A single-note grace advances immediately, so a same-position
+    // grace re-press after success is not reachable. The main chord covers
+    // the principle.)
     makeScript([
       {
         order: 0,

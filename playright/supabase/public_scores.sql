@@ -1,4 +1,4 @@
--- Public curated scores (readable by anyone; writable only by owner).
+-- Public curated scores (readable by anyone, writable only by the owner).
 -- Run in Supabase SQL Editor after scores_rls.sql and manual_fingerings.sql.
 --
 -- is_public: when true, SELECT is allowed for anon + authenticated via

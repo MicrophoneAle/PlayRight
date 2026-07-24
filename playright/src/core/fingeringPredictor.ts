@@ -33,7 +33,7 @@ export interface NoteEvent {
 
 /**
  * Distinct onset-grouping key for chord/phrase grouping (NOT the same as
- * stepIndex): a main event's key is its step, so simultaneous chord tones
+ * stepIndex). A main event's key is its step, so simultaneous chord tones
  * still group together unchanged. A grace event gets its OWN key per
  * (stepIndex, graceIndex) - graces before one main note are sequential, never
  * a chord, and must never merge into the main step's group even though they
@@ -63,7 +63,7 @@ export function extractHandTimelines(
         stepIndex,
         midi: grace.midi,
         authoredFinger,
-        // Zero-width: rides on the main attack's onset, same as playback
+        // Zero-width, so it rides on the main attack's onset, same as playback
         // timing (graceBefore does not advance the timeline). Scored purely
         // by pitch/finger like any regular note - transitionCost never reads
         // onset or duration.
@@ -91,7 +91,7 @@ export function extractHandTimelines(
   });
 
   // Within a step, graces (by graceIndex, engraved order) precede the main
-  // chord; main chord tones keep their original midi-ascending order.
+  // chord, while main chord tones keep their original midi-ascending order.
   const compareEvents = (left: NoteEvent, right: NoteEvent): number => {
     if (left.stepIndex !== right.stepIndex) {
       return left.stepIndex - right.stepIndex;
@@ -140,10 +140,10 @@ export const PHRASE_MIN_ONSET_GAP_DIVISIONS = 480;
  * constant's intent, which never engaged because real divisionsPerQuarter
  * values are 1-12). Set to 4 quarters, not the nominal 1 the old constant
  * implied at 480dpq. The gap measured here is ONSET-to-onset distance, not
- * rest length, so small thresholds shred ordinary melodies (2026-07-18
- * sweep: at 1 quarter chase RH went 2 phrases -> 68 and the gold benchmark
- * 36/59 -> ~22/59; at 2 quarters DP held 36 but ML+DP fell 38/59 -> 30/59 -
- * shorter phrases starve the emission model of context). 4 quarters keeps
+ * rest length, so small thresholds shred ordinary melodies (in the 2026-07-18
+ * sweep, at 1 quarter chase RH went 2 phrases -> 68 and the gold benchmark
+ * 36/59 -> ~22/59, while at 2 quarters DP held 36 but ML+DP fell 38/59 ->
+ * 30/59 because shorter phrases starve the emission model of context). 4 quarters keeps
  * chase bit-identical (36/59 DP, 38/59 ML) while real whole-measure-scale
  * rests finally split phrases on the other fixtures (kyrie L 3->11 phrases,
  * fanfare L 1->3, morns R 5->7, ...).
@@ -199,9 +199,9 @@ export function segmentIntoPhrases(
     return [];
   }
 
-  // Legacy fallback: callers that do not know the piece's divisions (older
-  // tests, synthetic 480-scale fixtures) keep the historical 480-division
-  // threshold bit for bit.
+  // As a legacy fallback, callers that do not know the piece's divisions
+  // (older tests, synthetic 480-scale fixtures) keep the historical
+  // 480-division threshold bit for bit.
   const restGapDivisions =
     divisionsPerQuarter !== undefined
       ? PHRASE_MIN_ONSET_GAP_QUARTERS * divisionsPerQuarter
@@ -288,11 +288,11 @@ export const SAME_FINGER_REPEATED_COST = 0;
 export const CONSECUTIVE_SAME_FINGER_PENALTY = 50_000;
 export const LEGAL_CROSSING_COST = 1.0;
 /**
- * A real thumb crossing covers a step or a third; beyond that the "crossing"
+ * A real thumb crossing covers a step or a third. Beyond that the "crossing"
  * is physically a reposition and should not undercut reposition-priced
  * alternatives. Spans over this many semitones pay
- * CROSSING_SPAN_COST_PER_SEMITONE for each extra semitone (2026-07-18
- * sweep: flat 1.0 crossings let 5-then-thumb-under-a-fifth beat every
+ * CROSSING_SPAN_COST_PER_SEMITONE for each extra semitone (in the 2026-07-18
+ * sweep, flat 1.0 crossings let 5-then-thumb-under-a-fifth beat every
  * properly repositioned hand frame on the chase 49-58 cluster).
  */
 export const CROSSING_SPAN_FREE_SEMITONES = 4;
@@ -310,10 +310,10 @@ export const CROSSING_WITH_FIFTH_COST = 300;
  * At an octave or more the hand repositions outright - no finger pair
  * "stretches" the interval, so the cubic gapDeviationPenalty (which reads
  * finger distance vs a notional stretch ideal) stops being meaningful and
- * mostly bans pedagogically normal reposition fingerings (chase 49-58: the
+ * mostly bans pedagogically normal reposition fingerings (in chase 49-58 the
  * gold C#4=2 -> C#5=3 across an octave scores 2700 under the cube - the DP
- * literally cannot choose it). Cap the deviation penalty for such leaps;
- * direction/bonus terms still apply.
+ * literally cannot choose it). Cap the deviation penalty for such leaps.
+ * Direction/bonus terms still apply.
  */
 export const LEAP_REPOSITION_SEMITONES = 12;
 export const LEAP_GAP_DEVIATION_CAP = 200;
@@ -331,47 +331,47 @@ export const REPEAT_PITCH_FINGER_MISMATCH = 2200;
  * Max onset gap (score divisions) between same-pitch notes still treated as one
  * short repeat run for finger-consistency enforcement.
  *
- * @deprecated 480-divisions-per-quarter assumption; on real fixtures
- * (divisionsPerQuarter 1-12) this window was effectively infinite, chaining
- * same-pitch notes many quarters apart into one "run" (e.g. chase's E4 lock
- * across a 2-quarter rest that drove the index 29-43 error cluster). Internal
- * run detection now uses REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS x
- * divisionsPerQuarter; this remains the legacy fallback scale.
+ * @deprecated Built on a 480-divisions-per-quarter assumption. On real
+ * fixtures (divisionsPerQuarter 1-12) this window was effectively infinite,
+ * chaining same-pitch notes many quarters apart into one "run" (e.g. chase's
+ * E4 lock across a 2-quarter rest that drove the index 29-43 error cluster).
+ * Internal run detection now uses REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS x
+ * divisionsPerQuarter, and this remains the legacy fallback scale.
  */
 export const REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS = 480;
 
 /**
  * Quarter-note version of the same-pitch run window, scaled per-piece by
- * divisionsPerQuarter (the original constant's design intent: 480 divisions =
- * one quarter at 480dpq).
+ * divisionsPerQuarter (the original constant's design intent, where 480
+ * divisions = one quarter at 480dpq).
  */
 export const REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS = 1;
 /**
  * Do not force finger cohesion across very long repeated-note passages (e.g.
- * extended tremolo); only the most recent short run is reinforced.
+ * extended tremolo). Only the most recent short run is reinforced.
  */
 export const REPEAT_PITCH_RUN_MAX_LENGTH = 12;
 export const RETURNING_PITCH_FINGER_MISMATCH = 500;
 /**
- * Superseding in-sequence rule: within one hand position, finger order must
- * follow pitch direction (RH up = higher finger, LH up = lower finger).
+ * The superseding in-sequence rule says that within one hand position, finger
+ * order must follow pitch direction (RH up = higher finger, LH up = lower finger).
  * Heavy enough to outweigh any ML emission preference and the
  * returning-pitch consistency penalty, so runs never come out as e.g.
  * 3-2-4 ascending. Legal thumb crossings and repositioning leaps
  * (> OUT_OF_SEQUENCE_MAX_INTERVAL semitones) are exempt. Non-crossing
  * reversals through the thumb (pivots) get the smaller
- * THUMB_PIVOT_REVERSAL_COST: a single pivot stays affordable, but chains of
- * thumb pivots (the degenerate 1-x-1-x ladder) accumulate enough cost to
+ * THUMB_PIVOT_REVERSAL_COST, so a single pivot stays affordable, but chains
+ * of thumb pivots (the degenerate 1-x-1-x ladder) accumulate enough cost to
  * lose to a proper in-sequence hand position.
  */
 export const OUT_OF_SEQUENCE_PENALTY = 8000;
 export const THUMB_PIVOT_REVERSAL_COST = 4000;
 export const OUT_OF_SEQUENCE_MAX_INTERVAL = 5;
 /**
- * Thumb-under onto a black key is classically avoided; without this
+ * Thumb-under onto a black key is classically avoided. Without this
  * surcharge the DP dodges the in-sequence rule by laddering cheap legal
- * crossings through black-key thumbs (2026-07 sweep: chase RH gold fell
- * 32/59 -> 22/59 until crossings onto black cost ~2000).
+ * crossings through black-key thumbs (in the 2026-07 sweep, chase RH gold
+ * fell 32/59 -> 22/59 until crossings onto black cost ~2000).
  */
 export const CROSSING_ONTO_BLACK_COST = 2000;
 export const OCTAVE_PAIR_BONUS = 2.5;
@@ -496,12 +496,12 @@ export function transitionCost(
 
   if (!inSequence && interval !== 0) {
     if (isLegalCrossing(hand, fPrev, fCur, actuallyAscending)) {
-      // Thumb-under onto a black key is classically avoided; surcharge it so
+      // Thumb-under onto a black key is classically avoided. Surcharge it so
       // the DP cannot ladder cheap crossings through black-key thumbs.
       const thumbUnderOntoBlack = fCur === 1 && isBlackKey(pCur);
-      // Interval- and finger-aware crossing price: a small crossing through
-      // 3 stays near-free; a wide span is really a reposition, and crossing
-      // with 5 is not a standard technique (see the constants' docs).
+      // The crossing price is interval- and finger-aware. A small crossing
+      // through 3 stays near-free, a wide span is really a reposition, and
+      // crossing with 5 is not a standard technique (see the constants' docs).
       const crossingFinger = fCur === 1 ? fPrev : fCur;
       cost =
         LEGAL_CROSSING_COST +
@@ -512,11 +512,11 @@ export function transitionCost(
         (crossingFinger === 5 ? CROSSING_WITH_FIFTH_COST : 0);
     } else {
       cost += CONTRACTION_BASE + CONTRACTION_PER_SEMITONE * absInterval;
-      // In-sequence rule: within a hand position (small interval), finger
-      // numbers must track pitch direction so runs never come out as e.g.
-      // 3-2-4 ascending. Repositioning leaps are exempt; non-crossing thumb
-      // reversals get the smaller pivot cost so a single pivot is usable but
-      // 1-x-1-x ladders lose to proper in-sequence fingering.
+      // The in-sequence rule says that within a hand position (small
+      // interval), finger numbers must track pitch direction so runs never
+      // come out as e.g. 3-2-4 ascending. Repositioning leaps are exempt, and
+      // non-crossing thumb reversals get the smaller pivot cost so a single
+      // pivot is usable but 1-x-1-x ladders lose to proper in-sequence fingering.
       if (absInterval <= OUT_OF_SEQUENCE_MAX_INTERVAL) {
         cost +=
           fPrev === 1 || fCur === 1
@@ -556,8 +556,8 @@ export function transitionCost(
   // the pitch direction - a genuine 1..5 hand frame spanning the interval.
   // Awarding it on crossings let the bonus (-250) turn a non-technique like
   // 5-over-1 across a fifth into the cheapest path by two orders of
-  // magnitude (measured on the river-flows F#3-C#4-F#4 LH arpeggio: 1-5-3
-  // totalled -241.5 vs the correct 5-3-1 at 1.5, decided entirely by this
+  // magnitude (measured on the river-flows F#3-C#4-F#4 LH arpeggio, where
+  // 1-5-3 totalled -241.5 vs the correct 5-3-1 at 1.5, decided entirely by this
   // bonus riding the zeroed-out crossing branch). Chord scoring
   // (scoreChordFingerAssignment) keeps the bonus unconditionally - chord
   // assignments are monotonic by construction, so no crossing can occur.
@@ -885,7 +885,7 @@ export async function fingerPhrase(
   hand: Hand,
   /**
    * Dead parameter kept only for positional compatibility (many callers pass
-   * later arguments): the hand-span preset never fed any cost term. See
+   * later arguments). The hand-span preset never fed any cost term. See
    * PredictFingeringOptions.spanScale for the retained public routing.
    */
   _spanScale?: number,
@@ -899,8 +899,8 @@ export async function fingerPhrase(
     return [];
   }
 
-  // Same legacy fallback as segmentIntoPhrases: no divisions info means the
-  // historical 480-division window.
+  // Same legacy fallback as segmentIntoPhrases, where no divisions info means
+  // the historical 480-division window.
   const repeatGapDivisions =
     divisionsPerQuarter !== undefined
       ? REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS * divisionsPerQuarter
@@ -1312,7 +1312,7 @@ function groupPhraseOnsets(phrase: NoteEvent[]): NoteEvent[][] {
 export async function fingerPhraseWithChords(
   phrase: NoteEvent[],
   hand: Hand,
-  /** Dead parameter kept for positional compatibility; see fingerPhrase. */
+  /** Dead parameter kept for positional compatibility. See fingerPhrase. */
   _spanScale?: number,
   startHome?: Record<Finger, number>,
   repeatFinger?: Finger,
@@ -1325,8 +1325,8 @@ export async function fingerPhraseWithChords(
   }
 
   const onsets = groupPhraseOnsets(phrase);
-  // Keyed by onsetGroupKey, NOT stepIndex: a grace and its main step share a
-  // stepIndex but must never collide here (trap #1 - see onsetGroupKey doc).
+  // Keyed by onsetGroupKey, NOT stepIndex, because a grace and its main step
+  // share a stepIndex but must never collide here (trap #1 - see onsetGroupKey doc).
   const chordFingersByGroup = new Map<string, (Finger | null)[]>();
   const onsetNotesByGroup = new Map<string, NoteEvent[]>();
   const representatives: NoteEvent[] = [];
@@ -1469,8 +1469,8 @@ async function predictFingersForHand(
     const startHome =
       phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
     const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
-    // Seed only across non-rest splits (frame-span/directional-run breaks);
-    // after a genuine rest the hand repositions freely.
+    // Seed only across non-rest splits (frame-span/directional-run breaks),
+    // since after a genuine rest the hand repositions freely.
     const temporallyAdjacent =
       previousEndOnset !== null &&
       phrase[0].onset - previousEndOnset < restGapDivisions;
@@ -1506,17 +1506,18 @@ async function predictFingersForHand(
 export interface PredictFingeringOptions {
   /**
    * Reserved routing for the user-facing hand-span preset (0.85/1/1.15 flows
-   * in here from the store as `handSpan`). 2026-07-18 dead-code audit: no
-   * cost term has ever consumed it, so it currently has NO effect on
-   * prediction. Kept (rather than deleted) because it is the store/UI's only
-   * conduit for a future span-aware cost model; removing it would churn the
-   * public signatures in useEngineStore/Lid/e2eHarness for zero behavior.
+   * in here from the store as `handSpan`). The 2026-07-18 dead-code audit
+   * found that no cost term has ever consumed it, so it currently has NO
+   * effect on prediction. Kept (rather than deleted) because it is the
+   * store/UI's only conduit for a future span-aware cost model, and removing
+   * it would churn the public signatures in useEngineStore/Lid/e2eHarness
+   * for zero behavior.
    */
   spanScale?: number;
-  /** When true, score-authored fingerings are replaced by prediction; manual always wins. */
+  /** When true, score-authored fingerings are replaced by prediction. Manual always wins. */
   overrideScore?: boolean;
   divisionsPerQuarter?: number;
-  /** ONNX cost blend; 0 = pure DP. Defaults to {@link ML_COST_WEIGHT}. */
+  /** ONNX cost blend, where 0 = pure DP. Defaults to {@link ML_COST_WEIGHT}. */
   mlCostWeight?: number;
 }
 
@@ -1543,9 +1544,9 @@ export async function predictFingering(
 
     for (const hand of HANDS) {
       // Graces first, in engraved (graceIndex) order, matching the emission
-      // order extractHandTimelines used to build fingersByHand[hand] - trap
-      // #2: the cursor must be advanced for every grace before any main note
-      // of this hand, or every subsequent finger in the script shifts by one.
+      // order extractHandTimelines used to build fingersByHand[hand]. Trap #2
+      // is that the cursor must be advanced for every grace before any main
+      // note of this hand, or every subsequent finger in the script shifts by one.
       step.graceBefore?.forEach((grace, graceIndex) => {
         if (grace.hand !== hand) {
           return;

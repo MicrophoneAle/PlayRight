@@ -2,17 +2,17 @@
 Trains the per-note fingering EMISSION model on pig_aggregated.csv
 (PIG dataset, Nakamura et al. 2020, academic use only).
 
-Architecture decision: this is NOT a sequence model. The model is a pointwise
-classifier P(finger | canonical 24-dim note features); at inference PlayRight
-converts its logits to per-note negative log-likelihood emission costs
-(getMLFingerCosts) that feed the existing Viterbi DP, which owns transitions
-and hand constraints. The MLP applies to the last tensor dim, so the exported
-ONNX keeps the exact interface aiFingeringInference.ts already speaks:
-note_sequence [batch, seq, 24] -> finger_logits [batch, seq, 5].
+The architecture decision is that this is NOT a sequence model. The model is
+a pointwise classifier P(finger | canonical 24-dim note features). At
+inference PlayRight converts its logits to per-note negative log-likelihood
+emission costs (getMLFingerCosts) that feed the existing Viterbi DP, which
+owns transitions and hand constraints. The MLP applies to the last tensor
+dim, so the exported ONNX keeps the exact interface aiFingeringInference.ts
+already speaks: note_sequence [batch, seq, 24] -> finger_logits [batch, seq, 5].
 
-Split: PIG standard - test = pieces 1-30 (the multi-annotator evaluation set,
-4-6 annotators each), train = pieces 31-150. Whole pieces only; no piece
-appears on both sides.
+The split follows the PIG standard, with test = pieces 1-30 (the
+multi-annotator evaluation set, 4-6 annotators each) and train = pieces
+31-150. The split uses whole pieces only, so no piece appears on both sides.
 """
 
 import json
@@ -47,7 +47,7 @@ def zero_prev_finger(features: np.ndarray) -> np.ndarray:
 
 
 class PerNoteEmissionMLP(nn.Module):
-    """Pointwise classifier: works on [batch, features] and [batch, seq, features]."""
+    """Pointwise classifier that works on [batch, features] and [batch, seq, features]."""
 
     def __init__(self, input_features, hidden_size=128, num_classes=5):
         super().__init__()
@@ -145,12 +145,12 @@ def evaluate(model, df, features, labels, is_test):
     acc_all_nf = 100 * (preds_nf == test_labels).mean()
     print(f"overall : {acc_all:.2f}% | {acc_all_nf:.2f}% (sentinel)")
 
-    # Match-against-any-annotator: only piece-hand groups where every
-    # annotator's midi sequence is identical (annotators sometimes assign
+    # Match-against-any-annotator uses only piece-hand groups where every
+    # annotator's midi sequence is identical. Annotators sometimes assign
     # notes to different hands, so per-hand sequences do not always align by
-    # seq_pos; the CSV has no onset column to realign on). Predictions use the
-    # first annotator's feature rows with prev_finger at sentinel, so they are
-    # annotator-independent.
+    # seq_pos, and the CSV has no onset column to realign on. Predictions use
+    # the first annotator's feature rows with prev_finger at sentinel, so
+    # they are annotator-independent.
     matched, compared, groups_used, groups_total = 0, 0, 0, 0
     for (_pid, hand), group in test_df.groupby(["piece_id", "hand"]):
         groups_total += 1
@@ -212,9 +212,9 @@ def export_onnx(model):
     )
     print("Wrote fingering_model.onnx (playright-ml/). Not copied to playright/public/ yet.")
 
-    # Contract shared with playright/src/core/fingeringModelFeatures.ts - keep
-    # this in sync with feature_spec.py; do not add data-fit scaler stats here,
-    # normalization is a fixed formula so both sides derive it identically.
+    # Contract shared with playright/src/core/fingeringModelFeatures.ts. Keep
+    # this in sync with feature_spec.py. Do not add data-fit scaler stats here,
+    # since normalization is a fixed formula and both sides derive it identically.
     feature_meta = {
         "_comment": (
             "Canonical feature contract shared by playright-ml/feature_spec.py "

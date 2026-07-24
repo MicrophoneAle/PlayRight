@@ -291,7 +291,7 @@ function orderedNotationsToRecord(notationChildren: unknown[]): RawRecord {
         slurStops.push(slurNumber);
       }
       // type="continue" is not membership-defining (start/stop alone bound a
-      // slur's range) - no bundled fixture uses it, confirmed by inspection.
+      // slur's range). No bundled fixture uses it, confirmed by inspection.
       continue;
     }
 
@@ -1055,7 +1055,7 @@ function collectScoreTiming(
     (entry) => isRecord(entry) && entry.part != null,
   );
 
-  // Divisions sampling still walks every part; the tempo map walks the first
+  // Divisions sampling still walks every part. The tempo map walks the first
   // part only (MusicXML tempo directions live on the top staff / first part).
   for (const partEntry of partEntries) {
     if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {

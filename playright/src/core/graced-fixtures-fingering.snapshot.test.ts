@@ -17,15 +17,16 @@ async function loadMxl(name: string): Promise<string> {
 }
 
 /**
- * Gold-fingering snapshot gate for the four fixtures with grace notes
- * (Phase 2: DP inclusion of graces shifts nearby main-note fingerings - a
- * pianist genuinely fingers around an ornament differently, verified
- * phrase/seed-chain-local to the triggering grace before this snapshot was
- * pinned; see the Phase 2 report for the full before/after diff). Any future
- * change to the DP that moves fingering on these pieces will show up as a
- * snapshot diff here, forcing a deliberate review rather than a silent shift.
+ * Gold-fingering snapshot gate for the four fixtures with grace notes. The
+ * Phase 2 DP inclusion of graces shifts nearby main-note fingerings because
+ * a pianist genuinely fingers around an ornament differently. That effect
+ * was verified phrase/seed-chain-local to the triggering grace before this
+ * snapshot was pinned (see the Phase 2 report for the full before/after
+ * diff). Any future change to the DP that moves fingering on these pieces
+ * will show up as a snapshot diff here, forcing a deliberate review rather
+ * than a silent shift.
  *
- * Pure DP (mlCostWeight: 0) for determinism - no ONNX model dependency.
+ * Runs pure DP (mlCostWeight: 0) for determinism, with no ONNX model dependency.
  */
 describe('graced fixtures gold fingering snapshot', () => {
   it.each([

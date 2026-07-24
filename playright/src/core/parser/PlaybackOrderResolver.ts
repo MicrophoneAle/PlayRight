@@ -1,5 +1,5 @@
 /**
- * R0 resolver: unrolls repeat/ending flow instructions into a PlaybackOrder —
+ * The R0 resolver unrolls repeat/ending flow instructions into a PlaybackOrder,
  * a flat list of { stepIndex, playbackOnset, passIndex } entries, one per
  * logical playback position, via a repeat-region stack walk over measures.
  *
@@ -318,7 +318,7 @@ export function resolvePlaybackOrder(
     const backward = tables.backwardAt.get(measureIdx);
     if (backward) {
       if (regionStack.length === 0) {
-        // Backward barline with no forward: repeat from the start of the score.
+        // A backward barline with no forward repeats from the start of the score.
         regionStack.push({ startIdx: 0, pass: 1 });
       }
       const region = regionStack[regionStack.length - 1];

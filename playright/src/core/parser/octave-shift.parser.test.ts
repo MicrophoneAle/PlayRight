@@ -9,9 +9,9 @@ const MORNS_PATH = new URL(
 );
 
 /**
- * MusicXML <pitch> is the SOUNDING pitch; <octave-shift> only tells the
+ * MusicXML <pitch> is the SOUNDING pitch, and <octave-shift> only tells the
  * renderer to engrave the passage an octave lower/higher with a bracket.
- * These tests lock the parser to that spec: MIDI comes straight from pitch
+ * These tests lock the parser to that spec. MIDI comes straight from pitch
  * data with no extra shift (a naive +12 "fix" would push morns' final E7 to
  * E8 = MIDI 112, off the piano, and the range guard would drop the note),
  * and direction elements never advance the P0-1 timeline.
@@ -27,7 +27,7 @@ describe('octave-shift directions', () => {
       ]),
     );
 
-    // Direction elements advance no time: onsets are exactly the note durations.
+    // Direction elements advance no time, so onsets are exactly the note durations.
     expect([...byOnset.keys()].sort((a, b) => a - b)).toEqual([0, 480, 960, 1440]);
 
     expect(byOnset.get(0)).toEqual(['C4:60:R', 'G2:43:L'].sort());
@@ -77,7 +77,7 @@ describe('octave-shift directions', () => {
 
     expect(leftHand).toEqual(['B3:59', 'E3:52']);
 
-    // P0-1 guard: octave-shift handling must never move the timeline.
+    // The P0-1 guard requires that octave-shift handling never move the timeline.
     expect(script[script.length - 1].onset).toBe(464);
   });
 });

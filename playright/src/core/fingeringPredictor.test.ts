@@ -103,10 +103,10 @@ describe('fingerPhrase', () => {
     const awkwardStretch = transitionCost('R', 3, 71, 5, 72);
     const thumbUnder = transitionCost('R', 4, 71, 1, 72);
     expect(thumbUnder).toBeLessThan(awkwardStretch);
-    // 2026-07-18 crossing redesign: crossings are finger-aware - through 3
-    // stays at base cost, through 4 carries the small second-choice
-    // surcharge. This 4-under-thumb still prices far below any stretch or
-    // structural penalty.
+    // Since the 2026-07-18 crossing redesign, crossings are finger-aware.
+    // Crossing through 3 stays at base cost, while through 4 carries the
+    // small second-choice surcharge. This 4-under-thumb still prices far
+    // below any stretch or structural penalty.
     expect(thumbUnder).toBeLessThanOrEqual(
       LEGAL_CROSSING_COST + CROSSING_WITH_FOURTH_COST,
     );
@@ -154,7 +154,7 @@ describe('fingerPhrase', () => {
     const fingers = await fingerPhrase(phrase, 'R');
     expect(fingers[1]).toBe(3);
     expect(fingers[0]).toBeLessThan(fingers[1]);
-    // 2026-07-18 crossing redesign: with D4 anchored to 3, continuing 3-4-5
+    // Since the 2026-07-18 crossing redesign, with D4 anchored to 3, continuing 3-4-5
     // would force a 5-crossing at G4 (now correctly priced as a
     // non-technique), so the DP crosses under right after the anchor instead
     // - 2-3-1-2-3, the textbook shape around a 3-anchor.
@@ -545,9 +545,10 @@ describe('predictFingering', () => {
       ),
     ).toEqual([1, 5]);
 
-    // LH mirror: thumb on the higher note (48), pinky on the lower (36) - see
-    // "prefers thumb and pinky for left-hand octaves" above for the full
-    // reasoning; was [5, 1] before the phraseStartCost LH sign-inversion fix.
+    // The LH mirror puts the thumb on the higher note (48) and the pinky on
+    // the lower (36). See "prefers thumb and pinky for left-hand octaves"
+    // above for the full reasoning. This returned [5, 1] before the
+    // phraseStartCost LH sign-inversion fix.
     expect(
       await fingerPhrase(
         [noteEvent(0, 48, 0), noteEvent(1, 36, 480)],

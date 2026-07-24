@@ -23,7 +23,7 @@ export function quarterNotesToSeconds(quarterNotes: number, bpm: number): number
 
 /**
  * BPM active at a document-order onset (canonical divisions). Entries must be
- * sorted by onset ascending; the last marking with onset <= target wins.
+ * sorted by onset ascending. The last marking with onset <= target wins.
  */
 export function tempoBpmAtOnset(
   tempoMap: TempoMapEntry[],
@@ -46,8 +46,8 @@ export function tempoBpmAtOnset(
 
 /**
  * Per-playback-entry BPM from the document-onset tempo map. Does not assume
- * monotonically increasing document onsets — repeat/jump orders may revisit
- * earlier onsets, and the map lookup stays keyed on score position.
+ * monotonically increasing document onsets, because repeat/jump orders may
+ * revisit earlier onsets. The map lookup stays keyed on score position.
  */
 export function tempoBpmsAlongPlaybackOrder(
   script: PlaybackScript,
@@ -76,7 +76,7 @@ export function tempoChangePlaybackEntryIndices(bpmsAlongOrder: number[]): numbe
 
 /**
  * Wall-clock seconds from musical quarter 0 through `endQuarterNotes`, walking
- * tempo-map segments. Used for library duration; play transport uses Tone BPM
+ * tempo-map segments. Used for library duration. Play transport uses Tone BPM
  * changes on the tick timeline instead.
  */
 export function quarterNotesToSecondsWithTempoMap(
@@ -165,7 +165,7 @@ export const PLAYBACK_STACCATO_DURATION_RATIO = 0.5;
 export const PLAYBACK_STACCATISSIMO_DURATION_RATIO = 0.3;
 
 /**
- * Play-mode fraction of a tenuto note's written length: the full value.
+ * Play-mode fraction of a tenuto note's written length, which is the full value.
  * Tenuto suppresses the normal articulation gap entirely (see
  * `basePlaybackDurationQuarterNotes`) rather than compounding with it -
  * the opposite of staccato's shortening.
@@ -200,31 +200,31 @@ export const PLAYBACK_FERMATA_MAX_EXTENSION_QUARTERS = 8;
 export interface PlaybackDurationOptions {
   /** Play through the full written length (no pre-release gap). */
   isFinalNote?: boolean;
-  /** Play mode only: extend held duration for fermata-marked notes. */
+  /** Extend held duration for fermata-marked notes (play mode only). */
   hasFermata?: boolean;
   /** Same hand+pitch re-attacks immediately at this note's written end. */
   followedByConsecutiveSameNote?: boolean;
-  /** Play mode only: shorten held duration for staccato-marked notes. */
+  /** Shorten held duration for staccato-marked notes (play mode only). */
   hasStaccato?: boolean;
-  /** Play mode only: shorten held duration further for staccatissimo-marked notes. */
+  /** Shorten held duration further for staccatissimo-marked notes (play mode only). */
   hasStaccatissimo?: boolean;
-  /** Play mode only: hold the full written duration, suppressing the articulation gap. */
+  /** Hold the full written duration, suppressing the articulation gap (play mode only). */
   hasTenuto?: boolean;
-  /** Play mode only: light separation for detached-legato (portato) notes. */
+  /** Light separation for detached-legato (portato) notes in play mode only. */
   hasDetachedLegato?: boolean;
-  /** Play mode only: shorten held duration for marcato-marked notes (loudness is a v1 no-op). */
+  /** Shorten held duration for marcato-marked notes in play mode only (loudness is a v1 no-op). */
   hasMarcato?: boolean;
   /**
-   * Play mode only: hold the full written length so this note connects legato
-   * into the next note of its voice (S1 consumer of ScriptNote.slurLegatoNext;
+   * Hold the full written length (play mode only) so this note connects legato
+   * into the next note of its voice (S1 consumer of ScriptNote.slurLegatoNext,
    * set on every slur member except the last). Yields to duration-shortening
-   * articulations (dots under a slur = portato: the note-level mark is the
-   * more specific instruction). Callers must clear this flag when the same
+   * articulations (dots under a slur = portato, where the note-level mark is
+   * the more specific instruction). Callers must clear this flag when the same
    * hand+pitch re-attacks at this note's release (suppressing the gap there
    * would merge two attacks into one continuous tone) -
    * notePlaybackDurationOptions does so from script adjacency via
    * slurLegatoBlockedByImmediateReattack. Only that IMMEDIATE case is a merge
-   * risk; the any-spacing followedByConsecutiveSameNote set (a pitch
+   * risk. The any-spacing followedByConsecutiveSameNote set (a pitch
    * recurring anywhere later, i.e. most notes in tonal music) must NOT gate
    * slur legato or the feature would be silently inert on real scores.
    */
@@ -319,13 +319,13 @@ function basePlaybackDurationQuarterNotes(
     return articulatedBaseQuarterNotes;
   }
 
-  // Slur legato: one alternative base-duration path (full written length, no
-  // gap), never a multiplier on top of another effect. Ordering is what
-  // enforces the precedence table: tenuto already returned above (idempotent
-  // - both resolve to the written length exactly once); a duration-shortening
+  // Slur legato is one alternative base-duration path (full written length,
+  // no gap), never a multiplier on top of another effect. Ordering is what
+  // enforces the precedence table. Tenuto already returned above (idempotent
+  // - both resolve to the written length exactly once), and a duration-shortening
   // articulation (staccato/staccatissimo/marcato/detached-legato) is the more
   // specific per-note instruction and wins by skipping this branch.
-  // Deliberately NOT gated on followedByConsecutiveSameNote: that set is
+  // Deliberately NOT gated on followedByConsecutiveSameNote, since that set is
   // any-spacing (see hasSlurLegatoNext's doc) - the immediate re-strike merge
   // risk is handled upstream by notePlaybackDurationOptions clearing the flag.
   if (options.hasSlurLegatoNext && !hasDurationShorteningArticulation(options)) {
@@ -830,8 +830,8 @@ export function buildFinalNoteKeySet(
 
 /**
  * True when this note's slur-legato release (the full written length) would
- * land on an immediate re-attack of the same hand+pitch: the very next step
- * attacks the same key at or before this note's written end. Only this
+ * land on an immediate re-attack of the same hand+pitch, meaning the very next
+ * step attacks the same key at or before this note's written end. Only this
  * immediate case can merge two attacks into one continuous tone - a later
  * recurrence of the pitch (buildConsecutiveSameNoteKeySet's any-spacing set)
  * lies beyond the suppressed release and is irrelevant to the slur.
@@ -867,7 +867,7 @@ export function notePlaybackDurationOptions(
   finalNoteKeys: Set<string>,
   consecutiveSameNoteKeys: Set<string>,
   fermataContext: FermataPlaybackContext,
-  /** Document script for immediate-reattack masking; omitted = flag passes through unmasked. */
+  /** Document script for immediate-reattack masking. When omitted the flag passes through unmasked. */
   script?: PlaybackScript,
   divisionsPerQuarter?: number,
 ): PlaybackDurationOptions {
@@ -944,8 +944,8 @@ export function buildStepPlaybackDurationQuarterNotesByStep(
     // note(s). A carry-forward step marks EVERY note as effectively
     // fermata'd (see effectiveNoteHasFermata), including notes that are
     // independently long for unrelated reasons (e.g. a bass note whose
-    // written length already spans multiple tied-together measures);
-    // letting that already-extended length drive the unify max would
+    // written length already spans multiple tied-together measures).
+    // Letting that already-extended length drive the unify max would
     // multiply an already-long duration by the fermata factor again.
     let referenceNotes = step.notes;
     if (unify && !step.notes.some((note) => note.hasFermata)) {

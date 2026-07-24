@@ -87,7 +87,7 @@ describe('extendScheduleWindow whole-script data caching', () => {
     // Simulate several more rolling-window extensions firing later in the
     // same playthrough (this is what a long/dense piece does many times).
     // Before the fix, each one rebuilt these whole-script structures from
-    // scratch; after the fix, the cache should absorb every extra call.
+    // scratch. After the fix, the cache should absorb every extra call.
     for (let i = 0; i < 5; i += 1) {
       (engine as unknown as { extendScheduleWindow: () => void }).extendScheduleWindow();
     }

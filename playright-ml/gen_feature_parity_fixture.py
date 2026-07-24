@@ -22,9 +22,9 @@ import pandas as pd
 from feature_spec import build_feature_matrix
 
 # R-hand phrase: C4 -> E4 -> [G4, C5] chord (stepIndex 0, 1, 2, 2).
-# Mirrors the flat per-hand NoteEvent sequence PlayRight's parser produces:
+# Mirrors the flat per-hand NoteEvent sequence PlayRight's parser produces.
 # prev/next are the immediate sequence neighbors, not filtered by chord
-# membership - matches fingeringModelFeatures.ts's phraseNotes[index-1/+1].
+# membership, which matches fingeringModelFeatures.ts's phraseNotes[index-1/+1].
 r_hand_midi = pd.Series([60, 64, 67, 72])
 r_hand_is_chord = pd.Series([0, 0, 1, 1])
 r_hand_prev_finger = pd.Series([0, 1, 3, 3])

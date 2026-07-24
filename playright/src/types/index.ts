@@ -7,7 +7,7 @@ export interface ScriptNote {
   midi: number;
   hand: Hand;
   finger: Finger | null;
-  /** Physical hand that plays this note (crossovers); defaults to notated hand when unset. */
+  /** Physical hand that plays this note (crossovers). Defaults to the notated hand when unset. */
   playingHand?: Hand;
   fingerSource?: 'score' | 'predicted' | 'manual';
   /** Note length in MusicXML divisions, when present in the score. */
@@ -33,9 +33,9 @@ export interface ScriptNote {
   hasDetachedLegato?: boolean;
   /**
    * True when this note connects legato into the next note of its voice under
-   * a `<slur>` - tie-like, durational only (see playbackTiming.ts consumer).
+   * a `<slur>`. Tie-like and durational only (see playbackTiming.ts consumer).
    * Set on every member of a slur's range except the last (the phrase-ending
-   * note plays its own gap normally). Absent by default; positive flag only.
+   * note plays its own gap normally). Absent by default, as a positive flag only.
    */
   slurLegatoNext?: boolean;
 }
@@ -54,7 +54,7 @@ export interface ScoreTiming {
   /**
    * All tempo markings in document order, keyed by canonical-division onset.
    * Always starts at onset 0 (DEFAULT or first marking back-filled). Play mode
-   * consults this map; practice is hit-based and ignores it.
+   * consults this map. Practice is hit-based and ignores it.
    */
   tempoMap: TempoMapEntry[];
   /** Canonical-division cursor after the full score timeline walk (includes rests). */
@@ -79,7 +79,7 @@ export interface PlaybackOrderEntry {
   stepIndex: number;
   /** Onset on the unrolled playback timeline, in canonical divisions. */
   playbackOnset: number;
-  /** 0-based visit count: how many times this step already appeared earlier in playback order. */
+  /** 0-based visit count of how many times this step already appeared earlier in playback order. */
   passIndex: number;
 }
 
@@ -93,12 +93,12 @@ export interface GraceNoteInfo {
   stealTime?: 'previous' | 'following';
   /**
    * Undefined until Phase 2 (DP auto-fingering) or score/manual capture
-   * populates it. Practice mode treats an undefined finger as "unfingered":
-   * a two-hand grace position requires a finger to be playable and is
+   * populates it. Practice mode treats an undefined finger as "unfingered".
+   * A two-hand grace position requires a finger to be playable and is
    * skipped until one exists (mirrors main-note chord-overflow filtering).
    */
   finger?: Finger;
-  /** Physical hand that plays this grace (crossovers); defaults to notated hand when unset. */
+  /** Physical hand that plays this grace (crossovers). Defaults to the notated hand when unset. */
   playingHand?: Hand;
   fingerSource?: 'score' | 'predicted' | 'manual';
 }
@@ -111,16 +111,17 @@ export interface StepOrder {
   measureNumber: number;
   notes: ScriptNote[];
   /**
-   * Grace note(s) immediately preceding this step's note/chord. Play-mode
-   * metadata: scheduled in PlaybackEngine, not fingered in practice/program.
-   * Does not advance onset — rides on the main note/chord it precedes.
+   * Grace note(s) immediately preceding this step's note/chord. This is
+   * play-mode metadata, scheduled in PlaybackEngine and not fingered in
+   * practice/program. It does not advance the onset and rides on the main
+   * note/chord it precedes.
    */
   graceBefore?: GraceNoteInfo[];
 }
 
 export type PlaybackScript = StepOrder[];
 
-/** Practice walk target: main step attack or a grace note preceding that step. */
+/** Practice walk target, either a main step attack or a grace note preceding that step. */
 export type PracticePosition =
   | { kind: 'main'; stepIndex: number }
   | { kind: 'grace'; stepIndex: number; graceIndex: number };
@@ -136,14 +137,14 @@ export interface PlayingPlaybackNote {
 }
 
 /**
- * Stable key for manual fingering overrides: onset:hand:midi (MusicXML divisions)
- * for a main note, or onset:hand:midi:g{graceIndex} for a grace note preceding
- * that onset. graceIndex is positional (graceBefore array index, engraved
+ * Stable key for manual fingering overrides. A main note uses onset:hand:midi
+ * (MusicXML divisions), and a grace note preceding that onset uses
+ * onset:hand:midi:g{graceIndex}. graceIndex is positional (graceBefore array index, engraved
  * order) rather than derived from pitch, so it disambiguates even when two
  * graces in the same run share both midi and hand. A grace can also share
  * onset+hand+midi with its own main note (e.g. river-flows-in-you steps 84,
- * 362, 397) - the trailing :g{n} is what keeps that pair from colliding into
- * one key. Pre-existing saves keyed by step index are not migrated and will
+ * 362, 397), and the trailing :g{n} is what keeps that pair from colliding
+ * into one key. Pre-existing saves keyed by step index are not migrated and will
  * not match after re-parse.
  */
 export type ManualFingeringKey =
@@ -155,7 +156,7 @@ export interface ManualFingeringAssignment {
   physicalHand: Hand;
 }
 
-/** Plain finger = same physical hand as notated; object records a cross-hand assignment. */
+/** A plain finger implies the same physical hand as notated. An object records a cross-hand assignment. */
 export type ManualFingeringValue = Finger | ManualFingeringAssignment;
 
 export type ManualFingeringMap = Partial<Record<ManualFingeringKey, ManualFingeringValue>>;
@@ -168,7 +169,7 @@ export function fingeringKey(
   return `${onset}:${hand}:${midi}`;
 }
 
-/** Key for a grace note's manual fingering; graceIndex is its position in graceBefore, not derived from pitch. */
+/** Key for a grace note's manual fingering. graceIndex is its position in graceBefore, not derived from pitch. */
 export function graceFingeringKey(
   onset: number,
   hand: Hand,
@@ -178,7 +179,7 @@ export function graceFingeringKey(
   return `${onset}:${hand}:${midi}:g${graceIndex}`;
 }
 
-/** Program captures fingers; edit reassigns a selected note (including cross-hand). */
+/** Program captures fingers. Edit reassigns a selected note (including cross-hand). */
 export type FingeringMode = 'off' | 'program';
 
 export interface SelectedFingeringNote {

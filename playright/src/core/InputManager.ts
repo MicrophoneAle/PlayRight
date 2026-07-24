@@ -538,7 +538,7 @@ export class InputManager {
   private readonly onFingerPress?: (mapping: FingerMapping) => void;
   private readonly onFingerRelease?: (mapping: FingerMapping) => void;
   private readonly activePhysicalKeys = new Set<string>();
-  /** One-hand: physical key code → MIDI attacked on keydown (persists across scope shifts). */
+  /** One-hand map of physical key code → MIDI attacked on keydown (persists across scope shifts). */
   private readonly heldNoteMidis = new Map<string, number>();
   private cachedScopeStart: number | null = null;
   private cachedTranspose: number | null = null;

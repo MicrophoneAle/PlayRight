@@ -1,7 +1,7 @@
 /**
- * R0 flow normalizer: surfaces per-measure playback-flow markup — <repeat>
- * (incl. times), <ending> (incl. comma-separated numbers and the discontinue
- * type), and <sound> jump attributes — from the raw preserve-order tree.
+ * The R0 flow normalizer surfaces per-measure playback-flow markup from the
+ * raw preserve-order tree, covering <repeat> (incl. times), <ending> (incl.
+ * comma-separated numbers and the discontinue type), and <sound> jump attributes.
  *
  * Flow instructions are read from the first part. When a multi-part score
  * carries disagreeing flow markup across parts, the disagreement is reported
@@ -11,7 +11,7 @@
 export interface RepeatFlowInstruction {
   kind: 'repeat';
   direction: 'forward' | 'backward';
-  /** Total passes through the repeated region (MusicXML times attribute; default 2). */
+  /** Total passes through the repeated region (MusicXML times attribute, default 2). */
   times: number;
 }
 
@@ -22,7 +22,7 @@ export interface EndingFlowInstruction {
   type: 'start' | 'stop' | 'discontinue';
 }
 
-/** MusicXML <sound> attributes that alter playback flow. Surfaced only in R0; not yet resolved. */
+/** MusicXML <sound> attributes that alter playback flow. Surfaced only in R0 and not yet resolved. */
 export const SOUND_JUMP_ATTRIBUTES = [
   'coda',
   'dacapo',

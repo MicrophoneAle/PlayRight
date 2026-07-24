@@ -37,9 +37,10 @@ import { PlaybackEngine } from './PlaybackEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 /**
- * P2-9 × R0 interaction: tempoMap is keyed by document-order onset; playback
- * order may revisit earlier onsets after repeats. No bundled asset has both
- * mid-score tempo changes and repeats, so these synthetic fixtures own the gate.
+ * These tests cover the P2-9 × R0 interaction. tempoMap is keyed by
+ * document-order onset, while playback order may revisit earlier onsets
+ * after repeats. No bundled asset has both mid-score tempo changes and
+ * repeats, so these synthetic fixtures own the gate.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -99,7 +100,7 @@ describe('tempoMap × playbackOrder interaction', () => {
       { onset: 0, bpm: 120 },
       { onset: 2, bpm: 60 },
     ]);
-    // Document: 5 measures × 1 step; playback revisits m2–m4 once.
+    // The document has 5 measures × 1 step, and playback revisits m2–m4 once.
     expect(playbackOrder.map((entry) => script[entry.stepIndex].measureNumber)).toEqual([
       1, 2, 3, 4, 2, 3, 4, 5,
     ]);
@@ -207,7 +208,8 @@ describe('tempoMap × playbackOrder interaction', () => {
 
   it('lookup is document-onset keyed: fabricated jump order still yields target BPM', () => {
     // Simulate a resolved D.C.-style jump in playbackOrder without waiting on
-    // sound-jump resolution: late slow region then back to opening onset.
+    // sound-jump resolution. The fabricated order visits the late slow region
+    // and then returns to the opening onset.
     const { script, scoreTiming } = parseMusicXmlToScript(TEMPO_DACAPO_SEEK_MUSICXML);
     const fabricatedOrder = [
       { stepIndex: 0, playbackOnset: 0, passIndex: 0 },

@@ -164,7 +164,7 @@ function removeOpenSlurNumber(
 
 /**
  * Every genuinely new note created in a voice while a slur is open becomes a
- * member - the XML `<slur>` tag only marks the start/stop note; notes in
+ * member. The XML `<slur>` tag only marks the start/stop note, and notes in
  * between inherit membership implicitly (mirrors how a chord sibling inherits
  * onset from its anchor by document-order position, not an explicit tag).
  * Tie-continuation notes (merge into an earlier ScriptNote, create nothing
@@ -188,9 +188,9 @@ function appendToOpenSlurs(
 
 /**
  * Open a slur accumulator. `firstMemberIndex` is null when the start lands on
- * a grace note (delegates to whatever main note appends next); a colliding
+ * a grace note (delegates to whatever main note appends next). A colliding
  * re-start silently discards the orphaned prior members (never finalized, so
- * nothing is ever mismarked) - same degrade-safe posture as registerOpenTie.
+ * nothing is ever mismarked), the same degrade-safe posture as registerOpenTie.
  */
 function openSlur(
   openSlurs: Map<string, number[]>,
@@ -207,10 +207,10 @@ function openSlur(
 }
 
 /**
- * Close a slur: every accumulated member except the last connects legato into
+ * Close a slur. Every accumulated member except the last connects legato into
  * the next note (the last member is the phrase-ending note and keeps its own
  * normal gap). A dangling/unopened stop or an empty (grace-to-grace) member
- * list is a safe no-op - nothing to mark either way.
+ * list is a safe no-op, since there is nothing to mark either way.
  */
 function closeSlur(
   openSlurs: Map<string, number[]>,
@@ -233,7 +233,7 @@ function closeSlur(
   removeOpenSlurNumber(openSlurNumbersByVoice, voiceKey, slurNumber);
 }
 
-/** Slur starts with no matching stop by end of the voice/piece: discard, warn, never invent legato to end-of-piece. */
+/** Slur starts with no matching stop by end of the voice/piece are discarded with a warning, never inventing legato to end-of-piece. */
 function clearDanglingOpenSlurs(
   openSlurs: Map<string, number[]>,
   absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
@@ -449,7 +449,7 @@ export interface MapToDomainResult {
   script: PlaybackScript;
   /** Canonical-division cursor after walking the full part timeline (includes rests). */
   finalTimelineDivisions: number;
-  /** Non-fatal parse notices (currently: dangling slur starts). */
+  /** Non-fatal parse notices (currently dangling slur starts). */
   warnings: string[];
 }
 
@@ -520,9 +520,9 @@ export class MusicXMLMapper {
 
           // Graces never become slur members (GraceNoteInfo carries no flag).
           // A stop delegates to whatever main note(s) already accumulated
-          // since the slur opened (empty when it never reached one - a
-          // grace-to-grace slur - a correct no-op). A start delegates
-          // forward: opened with no first member, seeded by the next new
+          // since the slur opened (empty when it never reached one, as in a
+          // grace-to-grace slur, which is a correct no-op). A start delegates
+          // forward, opened with no first member and seeded by the next new
           // note appended via appendToOpenSlurs below.
           const graceVoiceKey = voiceStreamKey(element);
           for (const slurNumber of element.slurStops) {
@@ -574,18 +574,18 @@ export class MusicXMLMapper {
         element.isTieStart && !element.isTieStop && openTies.has(tieKey);
 
       if (isTieEnd || isTieMiddle || isImplicitTieContinue) {
-        // Captured BEFORE merging: mergeOpenTie may delete this tie's entry
-        // when it closes. A tie-stop merges into an earlier ScriptNote
+        // Captured BEFORE merging, because mergeOpenTie may delete this tie's
+        // entry when it closes. A tie-stop merges into an earlier ScriptNote
         // rather than creating a new one, so a slur boundary on this element
-        // must resolve to that MERGED note, never a phantom new entry - and
+        // must resolve to that MERGED note, never a phantom new entry, and
         // never at all if the "tie" turns out to have no real predecessor
         // (mergeOpenTie finds nothing to merge into).
         const tieMergeTargetIndex = openTies.get(tieKey);
         mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, isTieEnd);
 
         if (tieMergeTargetIndex !== undefined) {
-          // No appendToOpenSlurs here: this note isn't a new voice member,
-          // it extends the already-accumulated merge target. Appending would
+          // No appendToOpenSlurs here. This note isn't a new voice member
+          // but extends the already-accumulated merge target. Appending would
           // double the merge target into the member list and, when a stop
           // lands on this same tie-continuation, wrongly mark it legato
           // instead of leaving it as the correctly-excluded last member.
@@ -631,8 +631,9 @@ export class MusicXMLMapper {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }
         // Chord siblings follow the anchor's slur membership by pure
-        // document-order position, same as ties: no chord-wide propagation,
-        // just the same append/stop/start sequence run for every new note.
+        // document-order position, same as ties. There is no chord-wide
+        // propagation, just the same append/stop/start sequence run for
+        // every new note.
         appendToOpenSlurs(openSlurs, openSlurNumbersByVoice, voiceKey, absoluteNotes.length - 1);
         for (const slurNumber of element.slurStops) {
           closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, voiceKey, slurNumber);

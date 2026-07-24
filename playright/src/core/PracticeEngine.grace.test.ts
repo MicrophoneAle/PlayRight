@@ -105,7 +105,7 @@ describe('PracticeEngine grace-note walk', () => {
       flushAdvance();
       expect(useEngineStore.getState().currentStepIndex).toBe(63);
       expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
-      // L-hand F#3 filtered out in one-hand R mode; only the R main note shows.
+      // L-hand F#3 is filtered out in one-hand R mode, so only the R main note shows.
       expect(useEngineStore.getState().expectedMidiNotes).toEqual([81]);
 
       engine.handleNoteOn(81);
@@ -129,7 +129,7 @@ describe('PracticeEngine grace-note walk', () => {
       flushAdvance();
       expect(useEngineStore.getState().currentStepIndex).toBe(16);
       expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
-      // L-hand notes filtered out in one-hand R mode; only F#5 (R) shows.
+      // L-hand notes are filtered out in one-hand R mode, so only F#5 (R) shows.
       expect(useEngineStore.getState().expectedMidiNotes).toEqual([78]);
 
       engine.handleNoteOn(78);

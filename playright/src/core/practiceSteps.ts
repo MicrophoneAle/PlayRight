@@ -19,9 +19,9 @@ import {
 import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
 
 /**
- * Derived practice-facing sequence: grace positions for step i precede
+ * Derived practice-facing sequence in which grace positions for step i precede
  * { kind: 'main', stepIndex: i } in graceBefore array (engraved) order.
- * PlaybackScript is unchanged; consumers opt in per Phase 1+.
+ * PlaybackScript is unchanged, and consumers opt in per Phase 1+.
  */
 export function buildPracticePositions(script: PlaybackScript): PracticePosition[] {
   const positions: PracticePosition[] = [];
@@ -45,15 +45,15 @@ export interface TwoHandStepNoteInfo {
   midi: number;
   finger: Finger | null;
   fingerSource?: ScriptNote['fingerSource'];
-  /** Position in graceBefore when this entry is a grace note; undefined for a main note. */
+  /** Position in graceBefore when this entry is a grace note, and undefined for a main note. */
   graceIndex?: number;
 }
 
 /**
  * Notes the user must hit to advance a MAIN step position in practice mode.
  * Grace notes are separate positions in the practice walk (see
- * buildPracticePositions / getPracticeNotesForPosition) — this function
- * intentionally covers step.notes only, main-step behavior unchanged.
+ * buildPracticePositions / getPracticeNotesForPosition), so this function
+ * intentionally covers step.notes only, leaving main-step behavior unchanged.
  */
 export function getPracticeNotes(
   step: StepOrder,
@@ -102,7 +102,7 @@ export function getPracticeNotesForPosition(
 }
 
 /**
- * Playable practice notes for a position: two-hand mode matches by finger, so
+ * Playable practice notes for a position. Two-hand mode matches by finger, so
  * a note without one (chord overflow on a main step, or an unfingered grace
  * before Phase 2 auto-fingering lands) cannot be pressed and must not block
  * completion.
@@ -119,10 +119,10 @@ export function getPlayablePracticeNotesForPosition(
 
 /**
  * True when a position has content the user must play. Main positions use
- * the pre-filter practice-note presence (unchanged from pre-Phase-1
- * behavior: a step search stops on ANY practice note, even one that later
- * turns out unplayable post chord-overflow filtering — existing behavior,
- * not something this phase changes). Grace positions use the playable-note
+ * the pre-filter practice-note presence, unchanged from pre-Phase-1
+ * behavior, where a step search stops on ANY practice note, even one that
+ * later turns out unplayable post chord-overflow filtering (existing
+ * behavior, not something this phase changes). Grace positions use the playable-note
  * count directly, since an unfingered grace must never become a stuck,
  * un-completable position in the walk.
  */
@@ -143,8 +143,8 @@ export function positionHasRequiredPracticeNotes(
 
 /**
  * True when a step, taken as a whole (its main notes OR any of its graces),
- * has something to practice. Strict superset of stepHasPracticeNotes: when a
- * step has no graces this reduces to exactly that call, so step-boundary
+ * has something to practice. This is a strict superset of stepHasPracticeNotes.
+ * When a step has no graces this reduces to exactly that call, so step-boundary
  * search/skip logic is unchanged for every non-graced fixture.
  */
 export function stepHasAnyPracticeContent(
@@ -210,8 +210,8 @@ export function firstPositionWithinStep(
 }
 
 /** Position-aware variant of getExpectedNoteForFinger, covering a grace's own finger too.
- * Returns the matching note even when it was already hit in the current position —
- * callers (PracticeEngine.handleFingerPress) use that for re-articulation while
+ * Returns the matching note even when it was already hit in the current position.
+ * Callers (PracticeEngine.handleFingerPress) use that for re-articulation while
  * completion marking separately no-ops on repeat hits.
  */
 export function getExpectedNoteForFingerAtPosition(
@@ -234,7 +234,7 @@ export function getExpectedNoteForFingerAtPosition(
     : null;
 }
 
-/** During play mode, every note in the step is shown; otherwise practice filtering applies. */
+/** During play mode, every note in the step is shown. Otherwise practice filtering applies. */
 export function getDisplayNotesForStep(
   step: StepOrder,
   playMode: boolean,
@@ -304,7 +304,7 @@ export function getExpectedNoteForFinger(
   );
 }
 
-/** Step notes sorted ascending by MIDI (stable tie-break: L before R). */
+/** Step notes sorted ascending by MIDI (stable tie-break puts L before R). */
 export function programStepNotesAscendingMidi(step: StepOrder): ScriptNote[] {
   return [...step.notes].sort((left, right) => {
     if (left.midi !== right.midi) {
@@ -351,14 +351,14 @@ export function programCurrentNote(
   return null;
 }
 
-/** Program-mode capture target: a grace note (own graceIndex) or a main step note. */
+/** A program-mode capture target is either a grace note (own graceIndex) or a main step note. */
 export type ProgramCaptureTarget =
   | { kind: 'main'; note: ScriptNote }
   | { kind: 'grace'; graceIndex: number; note: GraceNoteInfo };
 
 /**
- * First unassigned position to capture for this step's program-mode walk:
- * graces are captured before mains (graceIndex order), then the lowest
+ * First unassigned position to capture for this step's program-mode walk.
+ * Graces are captured before mains (graceIndex order), then the lowest
  * unassigned main note by ascending MIDI (programCurrentNote's rule). Null
  * once every grace and every main note has a manual fingering.
  */
@@ -382,8 +382,8 @@ export function programCurrentTarget(
 /**
  * Full capture-walk order for a step's refinger pass: every grace (graceIndex
  * order), then every main note (ascending MIDI, programStepNotesAscendingMidi's
- * order) — same order programCurrentTarget assigns in, so reprogramming from
- * index 0 revisits the step exactly as it was first captured.
+ * order). This is the same order programCurrentTarget assigns in, so
+ * reprogramming from index 0 revisits the step exactly as it was first captured.
  */
 export function programStepAllTargetsOrdered(step: StepOrder): ProgramCaptureTarget[] {
   const graceTargets: ProgramCaptureTarget[] = (step.graceBefore ?? []).map(
@@ -396,7 +396,7 @@ export function programStepAllTargetsOrdered(step: StepOrder): ProgramCaptureTar
 }
 
 /**
- * @deprecated Per-hand chord targeting; use programCurrentNote for MIDI-walk program mode.
+ * @deprecated Per-hand chord targeting. Use programCurrentNote for MIDI-walk program mode.
  */
 export function programTargetNote(
   step: StepOrder,
@@ -634,7 +634,7 @@ export function buildTwoHandStepNotesByMidi(
 
 /**
  * Step notes AND graces grouped by MIDI, for program-mode key/finger-label
- * display: unlike practice mode's single-position walk, program mode shows
+ * display. Unlike practice mode's single-position walk, program mode shows
  * every target in the step at once (assigned or not). Graces are tagged with
  * graceIndex so a grace sharing onset+hand+midi with its own main note (e.g.
  * river-flows-in-you step 84) renders as a distinct entry, not a merged one.
@@ -750,8 +750,8 @@ function findScriptNoteForPlayback(
 }
 
 /**
- * Two-hand fingering labels for play mode: union of all sounding notes plus the
- * current transport step so labels persist for full note duration.
+ * Two-hand fingering labels for play mode, the union of all sounding notes plus
+ * the current transport step so labels persist for full note duration.
  */
 export function buildTwoHandStepNotesByMidiFromPlayback(
   script: PlaybackScript | null,
@@ -883,7 +883,7 @@ export function buildTwoHandPhysicalKeysByMidiFromPlayback(
   return keysByMidi;
 }
 
-/** Physical key labels per MIDI; multiple keys when several fingers share a unison. */
+/** Physical key labels per MIDI, with multiple keys when several fingers share a unison. */
 export function buildTwoHandPhysicalKeysByMidi(
   script: PlaybackScript | null,
   stepIndex: number,
@@ -918,7 +918,7 @@ export function buildTwoHandPhysicalKeysByMidi(
   return keysByMidi;
 }
 
-/** Physical key labels per MIDI for program mode: every step target (graces + mains), not one position. */
+/** Physical key labels per MIDI for program mode, covering every step target (graces + mains) rather than one position. */
 export function buildTwoHandPhysicalKeysByMidiForProgram(
   script: PlaybackScript | null,
   stepIndex: number,

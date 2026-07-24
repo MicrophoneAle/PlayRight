@@ -122,7 +122,8 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
       `[visual-defer] tetoris runtime: total=${total} immediate=${immediatePresses} deferred=${deferredPresses} (${(100 * deferredFraction).toFixed(1)}%)`,
     );
 
-    // Before the fix this was ~96%; after, it should track narrowCount/totalAttacks (~10%).
+    // Before the fix this was ~96%. After the fix it should track
+    // narrowCount/totalAttacks (~10%).
     expect(deferredFraction).toBeLessThan(0.2);
     expect(deferredFraction).toBeCloseTo(narrowCount / totalAttacks, 1);
   }, 20000);
@@ -168,7 +169,8 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
     // Now the deferred timeout elapses.
     vi.advanceTimersByTime(50);
 
-    // Fix #2: must NOT re-light — the release already happened first.
+    // Fix #2 requires that the highlight must NOT re-light, because the
+    // release already happened first.
     expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
 
     vi.useRealTimers();

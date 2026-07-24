@@ -34,11 +34,11 @@ import { useEngineStore } from '../store/useEngineStore.ts';
 import type { ParseMusicXmlResult, PlaybackScript } from '../types/index.ts';
 
 /**
- * S1 schedule-level gates: slur gap suppression exercised through the REAL
- * PlaybackEngine + mocked Tone transport, against the real fixtures the S0
- * proposal reasoned about. Each claim the proposal made ("falls out for
- * free", "the clamp handles it") is asserted against replayed audio events,
- * not against design intent.
+ * These are the S1 schedule-level gates. Slur gap suppression is exercised
+ * through the REAL PlaybackEngine + mocked Tone transport, against the real
+ * fixtures the S0 proposal reasoned about. Each claim the proposal made
+ * ("falls out for free", "the clamp handles it") is asserted against
+ * replayed audio events, not against design intent.
  */
 
 const PPQ = 480;
@@ -170,7 +170,8 @@ describe('S1 slur schedule integration', () => {
     const ticksPerDivision = PPQ / dpq;
     const tables = buildDurationTables(script, dpq);
 
-    // Sanity: no fermatas in this fixture, so attack tick == playbackOnset.
+    // As a sanity check, this fixture has no fermatas, so attack tick ==
+    // playbackOnset.
     expect(tables.fermataContext.carryForwardSteps.size).toBe(0);
 
     const replay = await replayScore(parsed);
@@ -232,9 +233,10 @@ describe('S1 slur schedule integration', () => {
           tables.fermataContext,
         );
 
-        // Real-data split in these very measures: the melody-line slurs are
-        // same-pitch pairs (A4->A4 etc.) whose next step re-attacks the same
-        // key - the immediate-re-strike mask keeps their gap. Their octave
+        // The real data splits into two classes in these very measures. The
+        // melody-line slurs are same-pitch pairs (A4->A4 etc.) whose next
+        // step re-attacks the same key, so the immediate-re-strike mask
+        // keeps their gap. Their octave
         // doubling chord siblings (A5, B5, C6, ...) are NOT re-attacked at
         // the stop step (the stop chords have no sibling) and get genuine
         // full-length legato. Both semantics are asserted against replayed
@@ -243,12 +245,13 @@ describe('S1 slur schedule integration', () => {
           expect(expectedQuarters).toBeLessThan(written);
           immediateBlockedNotesChecked += 1;
         } else {
-          // The point of S1: gap suppressed, full written length.
+          // This is the point of S1. The gap is suppressed and the note
+          // keeps its full written length.
           expect(expectedQuarters).toBe(written);
           suppressedNotesChecked += 1;
         }
 
-        // Engine order: grace-window trim first, then the jump clamp.
+        // The engine applies the grace-window trim first, then the jump clamp.
         if (graceWindowStart !== null) {
           const release = attackQuarters + expectedQuarters;
           if (release > graceWindowStart && release <= nextAttackQuarters) {
@@ -273,16 +276,16 @@ describe('S1 slur schedule integration', () => {
       }
     }
 
-    // 6 flags in m24 + 8 in m25 + 6 in m60 + 8 in m61 (S0 pinned data); the
+    // 6 flags in m24 + 8 in m25 + 6 in m60 + 8 in m61 (S0 pinned data). The
     // first-ending measures play exactly once each. Both classes must be
     // present or the split assertion above proved nothing.
     expect(suppressedNotesChecked + immediateBlockedNotesChecked).toBe(28);
     expect(suppressedNotesChecked).toBeGreaterThan(0);
     expect(immediateBlockedNotesChecked).toBeGreaterThan(0);
-    // Real-data finding (reported, not assumed): unwelcome-school's slurs end
-    // one note before the repeat barline, so no FLAGGED note directly abuts a
-    // jump boundary here. The synthetic slur-across-jump test below covers
-    // that case explicitly.
+    // The real-data finding (reported, not assumed) is that
+    // unwelcome-school's slurs end one note before the repeat barline, so no
+    // FLAGGED note directly abuts a jump boundary here. The synthetic
+    // slur-across-jump test below covers that case explicitly.
     expect(anyFlaggedAdjacentToBoundary).toBe(false);
 
     // R1 gates must still hold with the longer slurred durations: all 8
@@ -311,8 +314,8 @@ describe('S1 slur schedule integration', () => {
     );
     expect(boundaryCrossings).toEqual([]);
 
-    // Pass-invariance: a repeated step (m18-22 / m54-58 regions) sounds each
-    // note for the same duration on both passes. Skip entries where the pass
+    // Pass-invariance means a repeated step (m18-22 / m54-58 regions) sounds
+    // each note for the same duration on both passes. Skip entries where the pass
     // adjacency legitimately differs (boundary-adjacent, or grace window of
     // the following entry differs between passes).
     const entriesByStep = new Map<number, number[]>();
@@ -382,7 +385,7 @@ describe('S1 slur schedule integration', () => {
     // m1(C D E F) m2(G A B C5 :|) m3(D E F G). Slur: m2's last note (C5) ->
     // m3's first note (D4) - written across the repeat barline. Unroll:
     // m1 m2 | m1 m2 | m3. On pass 1 the flagged C5 is the last entry before
-    // the backward jump; on pass 2 it flows into m3 contiguously.
+    // the backward jump. On pass 2 it flows into m3 contiguously.
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part-list>
@@ -426,12 +429,12 @@ describe('S1 slur schedule integration', () => {
     const parsed = parseMusicXmlToScript(xml);
     const { script, playbackOrder } = parsed;
 
-    // S0 pairing sanity: exactly one flagged note - m2's C5 - and the stop
-    // note (m3's D4) is NOT flagged.
+    // As an S0 pairing sanity check, exactly one note (m2's C5) is flagged,
+    // and the stop note (m3's D4) is NOT flagged.
     const flagged = script.flatMap((step) => step.notes.filter((note) => note.slurLegatoNext));
     expect(flagged).toHaveLength(1);
     expect(flagged[0].pitch).toBe('C5');
-    // Repeat unrolled: 4+4+4+4+4 entries, C5 played twice.
+    // With the repeat unrolled there are 4+4+4+4+4 entries, and C5 plays twice.
     expect(playbackOrder).toHaveLength(20);
 
     const replay = await replayScore(parsed);
@@ -442,18 +445,20 @@ describe('S1 slur schedule integration', () => {
       .sort((left, right) => left.tick - right.tick);
     expect(c5Records).toHaveLength(2);
 
-    // Pass 1 (tick 7q = 3360): boundary at 8q. Full written (1q) would cross
-    // it; the clamp must cap at 1 - 0.02 = 0.98q. If the clamp did NOT apply
-    // to slur-suppressed durations, this would read 480 ticks and FAIL; if
-    // slur suppression did not fire at all, it would read 463.2 and FAIL.
+    // On pass 1 (tick 7q = 3360) the boundary sits at 8q. The full written
+    // duration (1q) would cross it, so the clamp must cap at 1 - 0.02 =
+    // 0.98q. If the clamp did NOT apply to slur-suppressed durations, this
+    // would read 480 ticks and FAIL. If slur suppression did not fire at
+    // all, it would read 463.2 and FAIL.
     expect(c5Records[0].tick).toBe(7 * PPQ);
     expect(c5Records[0].durationTicks / PPQ).toBeCloseTo(
       1 - PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
       6,
     );
 
-    // Pass 2 (tick 15q): no boundary follows - the slur connects into m3 at
-    // the FULL written length. Pre-S1 value was 0.965q (gap) - FAIL if seen.
+    // On pass 2 (tick 15q) no boundary follows, so the slur connects into m3
+    // at the FULL written length. The pre-S1 value was 0.965q (gap), which
+    // must FAIL if seen.
     expect(c5Records[1].tick).toBe(15 * PPQ);
     expect(c5Records[1].durationTicks / PPQ).toBeCloseTo(1, 6);
 
@@ -461,7 +466,7 @@ describe('S1 slur schedule integration', () => {
     expect(boundaries).toHaveLength(1);
     expect(boundaries[0].tick).toBe(8 * PPQ);
 
-    // The slur's stop note (m3 first, D4=62) resumes its own gap: 0.965q.
+    // The slur's stop note (m3 first, D4=62) resumes its own gap of 0.965q.
     const d4M3 = audio.find((record) => record.tick === 16 * PPQ && record.midi === 62);
     expect(d4M3).toBeDefined();
     expect(d4M3!.durationTicks / PPQ).toBeCloseTo(0.965, 6);
@@ -481,9 +486,9 @@ describe('S1 slur schedule integration', () => {
     const dpq = baseline.scoreTiming.divisionsPerQuarter;
     const tables = buildDurationTables(baseline.script, dpq);
 
-    // Candidates: notes on the step immediately before a graced step whose
-    // written end abuts the graced attack (the melodic predecessor the grace
-    // steals its time from), on steps without fermata unification.
+    // Candidates are notes on the step immediately before a graced step
+    // whose written end abuts the graced attack (the melodic predecessor the
+    // grace steals its time from), on steps without fermata unification.
     interface Candidate {
       stepIndex: number;
       midi: number;
@@ -522,7 +527,7 @@ describe('S1 slur schedule integration', () => {
           continue;
         }
         const written = noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq);
-        // Abutting: written end == graced attack (within epsilon).
+        // Abutting means written end == graced attack (within epsilon).
         if (Math.abs(attackQuarters + written - nextAttackQuarters) > 1e-6) {
           continue;
         }
@@ -540,9 +545,10 @@ describe('S1 slur schedule integration', () => {
 
     const baselineReplay = await replayScore(baseline);
 
-    // Second run: identical score, but every candidate note carries the slur
-    // flag (as if a slur connected it into the graced note - the real
-    // notation pattern the 7 grace-slur tags in this fixture represent).
+    // The second run uses an identical score, but every candidate note
+    // carries the slur flag (as if a slur connected it into the graced note,
+    // the real notation pattern the 7 grace-slur tags in this fixture
+    // represent).
     resetMockTransport();
     const flaggedParse = await loadRiverFlows();
     for (const candidate of candidates) {
@@ -565,7 +571,7 @@ describe('S1 slur schedule integration', () => {
       expect(baselineRecord).toBeDefined();
       expect(flaggedRecord).toBeDefined();
 
-      // Both runs must land exactly on the grace window start: the trim caps
+      // Both runs must land exactly on the grace window start. The trim caps
       // the un-slurred release (written - gap intrudes into the window since
       // gap < the 0.125q-per-grace window) AND the slurred release (== next
       // attack). If the trim's `release <= nextAttack` boundary condition

@@ -35,8 +35,8 @@ import { predictFingering } from './fingeringPredictor.ts';
 import { parseMusicXmlToScript } from './parser/index.ts';
 
 /**
- * Bug 2: getMLFingerCosts previously caught init/inference failure and
- * returned [] with zero user-visible signal. These tests force each failure
+ * Bug 2 was that getMLFingerCosts previously caught init/inference failure
+ * and returned [] with zero user-visible signal. These tests force each failure
  * mode and confirm (a) the new signal actually fires (getLastMl
  * FingeringFallbackReason + a deduped console.warn), (b) fingering still
  * completes via the pure-DP fallback (no functional regression), and (c) the
@@ -77,9 +77,9 @@ describe('aiFingeringInference: ML fallback visibility', () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0][0]).toContain('init-failed');
 
-    // A second phrase hitting the SAME failure must not spam the console -
-    // the retry itself still happens (create is called again; not our
-    // scope to change), only the log is deduped.
+    // A second phrase hitting the SAME failure must not spam the console.
+    // The retry itself still happens (create is called again, which is not
+    // our scope to change), and only the log is deduped.
     const second = await getMLFingerCosts(notes as never, 'R');
     expect(second).toEqual([]);
     expect(create).toHaveBeenCalledTimes(2);
@@ -92,7 +92,7 @@ describe('aiFingeringInference: ML fallback visibility', () => {
 
     const notes = [noteEvent(60, 0), noteEvent(62, 480)];
 
-    // The core assertion: this must resolve, not reject. Before the fix,
+    // The core assertion is that this must resolve, not reject. Before the fix,
     // the unguarded `await activeSession.run(...)` let this exception
     // propagate uncaught out of getMLFingerCosts.
     await expect(getMLFingerCosts(notes as never, 'R')).resolves.toEqual([]);
@@ -152,8 +152,9 @@ describe('aiFingeringInference: ML fallback visibility', () => {
       divisionsPerQuarter: scoreTiming.divisionsPerQuarter,
     });
 
-    // Functional correctness of the fallback path itself: every note got a
-    // real finger (1-5), not null/undefined/NaN from a half-crashed path.
+    // This checks functional correctness of the fallback path itself. Every
+    // note got a real finger (1-5), not null/undefined/NaN from a
+    // half-crashed path.
     const allNotes = predicted.flatMap((step) => step.notes);
     expect(allNotes).toHaveLength(6);
     for (const note of allNotes) {
@@ -165,9 +166,9 @@ describe('aiFingeringInference: ML fallback visibility', () => {
   });
 
   it('no-session fallback (init resolves but leaves no session) is also visible, not silent', async () => {
-    // A stale generation: dispose() bumps initGeneration mid-flight, so the
-    // late create() resolves but discards itself, leaving session=null
-    // without ever throwing.
+    // This simulates a stale generation. dispose() bumps initGeneration
+    // mid-flight, so the late create() resolves but discards itself, leaving
+    // session=null without ever throwing.
     let resolveCreate!: (value: { release: typeof release; run: typeof run }) => void;
     create.mockReturnValueOnce(
       new Promise((resolve) => {

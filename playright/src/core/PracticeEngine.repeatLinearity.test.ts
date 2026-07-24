@@ -6,13 +6,14 @@ import type { PlaybackOrder, PlaybackScript } from '../types/index.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 /**
- * Q4 scope decision: practice mode ignores repeats. Run against the REAL
- * unwelcome-school fixture (625 document steps, 822-entry R0 playback order
- * across four repeat regions) rather than a synthetic stand-in: with the
- * real unrolled order sitting in the store, one-hand (R) practice-mode step
- * progression must stay strictly linear over the document-order script and
- * never touch currentPlaybackOrderIndex (play mode's alone â€” PracticeEngine
- * never reads playbackOrder or currentPlaybackOrderIndex by construction).
+ * The Q4 scope decision is that practice mode ignores repeats. Run against
+ * the REAL unwelcome-school fixture (625 document steps, 822-entry R0
+ * playback order across four repeat regions) rather than a synthetic
+ * stand-in. With the real unrolled order sitting in the store, one-hand (R)
+ * practice-mode step progression must stay strictly linear over the
+ * document-order script and never touch currentPlaybackOrderIndex, which
+ * belongs to play mode alone (PracticeEngine never reads playbackOrder or
+ * currentPlaybackOrderIndex by construction).
  */
 
 let realScript: PlaybackScript;
@@ -98,7 +99,7 @@ describe('practice-mode step progression with a repeat-unrolled playback order â
         break;
       }
 
-      // Press every expected R-hand pitch at once (handles real chords);
+      // Press every expected R-hand pitch at once (handles real chords).
       // registerPracticeHit marks every matching-pitch index per press, so a
       // single pass over the distinct midis is sufficient even for doubled
       // voices at the same pitch.
@@ -111,8 +112,8 @@ describe('practice-mode step progression with a repeat-unrolled playback order â
       flushAdvance();
 
       observedStepIndices.push(useEngineStore.getState().currentStepIndex);
-      // Practice must never touch play mode's playback-order position, at
-      // every intermediate tick â€” not just checked once at the end.
+      // Practice must never touch play mode's playback-order position. This
+      // is checked at every intermediate tick, not just once at the end.
       expect(useEngineStore.getState().currentPlaybackOrderIndex).toBe(0);
 
       iterations += 1;
@@ -122,21 +123,22 @@ describe('practice-mode step progression with a repeat-unrolled playback order â
     expect(iterations).toBeLessThan(maxIterations);
     expect(useEngineStore.getState().isPracticeActive).toBe(false);
 
-    // Non-decreasing at every recorded press: 12 real steps carry a
-    // graceBefore (appoggiatura/acciaccatura), and checkStepCompletion walks
-    // grace sub-positions before advancing currentStepIndex - so consecutive
-    // presses can legitimately repeat the same step index (grace, then main).
-    // What must NEVER happen is a decrease.
+    // The step index must be non-decreasing at every recorded press. 12 real
+    // steps carry a graceBefore (appoggiatura/acciaccatura), and
+    // checkStepCompletion walks grace sub-positions before advancing
+    // currentStepIndex, so consecutive presses can legitimately repeat the
+    // same step index (grace, then main). What must NEVER happen is a
+    // decrease.
     for (let i = 1; i < observedStepIndices.length; i += 1) {
       expect(observedStepIndices[i]).toBeGreaterThanOrEqual(
         observedStepIndices[i - 1],
       );
     }
 
-    // The actual repeat-linearity invariant: once a document step is left, it
-    // is never revisited - the strictly-increasing check applies to the set
-    // of DISTINCT step indices in visitation order, across all four real
-    // repeat boundaries (m16->m9, m25->m18, m36->m29, m61->m54).
+    // The actual repeat-linearity invariant is that once a document step is
+    // left, it is never revisited. The strictly-increasing check applies to
+    // the set of DISTINCT step indices in visitation order, across all four
+    // real repeat boundaries (m16->m9, m25->m18, m36->m29, m61->m54).
     const distinctVisitedInOrder = observedStepIndices.filter(
       (stepIndex, i) => i === 0 || stepIndex !== observedStepIndices[i - 1],
     );
@@ -147,8 +149,8 @@ describe('practice-mode step progression with a repeat-unrolled playback order â
     }
 
     // The real fixture has R-hand notes on most but not necessarily every one
-    // of the 625 steps (some steps may be L-hand only); confirm meaningful
-    // coverage rather than a near-empty walk.
+    // of the 625 steps (some steps may be L-hand only), so confirm
+    // meaningful coverage rather than a near-empty walk.
     expect(observedStepIndices.length).toBeGreaterThan(400);
   });
 });

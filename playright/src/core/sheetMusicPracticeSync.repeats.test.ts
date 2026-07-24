@@ -12,9 +12,9 @@ import type { Hand, PlaybackOrder, PlaybackScript } from '../types/index.ts';
 
 /**
  * R2 mocked-OSMD-cursor harness, run against the REAL unwelcome-school
- * fixture (src/assets/unwelcome-school.mxl) — not a synthetic stand-in.
+ * fixture (src/assets/unwelcome-school.mxl) rather than a synthetic stand-in.
  *
- * unwelcome-school is the only bundled asset with repeat barlines: four
+ * unwelcome-school is the only bundled asset with repeat barlines. It has four
  * regions with irregular volta shapes (see playback-order.repeats.test.ts for
  * the hand-derived measure walk this mirrors exactly):
  *
@@ -22,14 +22,14 @@ import type { Hand, PlaybackOrder, PlaybackScript } from '../types/index.ts';
  *   region 2: m17-25, replay m18-22  (3-measure ending block m23-25 dropped)
  *   region 3: m26-36, replay m29-35  (ending 1 = m36 only, dropped on replay)
  *   region 4: m37-61, replay m54-58  (3-measure tail m59-61, NO ending-2
- *             volta marking at all — playback just falls through once)
+ *             volta marking at all, so playback just falls through once)
  *   tail: m62-66
  *
  * script/playbackOrder here are the REAL parser output (625 document steps,
  * 822 unrolled entries, two hands, chords up to 5 notes, zero ties). Only the
- * OSMD cursor object itself is mocked (no live browser in this environment) —
- * every note, measure number, and repeat shape below is real. The walk is
- * built to mirror the REAL playbackOrder position-for-position: this encodes
+ * OSMD cursor object itself is mocked (no live browser in this environment).
+ * Every note, measure number, and repeat shape below is real. The walk is
+ * built to mirror the REAL playbackOrder position-for-position, which encodes
  * the standing assumption (undocumented and unverifiable without a live OSMD
  * render) that OSMD's own cursor iterator, which executes repeat jumps itself
  * (handleRepetitionsAtMeasureEnd), performs the SAME measure traversal R0's
@@ -180,7 +180,7 @@ describe('implicit duplicate-pass skipping (named regression guard) — real fix
     const walk = buildWalkFromRealPlaybackOrder(realScript, realPlaybackOrder);
     const { osmd } = makeMockOsmd(walk);
 
-    // No playbackOrder passed: identity-order matching must still resolve
+    // With no playbackOrder passed, identity-order matching must still resolve
     // every one of the 625 real document steps via forward scan through the
     // REAL 822-entry duplicated walk (four irregular volta regions), exactly
     // as it did against the synthetic single-region stand-in.
@@ -391,7 +391,7 @@ describe('syncSheetMusicPlaybackVisuals with a playback order — real fixture',
     );
     const cursorOffsetRef = { current: -1 };
 
-    // Order position 5 references whatever step sits there — not step 100.
+    // Order position 5 references whatever step sits there, not step 100.
     syncAt(harness, index, 100, 5, cursorOffsetRef);
 
     expect(cursorOffsetRef.current).toBe(index.stepCursorOffsets[100]);

@@ -18,9 +18,9 @@ export interface LibraryEntry {
   id: string;
   title: string;
   created_at: string;
-  /** Playback duration at the score's written tempo; null when XML could not be parsed. */
+  /** Playback duration at the score's written tempo, or null when XML could not be parsed. */
   durationSeconds: number | null;
-  /** Highest measure number in the score; null when XML could not be parsed. */
+  /** Highest measure number in the score, or null when XML could not be parsed. */
   measureCount: number | null;
   isPublic: boolean;
   userId: string | null;
@@ -115,7 +115,7 @@ export function parseManualFingerings(value: unknown): ManualFingeringMap {
   return overrides;
 }
 
-/** Musical length for library sorting: playback duration with measure-count fallback. */
+/** Musical length for library sorting, using playback duration with a measure-count fallback. */
 export function deriveLibraryEntryMetrics(rawXml: string): {
   durationSeconds: number | null;
   measureCount: number | null;
@@ -402,7 +402,7 @@ export async function fetchScoreById(
   }
 
   if (error) {
-    // Older DBs may lack is_public; retry without it and require ownership.
+    // Older DBs may lack is_public, so retry without it and require ownership.
     if (error.message.includes('is_public')) {
       const fallback = await supabase
         .from('scores')

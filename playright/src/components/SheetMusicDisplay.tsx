@@ -126,11 +126,11 @@ let repeatBarlineLayoutPatched = false;
 
 /**
  * OSMD places repeat-end SystemLines at `BorderRight - getLineWidth(...)`, and
- * its `formatVoices` ignores the width argument — it always `formatToStave`s to
- * the full VF stave. Inflating end instruction width therefore cancels out.
+ * its `formatVoices` ignores the width argument, so it always `formatToStave`s
+ * to the full VF stave. Inflating end instruction width therefore cancels out.
  *
- * Wrap assigned `formatVoices` for measures that end with a line-repetition:
- * temporarily shrink the stave while formatting so notes finish earlier, then
+ * Wrap assigned `formatVoices` for measures that end with a line-repetition.
+ * Temporarily shrink the stave while formatting so notes finish earlier, then
  * restore width so the system line still sits at the real measure end.
  */
 function ensureRepeatEndNoteClearance(): void {
@@ -200,8 +200,9 @@ function applyCompactSheetLayout(osmd: OpenSheetMusicDisplay): void {
   rules.MeasureRightMargin = 1.0;
   rules.VoiceSpacingMultiplierVexflow = 0.78;
   rules.VoiceSpacingAddendVexflow = 2.75;
-  // Format-time stave shrink before repeat-end (see patch above). Default 2.0 is
-  // for :||:; 8 OSMD units (~80px) is a clearly visible note→dot buffer.
+  // Format-time stave shrink before repeat-end (see patch above). The 2.0
+  // default suits :||:, while 8 OSMD units (~80px) leave a clearly visible
+  // note→dot buffer.
   rules.RepeatEndStartPadding = 8.0;
 }
 
@@ -276,8 +277,8 @@ function ensureSheetTopClearance(
  * OSMD can throw while calculating pedal brackets that span certain measure
  * boundaries (calculateSinglePedal reading undefined staffEntries), which
  * half-completes rendering and leaves everything after the crash without
- * graphical notes. PlayRight does not use pedal markings in playback; this is
- * a display-only fallback after a failed render, not the default path.
+ * graphical notes. PlayRight does not use pedal markings in playback, so this
+ * is a display-only fallback after a failed render, not the default path.
  */
 function stripPedalDirections(xml: string): string {
   return xml.replace(/<direction\b[^>]*>[\s\S]*?<\/direction>/g, (block) =>
@@ -329,7 +330,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const highlightedNotesRef = useRef<GraphicalNote[]>([]);
   const cursorOffsetRef = useRef(-1);
   const lastRenderedSizeRef = useRef<{ width: number; height: number } | null>(null);
-  /** A genuine container resize arrived mid-playback; re-render once playback stops. */
+  /** A genuine container resize arrived mid-playback, so re-render once playback stops. */
   const pendingPlaybackResizeRef = useRef(false);
   /** Lets effects outside the OSMD-lifecycle effect trigger a render. */
   const safeRenderRef = useRef<((rebuildIndex: boolean) => void) | null>(null);
@@ -372,16 +373,16 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   // This runs inside zustand subscribers and React effects, which in play
   // mode execute synchronously inside PlaybackEngine's Tone.js transport
   // callbacks (setStepIndex/setPlayingPlaybackNotes -> subscriber -> here).
-  // It must NEVER throw: an escaping exception propagates into Tone's
+  // It must NEVER throw, because an escaping exception propagates into Tone's
   // event-draining loop and permanently freezes step advancement. A failed
-  // sync is one skipped visual frame; the next store change retries.
+  // sync costs one skipped visual frame, and the next store change retries.
   //
   // During live playback the sync is COALESCED onto animation frames instead
-  // of running synchronously: dense bars fire dozens of press/release store
+  // of running synchronously. Dense bars fire dozens of press/release store
   // updates per second, and doing OSMD/DOM work (setColor, cursor moves,
   // layout reads for scroll) inside each transport callback starved Tone's
-  // scheduling lookahead - the audible "piece suddenly slows down" bug. One
-  // sync per frame reads the latest store state, so nothing is lost.
+  // scheduling lookahead, causing the audible "piece suddenly slows down"
+  // bug. One sync per frame reads the latest store state, so nothing is lost.
   const syncPracticeVisuals = () => {
     const state = useEngineStore.getState();
     if (state.playMode && state.isPlaybackActive && !state.isPlaybackPaused) {
@@ -468,13 +469,14 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       );
     }
 
-    // Program mode: mirror the keyboard — derive highlights from the current step
-    // directly so the staff stays green even when store expectedMidiNotes is stale.
+    // In program mode, mirror the keyboard and derive highlights from the current
+    // step directly so the staff stays green even when store expectedMidiNotes is
+    // stale.
     let expectedMidiNotes = state.expectedMidiNotes;
     // Program mode's capture target (grace or main) drives which glyph the
     // sheet highlights, reusing the same stepGraceGraphicalNotes lookup
-    // practice mode uses — a grace target lights only its own glyph, a main
-    // target falls back to the step's main-glyph highlight below.
+    // practice mode uses. A grace target lights only its own glyph, and a
+    // main target falls back to the step's main-glyph highlight below.
     let programGraceCursor: number | null = null;
     if (state.fingeringMode === 'program' && step) {
       practiceNotes = getDisplayNotesForStep(step, false, 'two-hand', state.activeHand);
@@ -566,7 +568,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       );
     } catch (err) {
       // Stale GraphicalNote DOM references (post re-render) must not break
-      // click handling; treat as "no note here" and let the index rebuild.
+      // click handling, so treat this as "no note here" and let the index rebuild.
       console.warn('[SheetMusicDisplay] pointer step resolve failed:', err);
       return null;
     }
@@ -686,11 +688,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     visualIndexGenerationRef.current += 1;
     stripPedalsForDisplayRef.current = false;
 
-    // autoResize is off: this component's ResizeObserver is the ONLY render
-    // authority. OSMD's internal window-resize handler re-renders behind our
-    // back, replacing the SVG and orphaning every GraphicalNote held by the
-    // visual index / highlight refs mid-playback - the root of the
-    // "deferred DOM Node" freeze at the measure 8-9 fermata.
+    // autoResize is off so that this component's ResizeObserver is the ONLY
+    // render authority. OSMD's internal window-resize handler re-renders
+    // behind our back, replacing the SVG and orphaning every GraphicalNote
+    // held by the visual index / highlight refs mid-playback, which was the
+    // root of the "deferred DOM Node" freeze at the measure 8-9 fermata.
     const osmd = new OpenSheetMusicDisplay(container, {
       autoResize: false,
       backend: "svg",
@@ -810,19 +812,19 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           if (isSelfInducedResize) {
             // Our own render (osmd.render(), marginTop/measure-number
             // adjustments, scrollbar toggling) nudged the box back to the
-            // size we just rendered at - not a genuine external resize.
-            // Ignoring it breaks the render -> resize -> render loop.
+            // size we just rendered at, which is not a genuine external
+            // resize. Ignoring it breaks the render -> resize -> render loop.
             return;
           }
 
           if (playbackRunning) {
             // NEVER re-render while the transport is live. A render replaces
             // OSMD's SVG, orphaning every GraphicalNote the visual index and
-            // highlight refs hold; the next sync then dies on stale deferred
+            // highlight refs hold. The next sync then dies on stale deferred
             // DOM nodes and (before the engine callbacks were hardened) froze
             // step advancement permanently. The current layout's notes remain
             // valid at any container size, so highlights and scroll keep
-            // working - the reflow is deferred until playback pauses/stops.
+            // working, and the reflow is deferred until playback pauses/stops.
             pendingPlaybackResizeRef.current = true;
             syncPracticeVisuals();
             return;
@@ -865,9 +867,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     };
   }, [musicXml]);
 
-  // Reflow deferred from mid-playback: when a genuine container resize
-  // arrived while the transport was live, the observer only flagged it.
-  // Run the full render + index rebuild once playback pauses or stops.
+  // Runs the reflow deferred from mid-playback. When a genuine container
+  // resize arrived while the transport was live, the observer only flagged
+  // it. Run the full render + index rebuild once playback pauses or stops.
   const playbackRunning = playMode && isPlaybackActive && !isPlaybackPaused;
   useEffect(() => {
     if (playbackRunning || !pendingPlaybackResizeRef.current) {

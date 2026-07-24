@@ -107,7 +107,7 @@ describe('slur pairing - real fixtures', () => {
       expect(slurWarnings).toEqual([]);
       expect(countSlurLegatoNotes(result)).toBe(fixture.expectedSlurLegatoCount);
 
-      // Explicit negative control (not just "count is 0"): iterate every note.
+      // As an explicit negative control (not just "count is 0"), iterate every note.
       if (ZERO_SLUR_FIXTURES.has(fixture.name)) {
         expect(everyNoteLacksSlurFlag(result.script)).toBe(true);
       }
@@ -123,7 +123,7 @@ describe('slur pairing - real fixtures', () => {
     // on the next E4. A chord sibling (A4) rides along by document-order
     // position on both the start and stop chord, per the chord-sibling rule.
     expect(flaggedPitches(m23Notes)).toEqual(['A4', 'E4']);
-    // Union, not 3x: exactly 2 notes flagged, not 6 (2 notes x 3 numbers).
+    // Union semantics, not 3x marking, so exactly 2 notes are flagged, not 6 (2 notes x 3 numbers).
     expect(m23Notes.filter((n) => n.slurLegatoNext === true)).toHaveLength(2);
   });
 
@@ -152,17 +152,17 @@ describe('slur pairing - real fixtures', () => {
 
     // Each measure holds three (m24/m60) or four (m25/m61) independent
     // start-chord/stop-chord slur pairs (anchor note + its chord sibling),
-    // verified directly against the raw XML: e.g. m24's first pair is
-    // A4(start, chord sibling A5) -> A4(stop) - the anchor and its sibling
-    // both connect legato into the repeated A4/A5 that follows, matching the
-    // documented chord-sibling-follows-anchor rule.
+    // verified directly against the raw XML. For example, m24's first pair is
+    // A4(start, chord sibling A5) -> A4(stop), where the anchor and its
+    // sibling both connect legato into the repeated A4/A5 that follows,
+    // matching the documented chord-sibling-follows-anchor rule.
     for (const measureNumber of [24, 60]) {
       const notes = notesAtMeasure(script, measureNumber);
       expect(flaggedPitches(notes)).toEqual(['A4', 'A5', 'B4', 'B5', 'C5', 'C6']);
     }
     for (const measureNumber of [25, 61]) {
       const notes = notesAtMeasure(script, measureNumber);
-      // Four pairs (C, D, F, D again) - key signature sharps C/D; D5/D6 legitimately repeats.
+      // Four pairs (C, D, F, D again) with key signature sharps C/D. D5/D6 legitimately repeats.
       expect(flaggedPitches(notes)).toEqual([
         'C#5',
         'C#6',

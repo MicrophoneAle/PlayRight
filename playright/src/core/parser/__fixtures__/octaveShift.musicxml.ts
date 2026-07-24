@@ -1,12 +1,12 @@
 /**
  * Octave-shift fixture. Per the MusicXML spec, <pitch> is always the SOUNDING
- * pitch; <octave-shift> is a notation-layer instruction (draw the notehead an
- * octave lower/higher with an 8va/8vb bracket). The parser must therefore use
- * pitch data as-is under a bracket — no additional MIDI shift — and direction
+ * pitch, while <octave-shift> is a notation-layer instruction (draw the notehead
+ * an octave lower/higher with an 8va/8vb bracket). The parser must therefore use
+ * pitch data as-is under a bracket, with no additional MIDI shift, and direction
  * elements must never advance the timeline.
  *
  * Staff 1 carries an 8va span (type="down", displayed lower than sounding)
- * containing a tied pair; staff 2 carries an 8vb span (type="up").
+ * containing a tied pair. Staff 2 carries an 8vb span (type="up").
  */
 export const OCTAVE_SHIFT_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">

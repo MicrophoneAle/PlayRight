@@ -7,7 +7,7 @@ import { parseMusicXmlToScript } from './index.ts';
 import type { ParseMusicXmlResult } from '../../types/index.ts';
 
 /**
- * R0 gate: repeat/ending resolution into PlaybackOrder.
+ * The R0 gate covers repeat/ending resolution into PlaybackOrder.
  *
  * unwelcome-school is the only bundled asset with repeat barlines (four
  * regions, volta endings incl. same-measure start+stop, discontinue type, and
@@ -17,8 +17,8 @@ import type { ParseMusicXmlResult } from '../../types/index.ts';
  *   1-16, 9-15, 17-25, 18-22, 26-36, 29-35, 37-61, 54-58, 62-66
  *
  * Every other bundled asset has zero repeat/ending/sound-jump markup, so
- * PlaybackOrder must be the exact identity mapping for them — the permanent
- * guard that this feature can never perturb non-repeat scores.
+ * PlaybackOrder must be the exact identity mapping for them. That serves as
+ * the permanent guard that this feature can never perturb non-repeat scores.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -123,7 +123,7 @@ describe('R0 PlaybackOrder: unwelcome-school repeat resolution', () => {
 
     expect(playbackOrder.length).toBe(script.length + replayedStepCount);
 
-    // Each document step appears at least once; replayed steps exactly twice.
+    // Each document step appears at least once, and replayed steps appear exactly twice.
     const visitCounts = new Map<number, number>();
     for (const entry of playbackOrder) {
       visitCounts.set(entry.stepIndex, (visitCounts.get(entry.stepIndex) ?? 0) + 1);

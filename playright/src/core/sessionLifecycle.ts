@@ -34,8 +34,8 @@ export function resetSessionOnPageHide(): void {
 
 /**
  * After a bfcache restore, clear stale runtime state. Re-init ONNX only when
- * ML was already loaded earlier in this page lifetime — never eagerly fetch
- * WASM/model for a session that never used auto-fingering.
+ * ML was already loaded earlier in this page lifetime, and never eagerly
+ * fetch WASM/model for a session that never used auto-fingering.
  */
 export async function restoreSessionAfterPageShow(
   persisted: boolean,

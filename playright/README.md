@@ -4,44 +4,44 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 
 ## Features
 
-- **Sheet music practice** — Renders scores with [OpenSheetMusicDisplay](https://opensheetmusicdisplay.org); highlights the current note(s) in green
-- **One-hand mode** — Practice left or right hand separately with an LH/RH toggle; computer keys map to a movable slice of the piano
-- **Two-hand mode** — Press finger keys (`Q`–`R`, `V`, `N`, `I`–`P`, `[`) to match predicted or score-provided fingerings; click keys on the virtual piano to override fingerings
-- **Program mode** — Step through the score and assign fingerings in score order; all notes in the current step highlight green on the sheet and keyboard, with an amber ring on the next note to assign; advances automatically when every note in the step is set; click a note on the staff to jump back and re-finger a step; fingerings autosave to the score library when signed in
-- **17-note core scope** — The playable window spans 17 semitones; the on-screen keyboard shows a 22-semitone display window (Shift through `]`) including low and high extension keys when needed
-- **Smart scope mapping** — Extension keys (`Shift`, Caps Lock, Tab, `Q`, `'`, `]`) are assigned contextually so labels stay aligned as you shift the window
-- **Scope shifting** — Arrow keys or `1`/`2` move the window; `↑`/`3` cycles shift distance (semitone, octave, or full 22-semitone range)
-- **Auto-fingering** — Predicts fingerings from the score with adjustable hand size (small / medium / large); respects MusicXML fingering markings and manual overrides
-- **Smart scrolling** — Anchors each staff line using the full vertical extent of that hand’s notes on the line; scrolls only when you reach a new line or content leaves the viewport
-- **Practice controls** — Start, pause, restart, and stop; practice mode is the default; chord steps require all notes before advancing
-- **Play mode** — Listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
-- **Score library** — Sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase)
-- **Settings** — Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
-- **Collapsible header** — More room for sheet music (`Z` to toggle)
+- **Sheet music practice** renders scores with [OpenSheetMusicDisplay](https://opensheetmusicdisplay.org) and highlights the current note(s) in green
+- **One-hand mode** lets you practice the left or right hand separately with an LH/RH toggle. Computer keys map to a movable slice of the piano
+- **Two-hand mode** lets you press finger keys (`Q`–`R`, `V`, `N`, `I`–`P`, `[`) to match predicted or score-provided fingerings. Click keys on the virtual piano to override fingerings
+- **Program mode** steps through the score and assigns fingerings in score order. All notes in the current step highlight green on the sheet and keyboard, with an amber ring on the next note to assign, and the step advances automatically when every note in it is set. Click a note on the staff to jump back and re-finger a step. Fingerings autosave to the score library when signed in
+- **17-note core scope** means the playable window spans 17 semitones. The on-screen keyboard shows a 22-semitone display window (Shift through `]`) including low and high extension keys when needed
+- **Smart scope mapping** assigns extension keys (`Shift`, Caps Lock, Tab, `Q`, `'`, `]`) contextually so labels stay aligned as you shift the window
+- **Scope shifting** moves the window with the arrow keys or `1`/`2`, while `↑`/`3` cycles shift distance (semitone, octave, or full 22-semitone range)
+- **Auto-fingering** predicts fingerings from the score with adjustable hand size (small / medium / large) and respects MusicXML fingering markings and manual overrides
+- **Smart scrolling** anchors each staff line using the full vertical extent of that hand’s notes on the line and scrolls only when you reach a new line or content leaves the viewport
+- **Practice controls** cover start, pause, restart, and stop. Practice mode is the default, and chord steps require all notes before advancing
+- **Play mode** lets you listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
+- **Score library** lets you sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase)
+- **Settings** cover Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode
+- **Collapsible header** gives more room for sheet music (`Z` to toggle)
 
 ### Program mode behavior
 
 Enable **Program** in Settings (under Fingering mode):
 
-- **Score-order assignment** — Press finger keys for the hand of the next unassigned note in the step. Wrong-hand presses are ignored.
-- **Full-step highlights** — Every note in the current step is green on the sheet music and virtual keyboard.
-- **Next-note hint** — The keyboard shows an amber ring on the next note to assign; the status bar shows LH/RH progress, the next pitch, and the upcoming step number.
-- **Chord steps** — Steps with multiple notes (e.g. LH chord + RH melody) require a finger press for each note before advancing.
-- **Sheet click-jump** — Click a note on the staff (deliberate click only; scroll/drag does not jump) to move the program step to that beat and re-finger its notes in score order. After the last note in that step is reassigned, the program advances to the next step automatically.
-- **Stable step index** — The program engine owns step progression; external code cannot change the step index in program mode. On session start, already-fingered steps from saved library data are skipped forward to the first incomplete step.
-- **Persistence** — Assignments are stored as manual fingerings in the `scores.manual_fingerings` JSON column and sync to Supabase when signed in (requires Clerk + Supabase + `manual_fingerings.sql`).
+- For **score-order assignment**, press finger keys for the hand of the next unassigned note in the step. Wrong-hand presses are ignored.
+- **Full-step highlights** mark every note in the current step green on the sheet music and virtual keyboard.
+- The **next-note hint** is an amber ring on the keyboard marking the next note to assign. The status bar shows LH/RH progress, the next pitch, and the upcoming step number.
+- **Chord steps**, meaning steps with multiple notes (e.g. LH chord + RH melody), require a finger press for each note before advancing.
+- **Sheet click-jump** lets you click a note on the staff to move the program step to that beat and re-finger its notes in score order. Only a deliberate click jumps, so scroll and drag do not. After the last note in that step is reassigned, the program advances to the next step automatically.
+- The **stable step index** means the program engine owns step progression, and external code cannot change the step index in program mode. On session start, already-fingered steps from saved library data are skipped forward to the first incomplete step.
+- For **persistence**, assignments are stored as manual fingerings in the `scores.manual_fingerings` JSON column and sync to Supabase when signed in (requires Clerk + Supabase + `manual_fingerings.sql`).
 
 ### Play mode behavior
 
 When play mode is enabled in Settings:
 
-- **Practice is the default** — Toggle play mode on to listen instead of step through manually.
-- **Visual sync** — Green highlights on the sheet music and keyboard follow the same press/release schedule. Longer notes stay highlighted until their scheduled release, not just until the next step in the script.
-- **Ties and chords** — Tied notes play through their combined duration; chord tones on the same beat start and release together.
-- **Articulation** — Non-tied notes include a short release gap before the next attack so repeated pitches re-articulate cleanly.
-- **Fermatas** — Fermata-marked notes hold for **2×** their normal played duration. Pickup fermatas into an immediately following sustained chord extend that chord (e.g. Constant Moderato measure 8). Integer Transport ticks and seek/release cleanup prevent playhead freeze and lingering notes.
-- **Keyboard in play mode** — Keys show green while a note is held and grey while it is sounding; scope labels and purple scope highlights are hidden. Computer piano keys are disabled.
-- **Transport** — Pause clears sounding highlights; stop returns to the beginning; **Replay** appears after the piece finishes.
+- **Practice is the default**, so toggle play mode on to listen instead of stepping through manually.
+- **Visual sync** keeps green highlights on the sheet music and keyboard following the same press/release schedule. Longer notes stay highlighted until their scheduled release, not just until the next step in the script.
+- For **ties and chords**, tied notes play through their combined duration, and chord tones on the same beat start and release together.
+- For **articulation**, non-tied notes include a short release gap before the next attack so repeated pitches re-articulate cleanly.
+- **Fermatas** make marked notes hold for **2×** their normal played duration. Pickup fermatas into an immediately following sustained chord extend that chord (e.g. Constant Moderato measure 8). Integer Transport ticks and seek/release cleanup prevent playhead freeze and lingering notes.
+- On the **keyboard in play mode**, keys show green while a note is held and grey while it is sounding, and scope labels and purple scope highlights are hidden. Computer piano keys are disabled.
+- For **transport**, pause clears sounding highlights, stop returns to the beginning, and **Replay** appears after the piece finishes.
 
 ### Keyboard shortcuts
 
@@ -67,7 +67,7 @@ Global shortcuts apply in every mode:
 | `Space` | Pause / resume |
 | `X` | Stop playback and return to start |
 
-During play mode, computer piano keys are disabled; LH/RH toggle and scope shift are disabled.
+During play mode, computer piano keys are disabled. The LH/RH toggle and scope shift are disabled as well.
 
 **One-hand mode**
 
@@ -135,7 +135,7 @@ VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 ```
 
-Clerk and Supabase are optional for local practice: you can import a file and practice in-session without signing in. Saving to the library requires both services configured.
+Clerk and Supabase are optional for local practice. You can import a file and practice in-session without signing in. Saving to the library requires both services configured.
 
 ### Supabase setup
 
@@ -190,17 +190,17 @@ playright/
 | `playbackTiming.ts` | Musical timing helpers (onsets, durations, articulation gap, piece end) |
 | `playingMidiPressTracker.ts` | Tracks overlapping presses by unique id (same pitch repeated consecutively) |
 | `AudioEngine.ts` | Tone.js sampler scheduling and release handling |
-| `InputManager.ts` | Keyboard → MIDI mapping for the active scope; two-hand finger routing |
+| `InputManager.ts` | Keyboard → MIDI mapping for the active scope and two-hand finger routing |
 | `scopeShift.ts` / `scopeAlign.ts` | Scope movement and alignment to the current step |
 | `twoHandMapping.ts` | Finger key → hand/finger mapping for two-hand mode |
 | `fingeringPredictor.ts` | Auto-fingering from score geometry and hand-span settings |
-| `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll; play-mode duration-aligned highlights |
+| `sheetMusicPracticeSync.ts` | OSMD highlighting and line-based scroll, plus play-mode duration-aligned highlights |
 | `parser/` | MusicXML/MXL → practice script (ties, chords, timing) |
 | `scoreLibrary.ts` | Supabase CRUD for saved scores and manual fingerings |
 
 ## Deployment
 
-The Vercel project root directory is `playright/`. Ensure environment variables are set in the Vercel project settings. OpenSheetMusicDisplay is declared in the parent `package.json`; install dependencies at the repo root before deploying if your CI does not do so automatically.
+The Vercel project root directory is `playright/`. Ensure environment variables are set in the Vercel project settings. OpenSheetMusicDisplay is declared in the parent `package.json`, so install dependencies at the repo root before deploying if your CI does not do so automatically.
 
 ## Roadmap
 

@@ -27,7 +27,7 @@ drop policy if exists "scores_insert_own" on public.scores;
 drop policy if exists "scores_delete_own" on public.scores;
 drop policy if exists "scores_update_own" on public.scores;
 
--- Public curated scores: readable by anyone (see also public_scores.sql)
+-- Public curated scores are readable by anyone (see also public_scores.sql)
 alter table public.scores
   add column if not exists is_public boolean not null default false;
 

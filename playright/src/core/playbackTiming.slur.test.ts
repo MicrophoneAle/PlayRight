@@ -19,7 +19,7 @@ import {
  * values are pinned numerically against the constants, never derived by
  * calling the function under test twice.
  *
- * Baseline values at written = 1 quarter: articulation gap = 0.035
+ * At written = 1 quarter, the baseline articulation gap = 0.035
  * (proportional, within [0.02, 0.05] clamps), so plain playback = 0.965.
  */
 
@@ -33,7 +33,7 @@ function duration(options: PlaybackDurationOptions): number {
 
 describe('slur gap suppression - base behavior', () => {
   it('suppresses the trailing gap on a slurred note (full written length)', () => {
-    // Pinned: pre-S1 this returned 0.965. If the branch does not fire, FAIL.
+    // This pins the fixed behavior. Pre-S1 this returned 0.965. If the branch does not fire, FAIL.
     expect(duration({ hasSlurLegatoNext: true })).toBe(SLUR_FULL);
   });
 
@@ -75,7 +75,7 @@ describe('slur precedence row 1: staccato family wins mid-slur (portato)', () =>
   });
 
   it('marcato mid-slur: duration component wins like the staccato family (NOT velocity-only in this codebase)', () => {
-    // Marcato here has a real duration ratio (0.7): 0.7 - 0.035 = 0.665.
+    // Marcato here has a real duration ratio (0.7), so 0.7 - 0.035 = 0.665.
     // The proposal called marcato "orthogonal (velocity domain)" - that does
     // not match the merged code, where marcato is a duration-shortening
     // articulation. It therefore takes the staccato-family precedence row.
@@ -90,7 +90,7 @@ describe('slur precedence row 2: tenuto idempotence', () => {
   it('tenuto mid-slur returns the written length exactly once (no double application)', () => {
     // Both tenuto and slur resolve to "full written". If they stacked in any
     // way (2x, written + written, written + gap-refund), this exact-equality
-    // check FAILS. Also pins which branch actually executed: tenuto's
+    // check FAILS. This also pins which branch actually executed. Tenuto's
     // suppressGap return happens BEFORE the slur branch, so this equals the
     // tenuto-alone value bit for bit.
     const both = duration({ hasTenuto: true, hasSlurLegatoNext: true });
@@ -101,9 +101,10 @@ describe('slur precedence row 2: tenuto idempotence', () => {
 });
 
 describe('slur precedence row 3: tenuto on the LAST note of a slur', () => {
-  // Three-note slurred passage: notes 0 and 1 carry slurLegatoNext (S0 marks
-  // all members except the last); note 2 is the last member and carries
-  // tenuto. Resolved through the real script-level pipeline, not raw options.
+  // In this three-note slurred passage, notes 0 and 1 carry slurLegatoNext
+  // (S0 marks all members except the last), while note 2 is the last member
+  // and carries tenuto. Resolved through the real script-level pipeline, not
+  // raw options.
   function passage(lastNote: Partial<ScriptNote>): PlaybackScript {
     const note = (midi: number, extra: Partial<ScriptNote> = {}): ScriptNote => ({
       pitch: 'C4',
@@ -165,10 +166,11 @@ describe('slur precedence row 3: tenuto on the LAST note of a slur', () => {
 
 describe('slur precedence row 4: accent orthogonality (velocity domain)', () => {
   it('hasAccent has no duration pathway: identical durations with and without it, slurred or not', () => {
-    // Traced in code: hasAccent is not a member of PlaybackDurationOptions at
-    // all, and notePlaybackDurationOptions never reads note.hasAccent -
-    // velocity is deferred entirely (PlaybackEngine scheduleAttackRelease
-    // comment). This test fails if anyone ever wires accent into duration.
+    // As traced in code, hasAccent is not a member of PlaybackDurationOptions
+    // at all, and notePlaybackDurationOptions never reads note.hasAccent.
+    // Velocity is deferred entirely (see the PlaybackEngine
+    // scheduleAttackRelease comment). This test fails if anyone ever wires
+    // accent into duration.
     const base: ScriptNote = {
       pitch: 'C4',
       midi: 60,
@@ -197,8 +199,8 @@ describe('slur precedence row 4: accent orthogonality (velocity domain)', () => 
 
 describe('slur precedence row 5: fermata composes AFTER the slur base', () => {
   it('fermata on a slurred note doubles the FULL written length (order of operations pinned)', () => {
-    // Actual execution order (playbackDurationQuarterNotes): base duration is
-    // chosen first (slur -> 1.0), THEN the fermata factor applies -> 2.0.
+    // In the actual execution order (playbackDurationQuarterNotes), the base
+    // duration is chosen first (slur -> 1.0), THEN the fermata factor applies -> 2.0.
     // If fermata ran first or the slur branch bypassed the fermata stage,
     // the value would be 1.0 or 1.93 instead - both FAIL here.
     expect(duration({ hasFermata: true, hasSlurLegatoNext: true })).toBe(2);
@@ -257,7 +259,7 @@ describe('slur precedence row 6: immediate same-pitch re-strike guard', () => {
   });
 
   it('a pitch recurring LATER (not immediately) does not block slur legato', () => {
-    // C4 slurred into D4; C4 recurs two steps later. The any-spacing
+    // C4 is slurred into D4, and C4 recurs two steps later. The any-spacing
     // consecutive set contains step 0's C4, but the slur target is D4 - no
     // merge risk. If the mask (or the base branch) consulted the any-spacing
     // set, this would return 0.945 and FAIL.
@@ -300,8 +302,8 @@ describe('slur precedence row 6: immediate same-pitch re-strike guard', () => {
     const finalKeys = buildFinalNoteKeySet(script, dpq);
     const fermataContext = buildFermataPlaybackContext(script, dpq);
     const consecutive = buildConsecutiveSameNoteKeySet(script, dpq);
-    // Sanity: the any-spacing set DOES contain step 0's C4 - the mask must
-    // see past it.
+    // Sanity check that the any-spacing set DOES contain step 0's C4, which
+    // the mask must see past.
     expect(consecutive.has('0:R:60')).toBe(true);
 
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
@@ -349,7 +351,7 @@ describe('slur precedence row 6: immediate same-pitch re-strike guard', () => {
     const finalKeys = buildFinalNoteKeySet(script, dpq);
     const fermataContext = buildFermataPlaybackContext(script, dpq);
     const consecutive = buildConsecutiveSameNoteKeySet(script, dpq);
-    // Sanity: the pipeline really classified step 0's C4 as re-struck.
+    // Sanity check that the pipeline really classified step 0's C4 as re-struck.
     expect(consecutive.has('0:R:60')).toBe(true);
 
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(

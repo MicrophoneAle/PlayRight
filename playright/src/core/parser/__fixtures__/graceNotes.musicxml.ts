@@ -1,4 +1,4 @@
-/** Acciaccatura (slash) immediately before a main quarter — onset must not advance. */
+/** Acciaccatura (slash) immediately before a main quarter. The onset must not advance. */
 export const ACCIACCATURA_BEFORE_MAIN_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part id="P1">
@@ -29,7 +29,7 @@ export const ACCIACCATURA_BEFORE_MAIN_MUSICXML = `<?xml version="1.0" encoding="
   </part>
 </score-partwise>`;
 
-/** Same score without the grace — baseline for onset-unchanged assertions. */
+/** Same score without the grace, a baseline for onset-unchanged assertions. */
 export const ACCIACCATURA_BASELINE_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part id="P1">

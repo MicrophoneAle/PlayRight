@@ -1,7 +1,7 @@
 /**
  * Mocked-transport replay harness (R1). Emulates the Tone.js Transport
- * semantics PlaybackEngine depends on — integer-tick "<N>i" scheduling,
- * equal-tick dispatch in insertion order, scheduleOnce/clear/cancel — so a
+ * semantics PlaybackEngine depends on (integer-tick "<N>i" scheduling,
+ * equal-tick dispatch in insertion order, scheduleOnce/clear/cancel) so a
  * full playback schedule (including repeat backward jumps) can be replayed
  * and inspected as text without a browser.
  *
@@ -9,11 +9,11 @@
  * actually hit in live playback:
  * - a callback throw wedging the transport queue (uncaughtCallbackErrors)
  * - fractional/NaN ticks that Tone's integer clock never matches, leaving
- *   events stranded forever (invalidTimes — the fermata-freeze bug)
+ *   events stranded forever (invalidTimes, the fermata-freeze bug)
  * - a hang where processing never completes (iterationLimitHit)
  * - events left neither fired nor cleared at the end (pendingEvents()).
  *
- * Test files wire this in via vi.mock('tone', ...) → getCurrentMockTransport().
+ * Test files wire this in via vi.mock('tone', ...) backed by getCurrentMockTransport().
  */
 
 export interface MockScheduledEvent {
@@ -29,10 +29,10 @@ export interface MockScheduledEvent {
 export interface MockTransportDiagnostics {
   /** scheduleOnce times that are not finite non-negative integer ticks. */
   invalidTimes: Array<{ id: number; rawTime: string | number }>;
-  /** Errors that escaped a callback (Tone would wedge; the mock records and continues). */
+  /** Errors that escaped a callback (Tone would wedge, but the mock records and continues). */
   uncaughtCallbackErrors: Array<{ id: number; tick: number; error: unknown }>;
   firedEventCount: number;
-  /** True when run() hit its iteration guard — the schedule never settled. */
+  /** True when run() hit its iteration guard, meaning the schedule never settled. */
   iterationLimitHit: boolean;
 }
 
@@ -61,7 +61,7 @@ export class MockTransport {
     this.ticks = 0;
   }
 
-  /** Accepts Tone's optional pause time; the mock only tracks state. */
+  /** Accepts Tone's optional pause time. The mock only tracks state. */
   pause(): void {
     this.state = 'paused';
   }
@@ -102,7 +102,7 @@ export class MockTransport {
     }
   }
 
-  /** Tone's Transport.cancel(after): drops every event at/after the tick. */
+  /** Mirrors Tone's Transport.cancel(after) by dropping every event at/after the tick. */
   cancel(afterTick: number): void {
     for (const event of this.events) {
       if (!event.fired && event.tick >= afterTick) {
@@ -112,10 +112,10 @@ export class MockTransport {
   }
 
   /**
-   * Dispatch pending events in (tick, insertionIndex) order — Tone fires
-   * equal-tick events in insertion order — until the transport pauses/stops,
+   * Dispatch pending events in (tick, insertionIndex) order (Tone fires
+   * equal-tick events in insertion order) until the transport pauses/stops,
    * nothing is left, or the iteration guard trips. Callbacks may schedule
-   * further events (rolling-window extensions); they join the queue live.
+   * further events (rolling-window extensions), which join the queue live.
    */
   run(maxIterations = 500_000): void {
     let iterations = 0;

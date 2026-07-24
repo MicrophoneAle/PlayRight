@@ -26,11 +26,12 @@ const graceStep: StepOrder = {
 const script = [graceStep];
 
 /**
- * v2 policy (Phase 1): grace notes are practice-mode walk positions, gated
- * through getPracticeNotesForPosition / buildPracticePositions rather than
- * getPracticeNotes (which stays main-step-only, unchanged - see below).
+ * Under the v2 policy (Phase 1), grace notes are practice-mode walk
+ * positions, gated through getPracticeNotesForPosition /
+ * buildPracticePositions rather than getPracticeNotes (which stays
+ * main-step-only, unchanged - see below).
  * Program mode (isProgramStepComplete, programStepExpectedMidis) now also
- * includes graceBefore (Phase 3): graceFingeringKey's onset:hand:midi:g{n}
+ * includes graceBefore (Phase 3). graceFingeringKey's onset:hand:midi:g{n}
  * suffix disambiguates a grace from a main note that shares its onset+hand
  * +midi, so capture/completion can require every grace to be assigned too.
  */
@@ -101,7 +102,7 @@ describe('practice mode grace policy (v2 - Phase 1)', () => {
       notes: [{ pitch: 'C3', midi: 48, hand: 'L', finger: null }],
       graceBefore: [{ midi: 76, pitch: 'E5', hand: 'R', kind: 'acciaccatura' }],
     };
-    // Main notes are LH-only; the grace is RH. One-hand R mode has no main
+    // Main notes are LH-only while the grace is RH. One-hand R mode has no main
     // practice notes here, but the step still has practicable content.
     expect(stepHasAnyPracticeContent([oneHandLh], 0, 'one-hand', 'R')).toBe(true);
   });

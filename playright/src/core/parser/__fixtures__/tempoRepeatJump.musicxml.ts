@@ -1,12 +1,12 @@
 /**
- * Repeat region with a mid-region tempo drop: proves second-pass BPM re-applies
+ * Repeat region with a mid-region tempo drop, proving second-pass BPM re-applies
  * from document onset after a backward jump (playback onsets are non-monotonic
  * in document order).
  *
  * Walk: m1 → m2 → m3 → m4 → (back) m2 → m3 → m4 → m5
  * Tempi by document onset: m1/m2 @120, m3+ @60
  * Expected BPM along playback: 120,120,60,60, 120,60,60, 60
- * Critical: second-pass m2 must return to 120 (not stay at 60 from m4).
+ * Critically, second-pass m2 must return to 120 (not stay at 60 from m4).
  */
 export const TEMPO_REPEAT_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
@@ -83,7 +83,7 @@ export const TEMPO_REPEAT_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 
 /**
  * Mid-score tempo change plus D.C. sound-jump markup. Sound jumps are not yet
- * resolved into PlaybackOrder; this fixture exercises seek-to-target tempo
+ * resolved into PlaybackOrder. This fixture exercises seek-to-target tempo
  * (the contract jump playback must honor once jumps land) and documents the
  * unresolved jump warning.
  *

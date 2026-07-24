@@ -72,7 +72,7 @@ export const STRONG_ACCENT_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 
 /**
  * Extended articulation detection: tenuto, staccatissimo, detached-legato
- * (portato), marcato, plain accent, and tenuto+accent — one note each.
+ * (portato), marcato, plain accent, and tenuto+accent, one note each.
  * Onsets must stay quarter-grid (P0-1 unchanged).
  */
 export const ARTICULATIONS_EXTENDED_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>

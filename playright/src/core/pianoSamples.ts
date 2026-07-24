@@ -1,5 +1,5 @@
-// Salamander Grand Piano — sparse sample set; Tone.Sampler repitches to fill all 88 keys.
-// Hosted by Tone.js (fine for prototyping). To self-host later: copy these files into
+// Salamander Grand Piano, a sparse sample set. Tone.Sampler repitches to fill all 88 keys.
+// Hosted by Tone.js (fine for prototyping). To self-host later, copy these files into
 // /public/audio/salamander/ and set PIANO_SAMPLE_BASE_URL to "/audio/salamander/".
 export const PIANO_SAMPLE_BASE_URL = "https://tonejs.github.io/audio/salamander/";
 export const PIANO_SAMPLE_URLS: Record<string, string> = {

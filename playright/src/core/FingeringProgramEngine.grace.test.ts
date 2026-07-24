@@ -96,7 +96,7 @@ describe('FingeringProgramEngine grace capture (Phase 3, P3-1)', () => {
     });
     engine.start();
 
-    // grace0: A4 (midi 69, R) must be the first capture target, not a main note.
+    // The first capture target must be grace0, A4 (midi 69, R), not a main note.
     expect(programCurrentTarget(step63, useEngineStore.getState().manualFingerings)).toMatchObject(
       { kind: 'grace', graceIndex: 0 },
     );
@@ -105,12 +105,12 @@ describe('FingeringProgramEngine grace capture (Phase 3, P3-1)', () => {
     expect(manualFingerings[graceFingeringKey(256, 'R', 69, 0)]).toBe(1);
     expect(isProgramStepComplete(step63, manualFingerings)).toBe(false);
 
-    // grace1: C#5 (midi 73, R) captured next.
+    // grace1, C#5 (midi 73, R), is captured next.
     engine.handleFingerPress({ hand: 'R', finger: 2 });
     manualFingerings = useEngineStore.getState().manualFingerings;
     expect(manualFingerings[graceFingeringKey(256, 'R', 73, 1)]).toBe(2);
 
-    // Both graces done -> mains walk starts (ascending MIDI: F#3=54 L, then A5=81 R).
+    // With both graces done, the mains walk starts (ascending MIDI: F#3=54 L, then A5=81 R).
     engine.handleFingerPress({ hand: 'L', finger: 5 });
     engine.handleFingerPress({ hand: 'R', finger: 4 });
 
@@ -118,7 +118,7 @@ describe('FingeringProgramEngine grace capture (Phase 3, P3-1)', () => {
     expect(state.manualFingerings[fingeringKey(256, 'L', 54)]).toBe(5);
     expect(state.manualFingerings[fingeringKey(256, 'R', 81)]).toBe(4);
     expect(isProgramStepComplete(state.script![0], state.manualFingerings)).toBe(true);
-    // Single-step script: completing it stops practice rather than advancing further.
+    // On a single-step script, completing it stops practice rather than advancing further.
     expect(state.isPracticeActive).toBe(false);
   });
 
@@ -167,7 +167,7 @@ describe('FingeringProgramEngine grace capture (Phase 3, P3-1)', () => {
     });
     engine.start();
 
-    // First pass: capture all four targets with an easily distinguishable finger set.
+    // The first pass captures all four targets with an easily distinguishable finger set.
     engine.handleFingerPress({ hand: 'R', finger: 1 }); // grace0
     engine.handleFingerPress({ hand: 'R', finger: 2 }); // grace1
     engine.handleFingerPress({ hand: 'L', finger: 5 }); // main L
@@ -231,8 +231,9 @@ describe('FingeringProgramEngine grace capture (Phase 3, P3-1)', () => {
           ? mapping.finger
           : { finger: mapping.finger, physicalHand: mapping.hand };
       // The hint computed BEFORE the press exactly identifies what the press
-      // just bound - proves the UI's "Next:" display can't drift from what
-      // handleFingerPress actually does, on both the normal capture walk...
+      // just bound, which proves the UI's "Next:" display can't drift from
+      // what handleFingerPress actually does, on both the normal capture
+      // walk...
       expect(after.manualFingerings[key]).toEqual(expectedValue);
     };
 

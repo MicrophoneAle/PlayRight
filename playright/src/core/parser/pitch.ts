@@ -25,7 +25,7 @@ export function isPlayablePitchStep(step: string): boolean {
   return NATURAL_PITCH_STEPS.has(letter);
 }
 
-/** Maps MusicXML `<accidental>` text to semitone alteration; unknown names yield null. */
+/** Maps MusicXML `<accidental>` text to semitone alteration. Unknown names yield null. */
 export function accidentalAlterFromText(text: string): number | null {
   const normalized = text.trim().toLowerCase().replace(/_/g, '-');
 

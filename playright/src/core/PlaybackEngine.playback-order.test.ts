@@ -22,14 +22,14 @@ import { useEngineStore } from '../store/useEngineStore.ts';
 import type { ParseMusicXmlResult } from '../types/index.ts';
 
 /**
- * R1 gate: PlaybackEngine schedules PlaybackOrder entries (repeat unrolling)
- * through a mocked Tone transport, replayed end to end.
+ * This is the R1 gate. PlaybackEngine schedules PlaybackOrder entries
+ * (repeat unrolling) through a mocked Tone transport, replayed end to end.
  *
  * The replay deliberately watches for the failure modes this project has
  * actually hit live: a scheduleOnce callback throw wedging the transport
  * queue, fractional ticks stranding events forever (the fermata freeze), and
  * events left uncleared. Those are asserted explicitly on every replay via
- * MockTransport.diagnostics — not assumed.
+ * MockTransport.diagnostics rather than assumed.
  */
 
 const here = new URL('.', import.meta.url).pathname;
@@ -189,8 +189,9 @@ function buildTinyScoreXml(options: { malformedRepeat: boolean }): string {
       )
       .join('');
 
-  // The malformed variant opens a volta that never closes: R0's resolver must
-  // refuse to unroll it and fall back to the identity mapping with a warning.
+  // The malformed variant opens a volta that never closes, so R0's resolver
+  // must refuse to unroll it and fall back to the identity mapping with a
+  // warning.
   const malformedBarlines = options.malformedRepeat
     ? {
         m2Left: '<barline location="left"><ending number="1" type="start"/></barline>',
@@ -290,7 +291,7 @@ describe('R1 PlaybackEngine over PlaybackOrder: unwelcome-school replay', () => 
       expect(boundary.seq).toBeLessThan(sameTickAttack!.seq);
     }
 
-    // Nothing keeps sounding across a jump: every audio note attacked before
+    // Nothing keeps sounding across a jump. Every audio note attacked before
     // a boundary is released (attack + duration) strictly before it.
     for (const boundaryTick of boundaryTicks) {
       for (const record of audio) {
@@ -316,7 +317,7 @@ describe('R1 PlaybackEngine over PlaybackOrder: unwelcome-school replay', () => 
     expect(replay.consoleErrors).toEqual([]);
 
     // ---- Text trace: full event log + boundary windows ----
-    // Equal-tick events sort by observed dispatch order (seq); computed
+    // Equal-tick events sort by observed dispatch order (seq). Computed
     // audio releases carry no dispatch seq and sort after at their tick.
     const traceEvents = [
       ...attacks.map((attack) => ({
@@ -369,8 +370,8 @@ describe('R1 PlaybackEngine over PlaybackOrder: unwelcome-school replay', () => 
     const parsed = await loadUnwelcomeSchoolScript();
     const replay = await replayScore(parsed, { audioThrows: true });
 
-    // The engine's try/catch pattern must swallow every injected failure:
-    // nothing escapes into the transport queue, and the schedule still runs
+    // The engine's try/catch pattern must swallow every injected failure, so
+    // nothing escapes into the transport queue and the schedule still runs
     // to completion (this is the wedge scenario checked deliberately).
     expect(replay.transport.diagnostics.uncaughtCallbackErrors).toEqual([]);
     expect(replay.transport.diagnostics.iterationLimitHit).toBe(false);
@@ -405,7 +406,7 @@ describe('R1 identity property: non-repeat fixtures schedule exactly as before',
       const replay = await replayScore(parsed);
 
       // simulatePlaybackAttackSchedule is the untouched pre-R1 mirror of
-      // document-order scheduling; with the identity mapping the entry-based
+      // document-order scheduling. With the identity mapping the entry-based
       // engine must reproduce it tick for tick, with no special-casing.
       const reference = simulatePlaybackAttackSchedule(
         parsed.script,
@@ -459,7 +460,7 @@ describe('R1 identity-fallback safety net: malformed repeat markup', () => {
     resetMockTransport();
     const cleanReplay = await replayScore(clean);
 
-    // The scheduling trace must be byte-identical: the fallback is
+    // The scheduling trace must be byte-identical because the fallback is
     // load-bearing at R1, not just at parse time.
     expect(JSON.stringify(malformedReplay.attacks)).toBe(
       JSON.stringify(cleanReplay.attacks),

@@ -128,7 +128,7 @@ function stopPracticeSession(): void {
   practiceEngine.stop();
 }
 
-/** Pause practice without resetting step — used when entering fingering program mode. */
+/** Pause practice without resetting the step. Used when entering fingering program mode. */
 function suspendPracticeForFingeringMode(): void {
   practiceEngine.suspendForFingeringMode();
 }
@@ -145,14 +145,15 @@ const ML_FINGERING_FALLBACK_WARNING =
   'Auto-fingering AI model failed to load - using rule-based fingering instead.';
 
 /**
- * Non-blocking visibility for a silent ML fingering degradation (bug: the DP
- * fallback itself is intentional/reasonable, but previously had zero
- * user-facing signal). Reuses the existing parse-warnings toast rather than a
- * new bespoke indicator - same non-blocking, dismissible severity as a parse
- * notice, and keeps fingeringPredictor.ts/aiFingeringInference.ts store-
- * agnostic (only this call site touches both). Call after any auto-fingering
- * attempt; a no-op when ML is disabled or the attempt succeeded, and clears
- * the message again once ML recovers.
+ * Non-blocking visibility for a silent ML fingering degradation (the DP
+ * fallback itself is intentional and reasonable, but the bug was that it
+ * previously had zero user-facing signal). Reuses the existing parse-warnings
+ * toast rather than a new bespoke indicator, keeping the same non-blocking,
+ * dismissible severity as a parse notice while leaving
+ * fingeringPredictor.ts/aiFingeringInference.ts store-agnostic (only this
+ * call site touches both). Call after any auto-fingering attempt. It is a
+ * no-op when ML is disabled or the attempt succeeded, and clears the message
+ * again once ML recovers.
  */
 export function surfaceMlFingeringFallbackWarning(autoFingeringWasRequested: boolean): void {
   if (!autoFingeringWasRequested) {
@@ -233,14 +234,14 @@ interface EngineState {
   songTitle: string | null;
   scoreId: string | null;
   scoreTiming: ScoreTiming | null;
-  /** Unrolled repeat/ending playback sequence (R0); null means identity (no repeats). */
+  /** Unrolled repeat/ending playback sequence (R0), where null means identity (no repeats). */
   playbackOrder: PlaybackOrder | null;
   manualFingerings: ManualFingeringMap;
   fingeringMode: FingeringMode;
   selectedFingeringNote: SelectedFingeringNote | null;
   /** Keys `${hand}:${midi}` assigned in the current program step (transient UI). */
   programAssignedKeys: string[];
-  /** Score-order note index to (re)assign after a sheet click-jump; null = normal capture. */
+  /** Score-order note index to (re)assign after a sheet click-jump. Null means normal capture. */
   programRefingerNoteIndex: number | null;
   scopeStartMidi: number;
   scopeTranspose: number;
@@ -251,9 +252,9 @@ interface EngineState {
   overrideScoreFingerings: boolean;
   engineMode: EngineMode;
   activeHand: Hand;
-  /** Set by PracticeEngine; false when paused, stopped, or not yet started. */
+  /** Set by PracticeEngine. False when paused, stopped, or not yet started. */
   isPracticeActive: boolean;
-  /** Index into the current step's graceBefore array; null = at the main note or none. */
+  /** Index into the current step's graceBefore array. Null means at the main note or none. */
   practiceGraceCursor: number | null;
   /** True after Start is pressed for the current piece (enables Restart). */
   hasPracticeStarted: boolean;
@@ -270,13 +271,13 @@ interface EngineState {
   headerCollapsed: boolean;
   /** True while the saved scores library modal is open. */
   scoreLibraryOpen: boolean;
-  /** Non-fatal parse notices for the current piece; shown in a dismissible panel. */
+  /** Non-fatal parse notices for the current piece, shown in a dismissible panel. */
   parseWarnings: string[];
   currentStepIndex: number;
   /**
-   * R2: play mode's position in playbackOrder (monotonic while playing;
-   * distinct passes of a repeated step get distinct positions). Practice-mode
-   * consumers never read this — they follow currentStepIndex only.
+   * Play mode's position in playbackOrder (R2). Monotonic while playing, and
+   * distinct passes of a repeated step get distinct positions. Practice-mode
+   * consumers never read this and follow currentStepIndex only.
    */
   currentPlaybackOrderIndex: number;
   totalSteps: number;
@@ -693,8 +694,8 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     setHandSpan: (span) => {
       window.localStorage.setItem(HAND_SPAN_STORAGE_KEY, String(span));
-      // Apply span immediately; ML-backed predictFingering can stall under load
-      // and used to leave handSpan stuck at the previous preset until await finished.
+      // Apply span immediately. ML-backed predictFingering can stall under load
+      // and used to leave handSpan stuck at the previous preset until the await finished.
       set({ handSpan: span });
       const state = useEngineStore.getState();
       void (async () => {
@@ -906,7 +907,7 @@ export const useEngineStore = create<EngineState>((set) => {
       set({ expectedMidiNotes: notes });
     },
     setPlayingMidiNotes: (notes) => {
-      // Bail on no-op updates: play mode syncs after every transport event,
+      // Bail on no-op updates. Play mode syncs after every transport event,
       // and a fresh-but-identical array would re-render the 88-key keyboard.
       set((state) =>
         state.playingMidiNotes.length === notes.length &&

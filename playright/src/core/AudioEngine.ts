@@ -39,8 +39,9 @@ export class AudioEngine {
 
   warm(): Promise<void> {
     if (!this.warmPromise) {
-      // E2E: do not block on Tone.start()/audio unlock; transport scheduling
-      // still advances step visuals, and the preview synth is best-effort.
+      // Under E2E, do not block on Tone.start()/audio unlock. Transport
+      // scheduling still advances step visuals, and the preview synth is
+      // best-effort.
       this.warmPromise =
         import.meta.env.VITE_E2E === '1'
           ? Promise.resolve().then(() => {
@@ -66,8 +67,8 @@ export class AudioEngine {
       return this.initPromise;
     }
 
-    // Headless browser E2E (`VITE_E2E=1`): skip remote piano sample fetch.
-    // Tone.loaded() otherwise hangs cold runs; transport + duration math still work.
+    // Headless browser E2E (`VITE_E2E=1`) skips the remote piano sample fetch.
+    // Tone.loaded() otherwise hangs cold runs. Transport + duration math still work.
     // Notes fall back to the lightweight preview synth below.
     if (import.meta.env.VITE_E2E === '1') {
       this.initPromise = Promise.resolve();
@@ -146,8 +147,9 @@ export class AudioEngine {
     const playSeconds = Tone.Time(playDuration).toSeconds();
 
     if (!this.isReady) {
-      // E2E / pre-sampler: still schedule audible preview tones so headless
-      // runs exercise note-on/off timing rather than going fully silent.
+      // In E2E or before the sampler loads, still schedule audible preview
+      // tones so headless runs exercise note-on/off timing rather than going
+      // fully silent.
       this.previewSynth.triggerAttackRelease(note, playSeconds, time, velocity);
       return;
     }

@@ -1,4 +1,4 @@
-/** Slur start with no matching stop anywhere in the piece - must warn, never invent legato to end-of-piece. */
+/** Slur start with no matching stop anywhere in the piece. Must warn and never invent legato to end-of-piece. */
 export const DANGLING_SLUR_START_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part id="P1">
@@ -27,9 +27,9 @@ export const DANGLING_SLUR_START_MUSICXML = `<?xml version="1.0" encoding="UTF-8
 
 /**
  * Slur opens on X, spans into a tied pair (A ties into B, same pitch), and
- * the slur STOP tag lands on B - the tie-continuation note that merges into
+ * the slur STOP tag lands on B, the tie-continuation note that merges into
  * A rather than creating its own ScriptNote. X must resolve to legato (not
- * the last member); the merged note (A, extended by B's duration) must
+ * the last member). The merged note (A, extended by B's duration) must
  * correctly resolve as the slur's true last member, with no phantom entry
  * for B and no incorrect flag on the merged note.
  */
@@ -73,8 +73,8 @@ export const SLUR_STOP_ON_TIE_MERGED_NOTE_MUSICXML = `<?xml version="1.0" encodi
 </score-partwise>`;
 
 /**
- * Two staves (one part), each with its own slur under the SAME slur number -
- * the composite (voiceStreamKey, number) key must keep them from
+ * Two staves (one part), each with its own slur under the SAME slur number.
+ * The composite (voiceStreamKey, number) key must keep them from
  * cross-contaminating even though the XML number attribute collides.
  */
 export const MULTI_VOICE_SLURS_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -129,9 +129,9 @@ export const MULTI_VOICE_SLURS_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?
 </score-partwise>`;
 
 /**
- * Slur starts on the first of two graces and stops on the second - both
+ * Slur starts on the first of two graces and stops on the second, so both
  * boundaries fall within one grace run, never reaching a main note. Must
- * resolve to an empty main-note range: a correct no-op, not an error.
+ * resolve to an empty main-note range, a correct no-op rather than an error.
  */
 export const GRACE_TO_GRACE_SLUR_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
@@ -170,7 +170,7 @@ export const GRACE_TO_GRACE_SLUR_MUSICXML = `<?xml version="1.0" encoding="UTF-8
 
 /**
  * Slur starts on a grace before main note X, and stops on a LATER main note
- * Y - the grace boundary delegates forward to X, so X (main notes X..Y-1)
+ * Y. The grace boundary delegates forward to X, so X (main notes X..Y-1)
  * connects legato while Y (the phrase-ending note) does not.
  */
 export const GRACE_INTO_MAIN_SLUR_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>

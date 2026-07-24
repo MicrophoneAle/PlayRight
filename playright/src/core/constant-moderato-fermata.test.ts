@@ -94,7 +94,7 @@ describe('constant moderato fermata playback', () => {
     );
     const wholeWithoutFermata = playbackDurationQuarterNotes(wholeWritten);
     // The unify reference is the step's SHORTEST written note (the R-hand
-    // arrival chord, 4 quarters), not its longest: the L-hand bass notes are
+    // arrival chord, 4 quarters), not its longest. The L-hand bass notes are
     // written as 8 quarters purely because the parser pre-combines their tie
     // across measures 8-9, and that already-extended length must not also be
     // multiplied by the fermata factor (that was the double-counting bug).
@@ -109,9 +109,10 @@ describe('constant moderato fermata playback', () => {
 
     expect(wholePlayed).toBeGreaterThan(wholeWithoutFermata * 1.9);
     expect(stepDurations[wholeChordStepIndex]).toBeCloseTo(shortestWithFermata, 1);
-    // Regression guard for the double-counted-hold bug: the bass note's own
-    // (already tie-extended) written length must never drive the unified
-    // release - it would roughly double the hold versus the correct value.
+    // This is a regression guard for the double-counted-hold bug. The bass
+    // note's own (already tie-extended) written length must never drive the
+    // unified release, since it would roughly double the hold versus the
+    // correct value.
     const bassNoteWritten = Math.max(
       ...script[wholeChordStepIndex].notes.map((note) =>
         noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq),
@@ -146,9 +147,9 @@ describe('constant moderato fermata playback', () => {
     expect(nextAttack).toBeGreaterThanOrEqual(chordRelease - 1e-9);
     expect(offsets[nextStepIndex]).toBeGreaterThan(offsets[wholeChordStepIndex]);
 
-    // Regression guard: the carried chord must attack at its own written
+    // As a regression guard, the carried chord must attack at its own written
     // onset (only the normal, sub-quarter articulation gap after the pickup
-    // releases) - not delayed by a bogus silent gap from double-counting the
+    // releases), not delayed by a bogus silent gap from double-counting the
     // fermata extension as a pre-attack push (it previously pre-pushed the
     // chord's own attack by ~7.95 quarters before also re-deriving the
     // post-chord push from the chord's real release).

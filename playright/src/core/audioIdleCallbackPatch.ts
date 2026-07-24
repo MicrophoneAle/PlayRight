@@ -1,7 +1,8 @@
 /**
  * Must load before any Tone.js audio. Tone's OneShotSource disposes finished
- * voices via requestIdleCallback without a timeout; under sustained play-mode
- * load those callbacks can starve and leak Gain nodes into the WebAudio graph.
+ * voices via requestIdleCallback without a timeout, so under sustained
+ * play-mode load those callbacks can starve and leak Gain nodes into the
+ * WebAudio graph.
  * See AudioEngine.ts for full rationale.
  */
 if (

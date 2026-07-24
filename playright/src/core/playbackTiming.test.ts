@@ -97,7 +97,7 @@ describe('playbackTiming', () => {
       { onset: 0, bpm: 120 },
       { onset: 2, bpm: 60 },
     ];
-    // Fabricated repeat: visit 0,1,2 then back to 1,2
+    // This fabricated repeat visits 0,1,2 then goes back to 1,2
     const order = [
       { stepIndex: 0 },
       { stepIndex: 1 },
@@ -855,7 +855,7 @@ describe('playbackTiming', () => {
   it('shifts subsequent attacks after a fermata so they do not overlap the extended release', () => {
     // C4 (step 0) carries fermata weight onto D4 (step 1, abutting) per the
     // carry-forward heuristic. D4 attacks on time (immediately after C4's
-    // normal, un-held release) and rings for its own extended duration; the
+    // normal, un-held release) and rings for its own extended duration. The
     // step AFTER the carried note (step 2) is the one that must be pushed
     // later so it doesn't overlap D4's extended release.
     const script: PlaybackScript = [

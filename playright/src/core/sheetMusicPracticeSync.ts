@@ -23,15 +23,15 @@ const DEFAULT_NOTE_COLOR = '#000000';
  * re-render replaced the underlying SVG while a stale GraphicalNote/cursor
  * reference from before that render is still in use - e.g. a resize-observer
  * re-render firing mid-playback. Swallow and log once rather than aborting
- * the whole highlight/scroll tick; the visual index rebuild (see safeRender
- * in SheetMusicDisplay.tsx) supplies fresh references on the next tick.
+ * the whole highlight/scroll tick, because the visual index rebuild (see
+ * safeRender in SheetMusicDisplay.tsx) supplies fresh references on the next tick.
  */
 function safeOsmdCall(label: string, fn: () => void): void {
   try {
     fn();
   } catch (err) {
-    // Permanent guard, not open investigation scaffolding: the stale-node/
-    // resize/fermata-freeze bug this protects against is fixed (checkpoint
+    // This is a permanent guard, not open investigation scaffolding. The
+    // stale-node/resize/fermata-freeze bug it protects against is fixed (checkpoint
     // 55d3c82, regression coverage in constant-moderato-fermata.test.ts).
     // The [DIAG:staleNode] label stays so a browser console dump still
     // identifies exactly which wrapped OSMD call hit a stale reference.
@@ -39,7 +39,7 @@ function safeOsmdCall(label: string, fn: () => void): void {
   }
 }
 
-/** Color note engraving only — avoids fingerings (separate staff labels). */
+/** Color note engraving only, avoiding fingerings (separate staff labels). */
 const NOTE_HIGHLIGHT_OPTIONS = {
   applyToNoteheads: true,
   applyToStem: true,
@@ -62,7 +62,7 @@ export interface PracticeScrollState {
 }
 
 export interface PracticeVisualIndex {
-  /** Per raw script step: cursor-walk offset of the step's FIRST pass. Practice consumers key by this. */
+  /** Cursor-walk offset of each raw script step's FIRST pass. Practice consumers key by this. */
   stepCursorOffsets: number[];
   /** Merged main+grace glyphs per step - play mode's highlight source, unchanged. */
   stepGraphicalNotes: GraphicalNote[][];
@@ -70,10 +70,10 @@ export interface PracticeVisualIndex {
   stepGraceGraphicalNotes: GraphicalNote[][][];
   stepMeasureNumbers: number[];
   /**
-   * R2: per playback-order position, the cursor-walk offset of that
+   * Per playback-order position (R2), the cursor-walk offset of that
    * (step, pass). OSMD's cursor iterator executes repeat jumps itself
    * (handleRepetitionsAtMeasureEnd), so a repeated step's pass-1 entry maps
-   * into the duplicated snapshot region after the repeat barline — a LARGER
+   * into the duplicated snapshot region after the repeat barline, a LARGER
    * offset than the repeat-end step's pass-0 offset, even though the
    * highlight moves visually backward on the page.
    */
@@ -92,8 +92,8 @@ interface CursorSnapshot {
   /**
    * Grace noteheads engraved immediately before this position's attack.
    * Grace-only cursor positions stay skipped (the script gives them no step,
-   * so counting them would desync every stepCursorOffset); their engraving is
-   * carried onto the following real snapshot for highlighting instead.
+   * so counting them would desync every stepCursorOffset), and their engraving
+   * is carried onto the following real snapshot for highlighting instead.
    */
   graceGNotes?: GraphicalNote[];
 }
@@ -849,14 +849,14 @@ function identityPlaybackOrder(script: PlaybackScript): PlaybackOrder {
 /**
  * Build a practice-step index in a single cursor pass (linear time).
  *
- * R2: the matching loop walks `playbackOrder` (R0's unrolled performance
+ * For R2, the matching loop walks `playbackOrder` (R0's unrolled performance
  * sequence) rather than raw script steps. For an identity order this is
- * step-for-step the historical per-step loop; when the order contains repeat
+ * step-for-step the historical per-step loop. When the order contains repeat
  * passes, each pass consumes the corresponding duplicated cursor snapshots
  * (OSMD's iterator executes repeats), yielding a distinct cursor offset per
  * (step, pass). Only pass-0 entries populate the per-step arrays, so
- * practice-mode consumers are structurally unaffected (Q4: practice ignores
- * repeats).
+ * practice-mode consumers are structurally unaffected (per Q4, practice
+ * ignores repeats).
  */
 export function buildPracticeVisualIndex(
   osmd: OpenSheetMusicDisplay,
@@ -963,10 +963,10 @@ export function buildPracticeVisualIndex(
 
 /**
  * Advance (or reset-and-advance) OSMD's cursor to a cursor-walk offset. A
- * target smaller than the current offset — a backward seek, or a repeat's
- * post-jump pass landing on an earlier system after a rebuild — resets the
- * cursor and re-advances from the top; OSMD's cursor cannot step backward.
- * Exported for the mocked-cursor harness tests.
+ * target smaller than the current offset (a backward seek, or a repeat's
+ * post-jump pass landing on an earlier system after a rebuild) resets the
+ * cursor and re-advances from the top, because OSMD's cursor cannot step
+ * backward. Exported for the mocked-cursor harness tests.
  */
 export function moveCursorToOffset(
   osmd: OpenSheetMusicDisplay,
@@ -1288,8 +1288,8 @@ function getTrebleStaveTopY(gNote: GraphicalNote): number | null {
  * The anchor is the highest note anywhere on the line so any note that rises
  * above the treble staff (ledger-line notes) stays visible, with the top
  * (treble) staff line as the floor when nothing rises above it. The bass staff
- * is never used as the anchor: the topmost staff is the baseline and notes can
- * only push the anchor higher, never lower.
+ * is never used as the anchor, since the topmost staff is the baseline and
+ * notes can only push the anchor higher, never lower.
  */
 function playbackScrollAnchorTop(
   notes: GraphicalNote[],
@@ -1300,7 +1300,7 @@ function playbackScrollAnchorTop(
     return null;
   }
 
-  // Baseline: the top (treble) staff line of the system.
+  // The baseline is the top (treble) staff line of the system.
   const trebleStaveTop = getTrebleStaveTopY(notes[0]);
 
   // Highest note anywhere on the line (any hand), covering ledger notes that
@@ -1335,8 +1335,8 @@ function playbackScrollAnchorTop(
     return null;
   }
 
-  // The smallest top wins: a note above the staff lifts the anchor; otherwise
-  // the treble staff top is used so we never anchor on the bass staff.
+  // The smallest top wins. A note above the staff lifts the anchor, and
+  // otherwise the treble staff top is used so we never anchor on the bass staff.
   return Math.min(...candidates);
 }
 
@@ -1541,8 +1541,8 @@ function animateScrollTop(
 
   const existing = activeScrollAnimations.get(container);
   if (existing !== undefined) {
-    // An animation toward (practically) the same target is already running:
-    // let it finish instead of restarting the ease curve. Restarting on every
+    // An animation toward (practically) the same target is already running,
+    // so let it finish instead of restarting the ease curve. Restarting on every
     // highlight tick is what made line switches crawl and wiggle.
     if (Math.abs(existing.target - clampedTarget) < 1) {
       return;
@@ -1633,10 +1633,10 @@ function scrollContainerForPlayback(
 
   const currentSystemKey = scrollState.current.systemKey;
 
-  // Same line: hold the committed anchor WITHOUT any layout reads. The anchor
-  // scroll position was computed when the line was entered; recomputing it
-  // per tick (full-system bounds scan -> forced reflows) was heavy enough to
-  // starve the audio scheduler on dense bars. Skip micro-drift and never
+  // On the same line, hold the committed anchor WITHOUT any layout reads. The
+  // anchor scroll position was computed when the line was entered, and
+  // recomputing it per tick (full-system bounds scan -> forced reflows) was
+  // heavy enough to starve the audio scheduler on dense bars. Skip micro-drift and never
   // restart an in-flight animation toward the same anchor, so a busy bar of
   // highlight ticks cannot make the viewport wiggle either.
   if (currentSystemKey !== null && systemKey === currentSystemKey) {
@@ -1653,7 +1653,7 @@ function scrollContainerForPlayback(
 
   const isNewStaffLine = currentSystemKey !== null;
 
-  // Flap guard: an active bar can briefly resolve its notes back to the
+  // This guards against flapping. An active bar can briefly resolve its notes back to the
   // line we just scrolled away from (cross-line highlight matching). Do not
   // bounce back within the settle window - the committed line wins.
   const now = performance.now();
@@ -1666,7 +1666,7 @@ function scrollContainerForPlayback(
     return;
   }
 
-  // New line (or first anchor): compute the anchor once. Prefer the
+  // On a new line (or the first anchor), compute the anchor once. Prefer the
   // treble-anchored top, but fall back to the system bounds (and ultimately
   // the note element) so a failed DOM stave lookup never disables scrolling.
   // Before this fallback existed, a null treble anchor silently stopped
@@ -1728,7 +1728,7 @@ export function syncSheetMusicPlaybackVisuals(
   options: {
     visualIndex: PracticeVisualIndex | null;
     scrollStepIndex: number;
-    /** R2: position in the playback order; -1 / stale values fall back to step-keyed offsets. */
+    /** Position in the playback order (R2). -1 / stale values fall back to step-keyed offsets. */
     scrollPlaybackOrderIndex: number;
     activeNotes: PlayingPlaybackNote[];
     container: HTMLElement;
@@ -1766,8 +1766,8 @@ export function syncSheetMusicPlaybackVisuals(
       return [];
     }
 
-    // R2: key the cursor by playback-order position (per-pass) when the order
-    // entry agrees with the step the engine reported; a stale/mismatched order
+    // Key the cursor by playback-order position (per-pass, R2) when the order
+    // entry agrees with the step the engine reported. A stale/mismatched order
     // index (index rebuilt against a different order, -1 default) falls back
     // to the step-keyed first-pass offset. On a repeat pass this offset keeps
     // GROWING through OSMD's duplicated snapshots even though the highlight
@@ -1779,7 +1779,7 @@ export function syncSheetMusicPlaybackVisuals(
           visualIndex.stepCursorOffsets[scrollStepIndex] ??
           0
         : visualIndex.stepCursorOffsets[scrollStepIndex] ?? 0;
-    // The cursor is invisible in play mode; moving it only maintains the
+    // The cursor is invisible in play mode, so moving it only maintains the
     // internal offset. Walking the iterator + cursor.update() per sync was
     // pure overhead on dense bars, so only do it when the step actually moved
     // (the memo key includes the per-pass offset, so a repeat pass re-syncs).
@@ -1804,7 +1804,7 @@ export function syncSheetMusicPlaybackVisuals(
           continue;
         }
 
-        // A step's grace noteheads are step-level decorations: they light
+        // A step's grace noteheads are step-level decorations. They light
         // whenever any of the step's presses (grace or main) is sounding, so
         // the grace stays highlighted alongside its main note instead of
         // flashing for only its own crushed duration.
@@ -1825,8 +1825,8 @@ export function syncSheetMusicPlaybackVisuals(
       }
     }
 
-    // Incremental recolor: only notes leaving the lit set are reset and only
-    // notes entering it are colored. Reset-all + recolor-all per sync was the
+    // Recoloring is incremental. Only notes leaving the lit set are reset and
+    // only notes entering it are colored. Reset-all + recolor-all per sync was the
     // dominant play-mode CPU cost (each setColor rewrites SVG attributes on
     // noteheads, stems, flags, beams, ties, and ledger lines).
     const stillLit = new Set(toHighlight);
@@ -1862,10 +1862,10 @@ export function syncSheetMusicPlaybackVisuals(
 
     return toHighlight;
   } catch (err) {
-    // Last-resort safety net: a re-render mid-playback can still race this
-    // call. Fail this one tick rather than freezing forever - returning []
-    // (instead of leaving highlightedNotesRef pointing at dead references)
-    // lets the next tick recover cleanly once the index has rebuilt.
+    // This is a last-resort safety net, since a re-render mid-playback can
+    // still race this call. Fail this one tick rather than freezing forever -
+    // returning [] (instead of leaving highlightedNotesRef pointing at dead
+    // references) lets the next tick recover cleanly once the index has rebuilt.
     console.warn('[DIAG:staleNode] syncSheetMusicPlaybackVisuals TOP-LEVEL failure, recovering next tick:', err);
     cursorOffsetRef.current = -1;
     lastPlaybackVisualKey = '';
@@ -1923,9 +1923,9 @@ export function syncSheetMusicPracticeVisuals(
     safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide', () => cursor.hide());
 
     // A grace position highlights only its own glyph (precomputed index
-    // lookup, no cursor-scan fallback needed); the main position highlights
-    // the step's main glyphs, excluding any grace glyph merged in for play
-    // mode's benefit (see stepGraphicalNotes' doc comment).
+    // lookup, no cursor-scan fallback needed), while the main position
+    // highlights the step's main glyphs, excluding any grace glyph merged in
+    // for play mode's benefit (see stepGraphicalNotes' doc comment).
     const toHighlight =
       graceCursor !== null
         ? (visualIndex.stepGraceGraphicalNotes[stepIndex]?.[graceCursor] ?? [])
@@ -1957,10 +1957,10 @@ export function syncSheetMusicPracticeVisuals(
 
     return toHighlight;
   } catch (err) {
-    // Last-resort safety net: a re-render mid-playback can still race this
-    // call. Fail this one tick rather than freezing forever - returning []
-    // (instead of leaving highlightedNotesRef pointing at dead references)
-    // lets the next tick recover cleanly once the index has rebuilt.
+    // This is a last-resort safety net, since a re-render mid-playback can
+    // still race this call. Fail this one tick rather than freezing forever -
+    // returning [] (instead of leaving highlightedNotesRef pointing at dead
+    // references) lets the next tick recover cleanly once the index has rebuilt.
     console.warn('[DIAG:staleNode] syncSheetMusicPracticeVisuals TOP-LEVEL failure, recovering next tick:', err);
     cursorOffsetRef.current = -1;
     return [];

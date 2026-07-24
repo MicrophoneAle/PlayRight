@@ -48,8 +48,8 @@ interface ScheduleDerivedData {
   script: PlaybackScript;
   divisionsPerQuarter: number;
   /**
-   * R1: resolved playback sequence (identity for non-repeat scores). The
-   * rolling window iterates ENTRIES of this order; the document script is
+   * The resolved playback sequence from R1 (identity for non-repeat scores).
+   * The rolling window iterates ENTRIES of this order. The document script is
    * never reordered.
    */
   playbackOrder: PlaybackOrder;
@@ -57,19 +57,19 @@ interface ScheduleDerivedData {
   isIdentityOrder: boolean;
   /**
    * Virtual step sequence over playbackOrder entries (onset = playbackOnset,
-   * order = entry index; notes shared with the document steps). Aliases the
+   * order = entry index, notes shared with the document steps). Aliases the
    * document script itself when the order is identity, so identity scores
    * compute exactly the same tables as before R1.
    */
   entryScript: PlaybackScript;
-  // Document-indexed, pass-INVARIANT tables: these drive each note's own
+  // These document-indexed, pass-INVARIANT tables drive each note's own
   // sounded duration (incl. staccato/fermata length), which must not depend
   // on which repeat pass the note is played on.
   finalNoteKeys: Set<string>;
   fermataContext: FermataPlaybackContext;
   consecutiveSameNoteKeys: Set<string>;
   stepDurations: number[];
-  // Entry-indexed, pass-DEPENDENT tables: these drive the unrolled attack
+  // These entry-indexed, pass-DEPENDENT tables drive the unrolled attack
   // timeline, where a backward jump creates real new adjacency (last note of
   // an ending against the repeat target's first note).
   entryFinalNoteKeys: Set<string>;
@@ -79,7 +79,7 @@ interface ScheduleDerivedData {
   jumpBoundaryAfterEntry: boolean[];
   /** Playback-time quarters of the first discontinuity at/after each entry (Infinity when none). */
   nextJumpBoundaryQuarters: number[];
-  /** First (lowest-pass) entry index for each document step; drives seek. */
+  /** First (lowest-pass) entry index for each document step, which drives seek. */
   firstEntryIndexByStep: number[];
   /** Latest release on the unrolled timeline (end-of-piece event time). */
   pieceEndQuarters: number;
@@ -87,7 +87,7 @@ interface ScheduleDerivedData {
 
 /**
  * Cap a note's sounded length so its release never crosses the next repeat
- * jump discontinuity: nothing may keep sounding across a backward jump. The
+ * jump discontinuity, since nothing may keep sounding across a backward jump. The
  * clamp leaves the minimum articulation gap before the post-jump attack so a
  * same-pitch re-strike at the jump target still re-triggers. No-op (boundary
  * = Infinity) for identity orders and for notes ending before the boundary.
@@ -149,13 +149,13 @@ function safeTickTime(
 const PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS = 40;
 
 /**
- * Crushed grace-note length: a 32nd note's worth of time
+ * Crushed grace-note length, a 32nd note's worth of time
  * (divisionsPerQuarter / 8 divisions = 1/8 quarter note). Graces play
- * back-to-back ending exactly at their main note's attack; the time is
+ * back-to-back ending exactly at their main note's attack. The time is
  * borrowed from the preceding note's tail, never from the main note's own
- * onset or duration. v1 simplification: appoggiaturas use this same crushed
- * duration as acciaccaturas; proper appoggiatura time-stealing from the main
- * note is a later refinement.
+ * onset or duration. As a v1 simplification, appoggiaturas use this same
+ * crushed duration as acciaccaturas. Proper appoggiatura time-stealing from
+ * the main note is a later refinement.
  */
 const GRACE_NOTE_DURATION_QUARTERS = 1 / 8;
 
@@ -177,7 +177,7 @@ export class PlaybackEngine {
   private seekTargetEntryIndex: number | null = null;
   private scheduleDerivedData: ScheduleDerivedData | null = null;
 
-  /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
+  /** Subscribe to store changes once. Safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
     if (this.storeSubscriptionInitialized) {
       return;
@@ -278,7 +278,7 @@ export class PlaybackEngine {
       return;
     }
 
-    // End-of-piece replay: play() resets to step 0 and reschedules everything.
+    // For an end-of-piece replay, play() resets to step 0 and reschedules everything.
     if (this.hasFinishedPiece) {
       void this.play();
       return;
@@ -287,7 +287,7 @@ export class PlaybackEngine {
     // Reschedule only when no events remain. A mid-piece pause keeps its
     // scheduled events, so it resumes in place. restart() clears them (and
     // resets the step to 0), so this rebuilds the schedule from the current
-    // step — a fresh start from wherever the step index now points.
+    // step, a fresh start from wherever the step index now points.
     if (this.scheduledEventIds.length === 0) {
       const { currentStepIndex, script, scoreTiming } = useEngineStore.getState();
       if (script && scoreTiming) {
@@ -504,8 +504,8 @@ export class PlaybackEngine {
       return cached;
     }
 
-    // R1: resolve the playback order (identity when absent). A stale or
-    // corrupt order must never crash scheduling — fall back to identity.
+    // Resolve the R1 playback order (identity when absent). A stale or
+    // corrupt order must never crash scheduling, so fall back to identity.
     const storeOrder = useEngineStore.getState().playbackOrder;
     let playbackOrder: PlaybackOrder;
     if (
@@ -579,7 +579,7 @@ export class PlaybackEngine {
         entryScript,
         divisionsPerQuarter,
       );
-      // Sounded durations stay pass-invariant: reuse the per-step values.
+      // Sounded durations stay pass-invariant, so reuse the per-step values.
       const entryDurations = playbackOrder.map(
         (entry) => stepDurations[entry.stepIndex],
       );
@@ -704,7 +704,7 @@ export class PlaybackEngine {
   private releasePlayingNote(pressId: number): void {
     this.scheduledReleaseTickByPressId.delete(pressId);
     this.playingPressTracker.release(pressId);
-    // No flushSync here even for consecutive same-note releases: the re-press
+    // No flushSync here even for consecutive same-note releases. The re-press
     // is deferred by PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS (~2 frames),
     // so React's normal async commit paints the release in time. Forcing a
     // synchronous render inside the transport callback burned CPU on every
@@ -714,7 +714,7 @@ export class PlaybackEngine {
 
   /**
    * Defer a same-pitch re-strike's highlight press so the prior note's release
-   * paints first. Audio fires at the written attack time; only the visual press
+   * paints first. Audio fires at the written attack time. Only the visual press
    * is delayed slightly so the key visibly lifts between strikes.
    */
   private deferRepeatedPress(
@@ -780,8 +780,8 @@ export class PlaybackEngine {
       durationDivisions,
       divisionsPerQuarter,
     );
-    // Final-note detection is pass-dependent (entry adjacency): a step that
-    // ends the document can still be mid-piece on an earlier repeat pass.
+    // Final-note detection is pass-dependent (entry adjacency), since a step
+    // that ends the document can still be mid-piece on an earlier repeat pass.
     const isFinalNote = entryFinalNoteKeys.has(
       `${entryIndex}:${note.hand}:${note.midi}`,
     );
@@ -831,7 +831,7 @@ export class PlaybackEngine {
   }
 
   /**
-   * R2: every visual step update also records its PlaybackOrder position so
+   * Since R2, every visual step update also records its PlaybackOrder position so
    * the sheet cursor can be keyed per-pass (a repeated step's second pass maps
    * to different cursor-walk offsets than its first). Every caller knows the
    * entry index natively (play/seek/replay resolve it, the attack callback
@@ -932,7 +932,7 @@ export class PlaybackEngine {
   }
 
   /**
-   * Explicit release-all at a repeat jump boundary: any pending note-off or
+   * Explicit release-all at a repeat jump boundary. Any pending note-off or
    * tie-release from before the jump must fire or be cleared here, never
    * orphaned across the jump. Scheduled while processing the pre-jump entry,
    * so at an equal tick it dispatches BEFORE the post-jump attack (Tone fires
@@ -965,8 +965,8 @@ export class PlaybackEngine {
         if (changed) {
           this.syncPlayingNotes();
         }
-        // Audio safety net: sounded durations are already clamped to end
-        // before the boundary, so this only catches voices that slipped
+        // This is an audio safety net. Sounded durations are already clamped
+        // to end before the boundary, so this only catches voices that slipped
         // through. Post-jump attacks at this same tick fire after this
         // callback and are unaffected.
         this.audioEngine?.releaseAll();
@@ -994,8 +994,8 @@ export class PlaybackEngine {
     // Snapshot transport.ticks BEFORE any script-derived recomputation below.
     // These structures are pure functions of (script, divisionsPerQuarter)
     // and get cached by getScheduleDerivedData, but even a cache miss must
-    // not delay this read: reading ticks after doing that work would make
-    // the windowLagTicks lag detector further down partly measure this
+    // not delay this read, because reading ticks after doing that work would
+    // make the windowLagTicks lag detector further down partly measure this
     // callback's own computation time instead of genuine external jank,
     // baking a phantom seam into every window boundary.
     const transportTicksAtEntry = transport.ticks;
@@ -1042,7 +1042,7 @@ export class PlaybackEngine {
     // reset to -1). Blending transport into every rolling-window extension
     // caused clamps when the clock ran slightly ahead of the next chunk's
     // anchor (extension fires at musical time, but transport.ticks can be a
-    // few ticks ahead under load — tetoris step 639 et al.).
+    // few ticks ahead under load, seen at tetoris step 639 et al.).
     let lastSafeAttackTick = this.lastScheduledAttackTick;
     if (lastSafeAttackTick < 0) {
       lastSafeAttackTick = Math.max(-1, transportNow - 1);
@@ -1072,7 +1072,7 @@ export class PlaybackEngine {
         let attackTick = attackTickRaw;
         let attackTimeText = attackTime;
         // After a backward (or any) sheet seek the transport is parked exactly on
-        // the target attack tick; Tone's timeline often will not dispatch an
+        // the target attack tick, and Tone's timeline often will not dispatch an
         // event scheduled at the current tick, so bump the seek entry one tick
         // forward so the jump is audible and visuals stay in sync.
         if (entryIndex === this.seekTargetEntryIndex) {
@@ -1083,9 +1083,9 @@ export class PlaybackEngine {
           }
         }
 
-        // Mid-score tempo map: when this entry's document-onset BPM differs from
-        // the previous entry's, retarget Transport.bpm at the attack tick so
-        // subsequent tick→wall-clock conversion follows the new marking.
+        // Mid-score tempo map handling. When this entry's document-onset BPM
+        // differs from the previous entry's, retarget Transport.bpm at the attack
+        // tick so subsequent tick-to-wall-clock conversion follows the new marking.
         // tempoFactor is read inside the callback so the settings slider stays live.
         if (entryIndex > 0) {
           const entryBpm = tempoBpmAtOnset(
@@ -1129,12 +1129,12 @@ export class PlaybackEngine {
         }
         lastSafeAttackTick = attackTick;
 
-        // Acciaccatura time is borrowed from the preceding note's tail: when
+        // Acciaccatura time is borrowed from the preceding note's tail, so when
         // the NEXT entry opens with graces, any of this entry's releases that
         // would land inside that grace window release early to make room.
         // Notes intentionally sustaining past the next attack (other voices,
-        // long holds) are left alone. Entry adjacency: after a backward jump
-        // the "next" step is the repeat target, not the document successor.
+        // long holds) are left alone. Adjacency is by entry, so after a backward
+        // jump the "next" step is the repeat target, not the document successor.
         let nextGraceWindowStartQuarters: number | null = null;
         let nextAttackQuarters = 0;
         const nextEntryStep =
@@ -1158,7 +1158,7 @@ export class PlaybackEngine {
         }> = [];
 
         for (const note of step.notes) {
-          // Tie continuation is pass-dependent: consult ENTRY adjacency, so a
+          // Tie continuation is pass-dependent. Consult ENTRY adjacency, so a
           // backward jump breaks any tie written across the jump boundary
           // instead of silently swallowing the post-jump attack.
           if (isPlaybackTieContinuation(entryScript, entryIndex, note)) {
@@ -1179,8 +1179,8 @@ export class PlaybackEngine {
             continue;
           }
 
-          // Sounded duration is pass-INVARIANT: resolved from the document
-          // step tables, identical on every repeat pass.
+          // Sounded duration is pass-INVARIANT, resolved from the document
+          // step tables and identical on every repeat pass.
           let playedQuarters = resolveNotePlaybackDurationQuarterNotes(
             stepIndex,
             note,
@@ -1236,13 +1236,13 @@ export class PlaybackEngine {
             this.applyStepVisual(stepIndex, entryIndex);
 
             for (const { pressId, note, playedDuration } of stepPresses) {
-              // note.hasAccent / note.hasMarcato: deferred velocity/loudness emphasis only.
-              // AudioEngine already threads velocity through Sampler.triggerAttack; not wired
-              // here. Marcato's duration shortening IS applied - it's baked into
+              // note.hasAccent and note.hasMarcato are deferred velocity/loudness emphasis
+              // only. AudioEngine already threads velocity through Sampler.triggerAttack,
+              // but it is not wired here. Marcato's duration shortening IS applied - it's baked into
               // playedDuration via playbackTiming's resolveNotePlaybackDurationQuarterNotes.
               engine.scheduleAttackRelease(note.midi, playedDuration, time);
 
-              // Repeated-attack detection consults ENTRY adjacency: a backward
+              // Repeated-attack detection consults ENTRY adjacency. A backward
               // jump makes the repeat target's first note a real re-strike when
               // the pre-jump entry ended on the same pitch.
               if (isRepeatedPlaybackAttack(entryScript, entryIndex, note)) {
@@ -1258,8 +1258,8 @@ export class PlaybackEngine {
 
         this.scheduledEventIds.push(stepEventId);
 
-        // Backward jump / volta skip directly after this entry: nothing may
-        // keep sounding across it.
+        // When a backward jump / volta skip sits directly after this entry,
+        // nothing may keep sounding across it.
         if (jumpBoundaryAfterEntry[entryIndex] && entryIndex + 1 < totalEntries) {
           this.scheduleJumpBoundaryRelease(
             entryIndex,

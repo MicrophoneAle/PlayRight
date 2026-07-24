@@ -264,7 +264,7 @@ describe('parseMusicXmlToScript', () => {
       ARTICULATIONS_EXTENDED_MUSICXML,
     );
 
-    // P0-1 onset table: one quarter note each at 480 divisions — unchanged by flags.
+    // The P0-1 onset table holds one quarter note each at 480 divisions, and articulation flags leave it unchanged.
     const onsetTable = script.map((step) => ({
       onset: step.onset,
       pitch: step.notes[0].pitch,

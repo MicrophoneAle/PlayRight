@@ -112,8 +112,8 @@ interface Violation {
  * (directly, or via prevContext seeding at the boundary), so it must be
  * included in the scan or real violations at those boundaries go undetected.
  *
- * Chord onsets (groupSize > 1) are excluded on EITHER side of the pair: a
- * chord representative's finger is forced by assignChordFingers (interval-
+ * Chord onsets (groupSize > 1) are excluded on EITHER side of the pair,
+ * because a chord representative's finger is forced by assignChordFingers (interval-
  * optimal per chord, e.g. an open fifth wants finger 1-5 every time it
  * recurs) via authoredFinger, not chosen freely by fingerPhrase's melodic DP
  * - allowedFingers() collapses to that single forced value, so transitionCost
@@ -130,8 +130,8 @@ function countOutOfSequenceViolations(
   const violations: Violation[] = [];
   let checked = 0;
 
-  // Same per-piece scaling the predictor itself now uses (2026-07-18 wiring
-  // fix): the old raw 480-division constant never fired at real
+  // This is the same per-piece scaling the predictor itself now uses
+  // (2026-07-18 wiring fix). The old raw 480-division constant never fired at real
   // divisionsPerQuarter values (1-12), so this exclusion - documented above
   // as the scan's design since day one - had silently never engaged. Pairs
   // across a genuine rest split are free repositions in the DP (no

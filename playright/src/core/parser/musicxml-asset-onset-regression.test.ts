@@ -19,7 +19,7 @@ import { parseMusicXmlToScript } from './index.ts';
  * automated test despite proving the bug, so it is asserted explicitly here.
  *
  * The gate compares the parser's end-of-walk timeline cursor (including rests)
- * against an independent XML division walk — not max(playable note end), which
+ * against an independent XML division walk rather than max(playable note end), which
  * can fall short when a score ends with rests after the last pitched note
  * (unwelcome-school: cursor 3168 vs last note end 3144).
  */

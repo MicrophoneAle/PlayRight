@@ -131,8 +131,9 @@ describe('GN-3 PlaybackEngine grace note scheduling', () => {
       0,
     ]);
 
-    // Borrowed from preceding tail: prev E5 release moves up to the grace window
-    // start (9300i), not the natural quarter end at main attack (9360i).
+    // The window is borrowed from the preceding tail, so the prev E5 release
+    // moves up to the grace window start (9300i), not the natural quarter
+    // end at main attack (9360i).
     expect(scheduledTimes.filter((time) => time === graceAttackTick).length).toBeGreaterThanOrEqual(
       2,
     );

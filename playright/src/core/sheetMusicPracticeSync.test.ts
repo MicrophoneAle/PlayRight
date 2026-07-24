@@ -359,8 +359,8 @@ describe('grace notehead highlighting', () => {
       },
     ];
 
-    // Grace-only position between the m1 attack and the m5 chord: skipped as
-    // a cursor position, carried into the m5 snapshot's engraving.
+    // The grace-only position between the m1 attack and the m5 chord is
+    // skipped as a cursor position and carried into the m5 snapshot's engraving.
     const positions: MockCursorPosition[] = [
       { gNotes: [c4], measureNumber: 1, measureListIndex: 0 },
       { gNotes: [graceE5], measureNumber: 5, measureListIndex: 4 },
@@ -371,7 +371,7 @@ describe('grace notehead highlighting', () => {
     const osmd = mockOsmdWithCursorWalk(positions, allNotes);
     const index = buildPracticeVisualIndex(osmd, script, 'two-hand', 'R');
 
-    // Offsets count only non-grace positions: no double-count, no skipped step.
+    // Offsets count only non-grace positions, with no double-count and no skipped step.
     expect(index.stepCursorOffsets).toEqual([0, 1, 2]);
 
     // The grace notehead is highlighted alongside the step's main notes.

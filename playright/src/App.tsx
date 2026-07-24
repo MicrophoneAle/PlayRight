@@ -22,8 +22,8 @@ function App() {
   usePracticeKeyboardShortcuts();
 
   useEffect(() => {
-    // ONNX WASM/model load is deferred to first getMLFingerCosts() use
-    // (aiFingeringInference.ts) — not on App mount.
+    // ONNX WASM/model load is deferred to the first getMLFingerCosts() use
+    // (aiFingeringInference.ts), not to App mount.
     const handlePageHide = () => {
       resetSessionOnPageHide();
     };

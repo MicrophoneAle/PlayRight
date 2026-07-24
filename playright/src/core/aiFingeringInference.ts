@@ -23,15 +23,15 @@ let inferenceChain: Promise<unknown> = Promise.resolve();
  * Reason ML fell back to pure-DP costs on the MOST RECENT call to
  * getMLFingerCosts while ML was enabled (mlCostWeight > 0) - null when that
  * call succeeded, or when ML has never been attempted this generation.
- * Never set/cleared by the `!isMlFingeringEnabled()` early return: an
+ * Never set/cleared by the `!isMlFingeringEnabled()` early return, since an
  * intentional mlCostWeight=0 is not a failure and must not touch this state.
  */
 let lastMlFingeringFallbackReason: 'init-failed' | 'no-session' | 'inference-failed' | null =
   null;
-/** Dedup key for the console warning: warn once per DISTINCT reason per generation, not once per phrase. */
+/** Dedup key for the console warning, so it warns once per DISTINCT reason per generation, not once per phrase. */
 let lastWarnedReason: string | null = null;
 
-/** Non-null when the most recent enabled-ML attempt fell back to pure DP; see notes above. */
+/** Non-null when the most recent enabled-ML attempt fell back to pure DP. See notes above. */
 export function getLastMlFingeringFallbackReason(): typeof lastMlFingeringFallbackReason {
   return lastMlFingeringFallbackReason;
 }
@@ -121,7 +121,7 @@ export async function disposeFingeringModel(): Promise<void> {
   }
 }
 
-/** Test-only: dispose session and clear the page-lifetime init flag. */
+/** Test-only helper that disposes the session and clears the page-lifetime init flag. */
 export async function resetFingeringModelForTests(): Promise<void> {
   await disposeFingeringModel();
   sessionHadBeenInitialized = false;
@@ -186,8 +186,8 @@ export async function getMLFingerCosts(
       activeSession.run({ note_sequence: tensor }),
     );
   } catch (err) {
-    // Previously unguarded: an inference-time failure (as opposed to an
-    // init-time failure) threw uncaught here, propagating through
+    // This path was previously unguarded. An inference-time failure (as
+    // opposed to an init-time failure) threw uncaught here, propagating through
     // fingerPhrase's un-try/catch'd `await getMLFingerCosts(...)` and
     // rejecting the whole predictFingering() Promise.all - losing BOTH
     // hands' fingering entirely, a strictly worse outcome than the pure-DP

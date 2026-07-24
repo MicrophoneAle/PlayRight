@@ -26,7 +26,7 @@ export class PracticeEngine {
   /** MIDI pitches from the completed final step still held down. */
   private pendingFinalStepMidis = new Set<number>();
 
-  /** Subscribe to store changes once; safe to call repeatedly (StrictMode, HMR). */
+  /** Subscribe to store changes once. Safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
     if (this.storeSubscriptionInitialized) {
       return;
@@ -194,7 +194,7 @@ export class PracticeEngine {
     }
 
     const position = this.currentPosition(currentStepIndex, practiceGraceCursor);
-    // Match any note at this position with this finger — including notes
+    // Match any note at this position with this finger, including notes
     // already marked hit. Wrong fingers return null and stay silent.
     const expected = getExpectedNoteForFingerAtPosition(
       script,
@@ -236,8 +236,8 @@ export class PracticeEngine {
       return;
     }
 
-    // markHitAtIndex no-ops when already hit — completion state does not
-    // regress; only first hit counts toward advancement.
+    // markHitAtIndex no-ops when already hit, so completion state does not
+    // regress. Only the first hit counts toward advancement.
     this.registerPracticeHitAtIndex(hitIndex);
   }
 
@@ -252,7 +252,7 @@ export class PracticeEngine {
     this.activeFingerSounds.delete(fingerKey);
   }
 
-  /** Two-hand: begin practice on the first correct finger hit if Start was not pressed. */
+  /** In two-hand mode, begin practice on the first correct finger hit if Start was not pressed. */
   private ensureTwoHandPracticeStarted(): boolean {
     const state = useEngineStore.getState();
 
@@ -314,7 +314,7 @@ export class PracticeEngine {
   /**
    * Record a hit without advancing. Returns true when a new hit was recorded.
    * Completion is checked synchronously by the caller so the step advances within
-   * the same event, before the next keydown is processed — otherwise a chord (or a
+   * the same event, before the next keydown is processed. Otherwise a chord (or a
    * note pressed immediately after) is matched against the not-yet-advanced step
    * and silently dropped, forcing the player to space notes out.
    */
@@ -421,8 +421,8 @@ export class PracticeEngine {
     const fingerKey = `${mapping.hand}:${mapping.finger}`;
     // Re-press of a matching finger must always produce a fresh attack, even
     // if soundingMidis still tracks this midi (sticky hold / missed release).
-    // hitNoteIndices alone owns completion; re-articulation must not be gated
-    // by prior hit or lingering sustain state.
+    // hitNoteIndices alone owns completion, and re-articulation must not be
+    // gated by prior hit or lingering sustain state.
     if (this.soundingMidis.has(midi)) {
       const engine = this.audioEngine;
       if (engine) {
@@ -477,7 +477,7 @@ export class PracticeEngine {
 
   /**
    * Set practiceNotesForStep/expectedNotes for an already-resolved position.
-   * Callers own step-boundary and within-step position resolution; this only
+   * Callers own step-boundary and within-step position resolution. This only
    * loads the notes for the position they land on.
    */
   private loadPositionNotes(
@@ -649,7 +649,7 @@ export class PracticeEngine {
         }
       }
 
-      // Graces exhausted; try the step's main position next.
+      // Graces are exhausted, so try the step's main position next.
       if (
         positionHasRequiredPracticeNotes(
           script,

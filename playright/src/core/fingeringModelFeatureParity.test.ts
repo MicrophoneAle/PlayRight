@@ -6,8 +6,8 @@ import { buildModelFeatureRow, FINGERING_FEATURE_COUNT } from './fingeringModelF
 import type { NoteEvent } from './fingeringPredictor.ts';
 
 /**
- * Cross-language parity test: playright-ml/gen_feature_parity_fixture.py
- * computes the canonical feature vector for two fixed note contexts using
+ * This cross-language parity test relies on playright-ml/gen_feature_parity_fixture.py,
+ * which computes the canonical feature vector for two fixed note contexts using
  * feature_spec.py and dumps them to feature_parity_fixture.json. This test
  * builds the identical NoteEvent contexts via buildModelFeatureRow and
  * asserts every value matches, so drift between the Python trainer's feature
