@@ -6,8 +6,9 @@
 import signInSignUpButtons from '../assets/PlayRight Sign-In and Sign-Up Buttons.png';
 import importButton from '../assets/PlayRight Import Button.png';
 import scoresButton from '../assets/PlayRight Scores Button.png';
-import controls1 from '../assets/PlayRight Controls 1.png';
-import controls2 from '../assets/PlayRight Controls 2.png';
+import playModeToggle from '../assets/PlayRight Play Mode Toggle.png';
+import fingeringModeToggle from '../assets/PlayRight Fingering Mode Togle.png';
+import practiceModeSelection from '../assets/PlayRight Practice Mode Selection.png';
 import scoreViewAndStart from '../assets/PlayRight Score View and Start.png';
 
 export const ONBOARDING_TUTORIAL_STORAGE_KEY = 'playright-onboarding-tutorial-seen';
@@ -32,13 +33,12 @@ export interface OnboardingPage {
   eyebrow: string;
   title: string;
   body: string;
-  /** Primary screenshot; `null` renders the labeled placeholder frame. */
-  image: OnboardingImage | null;
   /**
-   * Optional second screenshot. When set (with `image`), the artwork region
-   * lays both out side-by-side — reusable for any future dual-image page.
+   * Screenshot(s) for the artwork region. Empty → labeled placeholder.
+   * One image → centered contain; two or more → equal-width vertical stack
+   * (scrolls inside the fixed image region when needed).
    */
-  image2?: OnboardingImage | null;
+  images: readonly OnboardingImage[];
 }
 
 export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
@@ -49,10 +49,12 @@ export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
     title: 'Signing in',
     body:
       'Click the Sign-In or Sign-Up button to register and save scores in your account with Clerk authentication. A limited number of scores are available when not signed in.',
-    image: {
-      src: signInSignUpButtons,
-      alt: 'PlayRight Sign-In and Sign-Up Buttons',
-    },
+    images: [
+      {
+        src: signInSignUpButtons,
+        alt: 'PlayRight Sign-In and Sign-Up Buttons',
+      },
+    ],
   },
   {
     id: 'importing-scores',
@@ -60,10 +62,12 @@ export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
     eyebrow: 'Your library',
     title: 'Import',
     body: 'Select a MusicXML or MXL file to upload to the scores list.',
-    image: {
-      src: importButton,
-      alt: 'PlayRight Import Button',
-    },
+    images: [
+      {
+        src: importButton,
+        alt: 'PlayRight Import Button',
+      },
+    ],
   },
   {
     id: 'opening-scores',
@@ -72,10 +76,12 @@ export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
     title: 'Score Selection',
     body:
       'Open the scores menu using the scores button and navigate through to select one of your saved scores.',
-    image: {
-      src: scoresButton,
-      alt: 'PlayRight Scores Button',
-    },
+    images: [
+      {
+        src: scoresButton,
+        alt: 'PlayRight Scores Button',
+      },
+    ],
   },
   {
     id: 'changing-modes',
@@ -84,14 +90,20 @@ export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
     title: 'Modify Controls',
     body:
       'Switch between one-handed and two-handed mode, program fingerings into your scores, modify key bindings, and more.',
-    image: {
-      src: controls1,
-      alt: 'PlayRight Controls 1',
-    },
-    image2: {
-      src: controls2,
-      alt: 'PlayRight Controls 2',
-    },
+    images: [
+      {
+        src: playModeToggle,
+        alt: 'PlayRight Play Mode Toggle',
+      },
+      {
+        src: fingeringModeToggle,
+        alt: 'PlayRight Fingering Mode Toggle',
+      },
+      {
+        src: practiceModeSelection,
+        alt: 'PlayRight Practice Mode Selection',
+      },
+    ],
   },
   {
     id: 'settings-and-shortcuts',
@@ -100,10 +112,12 @@ export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
     title: 'Plug and Play',
     body:
       'Hit the play button to start your piece and control the playthrough with pause and restart.',
-    image: {
-      src: scoreViewAndStart,
-      alt: 'PlayRight Score View and Start',
-    },
+    images: [
+      {
+        src: scoreViewAndStart,
+        alt: 'PlayRight Score View and Start',
+      },
+    ],
   },
 ];
 

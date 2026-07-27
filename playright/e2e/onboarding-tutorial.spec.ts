@@ -171,22 +171,81 @@ test.describe('onboarding tutorial', () => {
       expect(size).toEqual(first);
     }
 
-    // Dual-image page (4) still uses object-contain: both Controls shots visible.
+    expect(first).toEqual({ width: 544, height: 568 });
+
+    // Page 4: three equal-width stacked shots; region scrolls inside fixed panel.
     await page.getByRole('button', { name: 'Page 4: Modify Controls' }).click();
-    const imgs = panel.locator('img');
-    await expect(imgs).toHaveCount(2);
-    for (let i = 0; i < 2; i += 1) {
-      const natural = await imgs.nth(i).evaluate((el: HTMLImageElement) => ({
-        nw: el.naturalWidth,
-        nh: el.naturalHeight,
-        w: el.getBoundingClientRect().width,
-        h: el.getBoundingClientRect().height,
-      }));
+    const stack = panel.getByTestId('onboarding-artwork-stack');
+    const imgs = stack.locator('img');
+    await expect(imgs).toHaveCount(3);
+
+    const metrics = await imgs.evaluateAll((els) =>
+      els.map((el) => {
+        const image = el as HTMLImageElement;
+        const rect = image.getBoundingClientRect();
+        return {
+          nw: image.naturalWidth,
+          nh: image.naturalHeight,
+          w: rect.width,
+          h: rect.height,
+        };
+      }),
+    );
+
+    const widths = metrics.map((m) => Math.round(m.w * 10) / 10);
+    expect(widths[0]).toBeGreaterThan(0);
+    expect(widths[1]).toBeCloseTo(widths[0], 0);
+    expect(widths[2]).toBeCloseTo(widths[0], 0);
+
+    for (const natural of metrics) {
       expect(natural.nw).toBeGreaterThan(0);
       expect(natural.nh).toBeGreaterThan(0);
       const naturalRatio = natural.nw / natural.nh;
       const displayRatio = natural.w / natural.h;
       expect(Math.abs(naturalRatio - displayRatio)).toBeLessThan(0.02);
     }
+
+    const scrollState = await stack.evaluate((el) => ({
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    }));
+    expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.clientHeight);
+
+    await stack.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await expect
+      .poll(async () =>
+        stack.evaluate((el) => {
+          const firstImg = el.querySelector('img');
+          if (!firstImg) {
+            return false;
+          }
+          const stackRect = el.getBoundingClientRect();
+          const imgRect = firstImg.getBoundingClientRect();
+          return imgRect.top >= stackRect.top - 1 && imgRect.top <= stackRect.bottom;
+        }),
+      )
+      .toBe(true);
+
+    await stack.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect
+      .poll(async () =>
+        stack.evaluate((el) => {
+          const lastImg = el.querySelector('img:last-of-type');
+          if (!lastImg) {
+            return false;
+          }
+          const stackRect = el.getBoundingClientRect();
+          const imgRect = lastImg.getBoundingClientRect();
+          return (
+            imgRect.bottom <= stackRect.bottom + 1 &&
+            imgRect.bottom >= stackRect.top
+          );
+        }),
+      )
+      .toBe(true);
   });
 });

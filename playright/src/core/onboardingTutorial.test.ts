@@ -55,17 +55,21 @@ describe('onboarding tutorial pages', () => {
     }
   });
 
-  it('ships final screenshots for every page (dual images use image2)', () => {
+  it('ships final screenshots for every page (page 4 stacks three control shots)', () => {
     for (const page of ONBOARDING_PAGES) {
-      expect(page.image).not.toBeNull();
-      expect(page.image?.src.length).toBeGreaterThan(0);
-      expect(page.image?.alt.length).toBeGreaterThan(0);
+      expect(page.images.length).toBeGreaterThan(0);
+      for (const image of page.images) {
+        expect(image.src.length).toBeGreaterThan(0);
+        expect(image.alt.length).toBeGreaterThan(0);
+      }
     }
 
-    const dual = ONBOARDING_PAGES.find((page) => page.image2);
-    expect(dual?.id).toBe('changing-modes');
-    expect(dual?.image2?.src.length).toBeGreaterThan(0);
-    expect(dual?.image2?.alt).toBe('PlayRight Controls 2');
+    const modes = ONBOARDING_PAGES.find((page) => page.id === 'changing-modes');
+    expect(modes?.images.map((image) => image.alt)).toEqual([
+      'PlayRight Play Mode Toggle',
+      'PlayRight Fingering Mode Toggle',
+      'PlayRight Practice Mode Selection',
+    ]);
   });
 });
 

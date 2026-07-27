@@ -55,26 +55,32 @@ function ArtworkImage({ image }: { image: OnboardingImage }) {
 
 function PageArtwork({ page }: { page: OnboardingPage }) {
   const Icon = PAGE_ICONS[page.icon];
-  const primary = page.image;
-  const secondary = page.image2 ?? null;
+  const images = page.images;
 
-  if (primary && secondary) {
+  if (images.length > 1) {
+    // Equal-width vertical stack; region scrolls when the stack exceeds h-60.
     return (
-      <div className="flex h-full w-full items-center justify-center gap-3">
-        <div className="flex h-full max-w-[calc(50%-0.375rem)] flex-1 items-center justify-center">
-          <ArtworkImage image={primary} />
-        </div>
-        <div className="flex h-full max-w-[calc(50%-0.375rem)] flex-1 items-center justify-center">
-          <ArtworkImage image={secondary} />
-        </div>
+      <div
+        data-testid="onboarding-artwork-stack"
+        className="flex h-full w-full flex-col items-stretch gap-2 overflow-y-auto overscroll-contain"
+      >
+        {images.map((image) => (
+          <img
+            key={image.alt}
+            src={image.src}
+            alt={image.alt}
+            className="w-full shrink-0 object-contain"
+            draggable={false}
+          />
+        ))}
       </div>
     );
   }
 
-  if (primary) {
+  if (images.length === 1) {
     return (
       <div className="flex h-full w-full items-center justify-center">
-        <ArtworkImage image={primary} />
+        <ArtworkImage image={images[0]} />
       </div>
     );
   }
