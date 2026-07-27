@@ -112,8 +112,21 @@ export function extractHandTimelines(
   return timelines;
 }
 
-/** Maximum hand-frame span before starting a new fingering phrase (major 10th). */
-export const PHRASE_MAX_FRAME_SPAN = 17;
+/**
+ * Maximum hand-frame span before starting a new fingering phrase.
+ *
+ * Raised from 17 (major 10th) on 2026-07-27: the bounding-box rule was the
+ * dominant split cause across the 10 fixtures (807 of 924 phrase boundaries
+ * were frame-span-only; tetoris L alone had 258, fingering nearly every bar
+ * as its own phrase), and every such split is a forced reposition -
+ * phraseStartCost re-bias plus a seeded boundary transition instead of one
+ * coherent DP plan. At 22 the frame-only split count falls to 378 while the
+ * chase RH gold benchmark (45/59 DP, 40/59 ML), the 10-fixture
+ * out-of-sequence scan (zero violations), and all fingering guard tests are
+ * unchanged. The box is a phrase BOUNDING box, not a hand span - a melody
+ * drifting through two octaves shifts gradually and needs no hard break.
+ */
+export const PHRASE_MAX_FRAME_SPAN = 22;
 
 /** @deprecated Use PHRASE_MAX_FRAME_SPAN bounding-box segmentation instead. */
 export const PHRASE_LARGE_LEAP_SEMITONES = 12;
@@ -286,6 +299,20 @@ export function segmentIntoPhrases(
 
 export const SAME_FINGER_REPEATED_COST = 0;
 export const CONSECUTIVE_SAME_FINGER_PENALTY = 50_000;
+/**
+ * Hard rule: a 1-semitone melodic step fingered in sequence MUST use
+ * consecutive fingers (same character as CONSECUTIVE_SAME_FINGER_PENALTY's
+ * hard-ban). Confirmed offender (2026-07-27): constant-moderato R step
+ * 546-547, midi 78->77 fingered 5-then-3 - RETURNING_PITCH_FINGER_MISMATCH
+ * had locked each ostinato pitch to its first-in-phrase finger, and at 500
+ * per deviation the lock out-priced the cubic gap deviation (skipping one
+ * finger over a semitone costs only 100). Crossings are untouched: chromatic
+ * thumb-under/finger-over (1<->3 across a semitone) lives in the !inSequence
+ * branch and stays priced by the crossing model. Score-authored anchor pairs
+ * collapse allowedFingers to a single path, so as with the same-finger ban
+ * the DP still emits them when the score insists.
+ */
+export const SEMITONE_NONCONSECUTIVE_FINGER_PENALTY = 50_000;
 export const LEGAL_CROSSING_COST = 1.0;
 /**
  * A real thumb crossing covers a step or a third. Beyond that the "crossing"
@@ -550,6 +577,13 @@ export function transitionCost(
     absInterval <= 2
   ) {
     cost += INNER_FINGER_RETREAT_PENALTY;
+  }
+
+  // Hard in-sequence rule: a semitone step never skips a finger (see the
+  // constant's doc). Only the in-sequence branch - crossings and pivots are
+  // priced above and remain the chromatic-passage escape hatch.
+  if (inSequence && absInterval === 1 && fingerGap > 1) {
+    cost += SEMITONE_NONCONSECUTIVE_FINGER_PENALTY;
   }
 
   // The open-frame reward only makes sense when the finger order AGREES with

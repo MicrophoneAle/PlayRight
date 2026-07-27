@@ -307,15 +307,18 @@ describe('assignChordFingers', () => {
 });
 
 describe('segmentIntoPhrases', () => {
-  it('splits when the hand frame would exceed 17 semitones or on a large onset gap', async () => {
+  it('splits when the hand frame would exceed PHRASE_MAX_FRAME_SPAN semitones or on a large onset gap', async () => {
+    // Derived from the constant so the test tracks the mechanism, not the
+    // tuned value (raised 17 -> 22 on 2026-07-27).
+    const overSpanMidi = 60 + PHRASE_MAX_FRAME_SPAN + 1;
     const frameTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
       noteEvent(1, 67, 1),
-      noteEvent(2, 78, 2),
+      noteEvent(2, overSpanMidi, 2),
     ];
     const leapTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
-      noteEvent(1, 78, 1),
+      noteEvent(1, overSpanMidi, 1),
     ];
     const gapTimeline: NoteEvent[] = [
       noteEvent(0, 60, 0),
@@ -328,7 +331,7 @@ describe('segmentIntoPhrases', () => {
 
     expect(framePhrases).toHaveLength(2);
     expect(framePhrases[0].map((event) => event.midi)).toEqual([60, 67]);
-    expect(framePhrases[1].map((event) => event.midi)).toEqual([78]);
+    expect(framePhrases[1].map((event) => event.midi)).toEqual([overSpanMidi]);
 
     expect(leapPhrases).toHaveLength(2);
     expect(gapPhrases).toHaveLength(2);
