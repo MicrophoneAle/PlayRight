@@ -36,7 +36,7 @@ const PAGE_ICONS: Record<OnboardingIconKey, typeof LogIn> = {
 
 /** Pixel-identical outer dialog bounds on every page. */
 const TUTORIAL_PANEL_WIDTH_PX = 544;
-const TUTORIAL_PANEL_HEIGHT_PX = 520;
+const TUTORIAL_PANEL_HEIGHT_PX = 568;
 
 /** Diagonal hatch marks the frame as awaiting a real screenshot. */
 const PLACEHOLDER_HATCH =
@@ -226,14 +226,14 @@ export function OnboardingTutorial() {
 
         <div
           key={page.id}
-          className={`playright-tutorial-page playright-tutorial-page-${direction} flex min-h-0 flex-1 flex-col gap-3 px-4 py-4`}
+          className={`playright-tutorial-page playright-tutorial-page-${direction} flex min-h-0 flex-1 flex-col gap-2 px-4 pt-3 pb-4`}
         >
           {/* Fixed image region: single or dual layouts never change outer size. */}
-          <div className="flex h-52 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2">
+          <div className="flex h-60 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80 px-2 py-1.5">
             <PageArtwork page={page} />
           </div>
 
-          <div className="flex min-h-[6.5rem] flex-1 flex-col">
+          <div className="flex min-h-[5.75rem] flex-1 flex-col justify-start pt-1">
             <p
               className="text-[11px] font-medium uppercase tracking-[0.14em] text-violet-400"
             >
