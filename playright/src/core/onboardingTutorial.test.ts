@@ -55,8 +55,17 @@ describe('onboarding tutorial pages', () => {
     }
   });
 
-  it('ships with placeholder artwork until real screenshots are added', () => {
-    expect(ONBOARDING_PAGES.every((page) => page.image === null)).toBe(true);
+  it('ships final screenshots for every page (dual images use image2)', () => {
+    for (const page of ONBOARDING_PAGES) {
+      expect(page.image).not.toBeNull();
+      expect(page.image?.src.length).toBeGreaterThan(0);
+      expect(page.image?.alt.length).toBeGreaterThan(0);
+    }
+
+    const dual = ONBOARDING_PAGES.find((page) => page.image2);
+    expect(dual?.id).toBe('changing-modes');
+    expect(dual?.image2?.src.length).toBeGreaterThan(0);
+    expect(dual?.image2?.alt).toBe('PlayRight Controls 2');
   });
 });
 

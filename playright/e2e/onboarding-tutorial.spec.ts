@@ -142,4 +142,51 @@ test.describe('onboarding tutorial', () => {
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByText('1 of 5')).toBeVisible();
   });
+
+  test('keeps identical outer panel size across all five pages', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(dialog(page)).toBeVisible();
+
+    const panel = page.getByTestId('onboarding-tutorial-panel');
+    const sizes: Array<{ width: number; height: number }> = [];
+
+    for (let i = 0; i < 5; i += 1) {
+      await expect(page.getByText(`${i + 1} of 5`)).toBeVisible();
+      const box = await panel.boundingBox();
+      expect(box).not.toBeNull();
+      sizes.push({
+        width: Math.round(box!.width),
+        height: Math.round(box!.height),
+      });
+
+      if (i < 4) {
+        await page.getByRole('button', { name: 'Next page' }).click();
+      }
+    }
+
+    const first = sizes[0];
+    for (const size of sizes) {
+      expect(size).toEqual(first);
+    }
+
+    // Dual-image page (4) still uses object-contain: both Controls shots visible.
+    await page.getByRole('button', { name: 'Page 4: Modify Controls' }).click();
+    const imgs = panel.locator('img');
+    await expect(imgs).toHaveCount(2);
+    for (let i = 0; i < 2; i += 1) {
+      const natural = await imgs.nth(i).evaluate((el: HTMLImageElement) => ({
+        nw: el.naturalWidth,
+        nh: el.naturalHeight,
+        w: el.getBoundingClientRect().width,
+        h: el.getBoundingClientRect().height,
+      }));
+      expect(natural.nw).toBeGreaterThan(0);
+      expect(natural.nh).toBeGreaterThan(0);
+      const naturalRatio = natural.nw / natural.nh;
+      const displayRatio = natural.w / natural.h;
+      expect(Math.abs(naturalRatio - displayRatio)).toBeLessThan(0.02);
+    }
+  });
 });

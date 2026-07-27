@@ -21,6 +21,8 @@ import {
   nextOnboardingPage,
   previousOnboardingPage,
   type OnboardingIconKey,
+  type OnboardingImage,
+  type OnboardingPage,
 } from '../core/onboardingTutorial.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
@@ -32,27 +34,54 @@ const PAGE_ICONS: Record<OnboardingIconKey, typeof LogIn> = {
   settings: Keyboard,
 };
 
+/** Pixel-identical outer dialog bounds on every page. */
+const TUTORIAL_PANEL_WIDTH_PX = 544;
+const TUTORIAL_PANEL_HEIGHT_PX = 520;
+
 /** Diagonal hatch marks the frame as awaiting a real screenshot. */
 const PLACEHOLDER_HATCH =
   'repeating-linear-gradient(135deg, rgba(139,92,246,0.05) 0 10px, transparent 10px 20px)';
 
-function PageArtwork({ pageIndex }: { pageIndex: number }) {
-  const page = ONBOARDING_PAGES[pageIndex];
-  const Icon = PAGE_ICONS[page.icon];
+function ArtworkImage({ image }: { image: OnboardingImage }) {
+  return (
+    <img
+      src={image.src}
+      alt={image.alt}
+      className="max-h-full max-w-full object-contain"
+      draggable={false}
+    />
+  );
+}
 
-  if (page.image) {
+function PageArtwork({ page }: { page: OnboardingPage }) {
+  const Icon = PAGE_ICONS[page.icon];
+  const primary = page.image;
+  const secondary = page.image2 ?? null;
+
+  if (primary && secondary) {
     return (
-      <img
-        src={page.image.src}
-        alt={page.image.alt}
-        className="h-36 w-full rounded-lg border border-zinc-800 bg-zinc-900 object-cover"
-      />
+      <div className="flex h-full w-full items-center justify-center gap-3">
+        <div className="flex h-full max-w-[calc(50%-0.375rem)] flex-1 items-center justify-center">
+          <ArtworkImage image={primary} />
+        </div>
+        <div className="flex h-full max-w-[calc(50%-0.375rem)] flex-1 items-center justify-center">
+          <ArtworkImage image={secondary} />
+        </div>
+      </div>
+    );
+  }
+
+  if (primary) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <ArtworkImage image={primary} />
+      </div>
     );
   }
 
   return (
     <div
-      className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/60"
+      className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/60"
       style={{ backgroundImage: PLACEHOLDER_HATCH }}
       role="img"
       aria-label={`Screenshot placeholder for ${page.title}`}
@@ -167,7 +196,12 @@ export function OnboardingTutorial() {
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl outline-none"
+        data-testid="onboarding-tutorial-panel"
+        className="my-auto flex shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl outline-none"
+        style={{
+          width: TUTORIAL_PANEL_WIDTH_PX,
+          height: TUTORIAL_PANEL_HEIGHT_PX,
+        }}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -192,11 +226,14 @@ export function OnboardingTutorial() {
 
         <div
           key={page.id}
-          className={`playright-tutorial-page playright-tutorial-page-${direction} flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4`}
+          className={`playright-tutorial-page playright-tutorial-page-${direction} flex min-h-0 flex-1 flex-col gap-3 px-4 py-4`}
         >
-          <PageArtwork pageIndex={pageIndex} />
+          {/* Fixed image region: single or dual layouts never change outer size. */}
+          <div className="flex h-52 w-full shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2">
+            <PageArtwork page={page} />
+          </div>
 
-          <div className="min-h-0">
+          <div className="flex min-h-[6.5rem] flex-1 flex-col">
             <p
               className="text-[11px] font-medium uppercase tracking-[0.14em] text-violet-400"
             >

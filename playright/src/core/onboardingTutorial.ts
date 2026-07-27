@@ -3,6 +3,13 @@
  * Rendering lives in `components/OnboardingTutorial.tsx`.
  */
 
+import signInSignUpButtons from '../assets/PlayRight Sign-In and Sign-Up Buttons.png';
+import importButton from '../assets/PlayRight Import Button.png';
+import scoresButton from '../assets/PlayRight Scores Button.png';
+import controls1 from '../assets/PlayRight Controls 1.png';
+import controls2 from '../assets/PlayRight Controls 2.png';
+import scoreViewAndStart from '../assets/PlayRight Score View and Start.png';
+
 export const ONBOARDING_TUTORIAL_STORAGE_KEY = 'playright-onboarding-tutorial-seen';
 
 /** Icon key resolved to a lucide component in OnboardingTutorial.tsx. */
@@ -14,7 +21,7 @@ export type OnboardingIconKey =
   | 'settings';
 
 export interface OnboardingImage {
-  /** Imported asset or `/public` path. */
+  /** Vite-imported asset URL. */
   src: string;
   alt: string;
 }
@@ -24,17 +31,16 @@ export interface OnboardingPage {
   icon: OnboardingIconKey;
   eyebrow: string;
   title: string;
-  /** PLACEHOLDER COPY — replace with final wording. */
   body: string;
-  /** `null` renders the labeled placeholder frame instead of a screenshot. */
+  /** Primary screenshot; `null` renders the labeled placeholder frame. */
   image: OnboardingImage | null;
+  /**
+   * Optional second screenshot. When set (with `image`), the artwork region
+   * lays both out side-by-side — reusable for any future dual-image page.
+   */
+  image2?: OnboardingImage | null;
 }
 
-/**
- * Swap in real screenshots by setting `image` on a page:
- *   image: { src: signInShot, alt: 'The header with the sign-in button' }
- * Nothing else changes — the frame keeps its size and the placeholder drops out.
- */
 export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
   {
     id: 'signing-in',
@@ -42,44 +48,62 @@ export const ONBOARDING_PAGES: readonly OnboardingPage[] = [
     eyebrow: 'Your account',
     title: 'Signing in',
     body:
-      'PLACEHOLDER COPY — replace before launch. Two or three sentences on where the sign-in control lives, what an account unlocks (saved scores and fingerings that follow you between devices), and what still works while signed out.',
-    image: null,
+      'Click the Sign-In or Sign-Up button to register and save scores in your account with Clerk authentication. A limited number of scores are available when not signed in.',
+    image: {
+      src: signInSignUpButtons,
+      alt: 'PlayRight Sign-In and Sign-Up Buttons',
+    },
   },
   {
     id: 'importing-scores',
     icon: 'import',
     eyebrow: 'Your library',
-    title: 'Importing scores',
-    body:
-      'PLACEHOLDER COPY — replace before launch. Two or three sentences on Import: which file types load (MusicXML and MXL), where the file picker appears, and that an imported piece is saved to the library automatically.',
-    image: null,
+    title: 'Import',
+    body: 'Select a MusicXML or MXL file to upload to the scores list.',
+    image: {
+      src: importButton,
+      alt: 'PlayRight Import Button',
+    },
   },
   {
     id: 'opening-scores',
     icon: 'open',
     eyebrow: 'Your library',
-    title: 'Opening scores',
+    title: 'Score Selection',
     body:
-      'PLACEHOLDER COPY — replace before launch. Two or three sentences on the Scores panel: how to reopen a saved piece, how sorting and search help once the library grows, and that C opens the panel from anywhere.',
-    image: null,
+      'Open the scores menu using the scores button and navigate through to select one of your saved scores.',
+    image: {
+      src: scoresButton,
+      alt: 'PlayRight Scores Button',
+    },
   },
   {
     id: 'changing-modes',
     icon: 'modes',
     eyebrow: 'How you practice',
-    title: 'Changing modes',
+    title: 'Modify Controls',
     body:
-      'PLACEHOLDER COPY — replace before launch. Three or four sentences distinguishing one-hand practice (a movable scope, one staff at a time), two-hand practice (finger keys for both hands), and play mode (the piece plays itself so you can listen along).',
-    image: null,
+      'Switch between one-handed and two-handed mode, program fingerings into your scores, modify key bindings, and more.',
+    image: {
+      src: controls1,
+      alt: 'PlayRight Controls 1',
+    },
+    image2: {
+      src: controls2,
+      alt: 'PlayRight Controls 2',
+    },
   },
   {
     id: 'settings-and-shortcuts',
     icon: 'settings',
-    eyebrow: 'Everything else',
-    title: 'Settings and shortcuts',
+    eyebrow: 'Playthrough',
+    title: 'Plug and Play',
     body:
-      'PLACEHOLDER COPY — replace before launch. Two or three sentences on the gear menu (tempo, auto-fingering, hand size, scroll behaviour) and the shortcuts panel, plus the handful of keys worth learning first: Enter, Space, X, Z, C.',
-    image: null,
+      'Hit the play button to start your piece and control the playthrough with pause and restart.',
+    image: {
+      src: scoreViewAndStart,
+      alt: 'PlayRight Score View and Start',
+    },
   },
 ];
 
