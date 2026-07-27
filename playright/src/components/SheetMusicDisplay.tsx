@@ -357,6 +357,9 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
   const playingPlaybackNotes = useEngineStore((state) => state.playingPlaybackNotes);
   const isPlaybackActive = useEngineStore((state) => state.isPlaybackActive);
   const isPlaybackPaused = useEngineStore((state) => state.isPlaybackPaused);
+  const currentPlaybackOrderIndex = useEngineStore(
+    (state) => state.currentPlaybackOrderIndex,
+  );
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
   const headerCollapsed = useEngineStore((state) => state.headerCollapsed);
@@ -425,12 +428,33 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       state.engineMode,
     );
 
-    if (state.playMode && state.isPlaybackActive && !state.isPlaybackPaused) {
+    if (state.playMode && state.isPlaybackActive) {
+      // Include paused play-mode seeks: empty sounding notes still need the
+      // per-pass cursor offset (repeat second passes) and step highlights.
+      let activeNotes = state.playingPlaybackNotes;
+      if (activeNotes.length === 0 && state.script) {
+        const step = state.script[state.currentStepIndex];
+        if (step) {
+          const displayNotes = getDisplayNotesForStep(
+            step,
+            true,
+            displayEngineMode,
+            state.activeHand,
+          );
+          activeNotes = displayNotes.map((note, pressId) => ({
+            pressId,
+            stepIndex: state.currentStepIndex,
+            midi: note.midi,
+            hand: note.playingHand ?? note.hand,
+          }));
+        }
+      }
+
       highlightedNotesRef.current = syncSheetMusicPlaybackVisuals(osmd, {
         visualIndex: visualIndexRef.current,
         scrollStepIndex: state.currentStepIndex,
         scrollPlaybackOrderIndex: state.currentPlaybackOrderIndex,
-        activeNotes: state.playingPlaybackNotes,
+        activeNotes,
         container,
         highlightedNotes: highlightedNotesRef.current,
         cursorOffsetRef,
@@ -727,6 +751,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         width: container.clientWidth,
         height: container.clientHeight,
       };
+      container.dataset.sheetRenderedWidth = String(container.clientWidth);
+      container.dataset.sheetRenderedHeight = String(container.clientHeight);
 
       const state = useEngineStore.getState();
       const playbackRunning =
@@ -826,6 +852,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
             // valid at any container size, so highlights and scroll keep
             // working, and the reflow is deferred until playback pauses/stops.
             pendingPlaybackResizeRef.current = true;
+            container.dataset.pendingPlaybackResize = 'true';
             syncPracticeVisuals();
             return;
           }
@@ -833,6 +860,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
           safeRender(false);
         });
         resizeObserver.observe(container);
+        container.dataset.pendingPlaybackResize = 'false';
 
         requestAnimationFrame(() => {
           requestAnimationFrame(() => safeRender(true));
@@ -855,6 +883,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       cursorOffsetRef.current = -1;
       lastRenderedSizeRef.current = null;
       pendingPlaybackResizeRef.current = false;
+      if (container) {
+        container.dataset.pendingPlaybackResize = 'false';
+        delete container.dataset.sheetRenderedWidth;
+        delete container.dataset.sheetRenderedHeight;
+      }
       safeRenderRef.current = null;
       scrollStateRef.current = { systemKey: null, lineScrollTop: null };
       if (playbackSyncFrameRef.current !== null) {
@@ -877,6 +910,8 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     pendingPlaybackResizeRef.current = false;
+    containerRef.current &&
+      (containerRef.current.dataset.pendingPlaybackResize = 'false');
     safeRenderRef.current?.(true);
   }, [playbackRunning]);
 
@@ -897,6 +932,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     syncPracticeVisuals();
   }, [
     currentStepIndex,
+    currentPlaybackOrderIndex,
     practiceGraceCursor,
     expectedMidiNotes,
     playingPlaybackNotes,

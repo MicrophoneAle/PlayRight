@@ -22,10 +22,30 @@ export interface PlayRightE2EHarness {
   seekPractice: (stepIndex: number) => void;
   setPlayMode: (enabled: boolean) => void;
   seekPlayback: (stepIndex: number) => void;
+  /** Seek to an exact unrolled PlaybackOrder entry (incl. second+ passes). */
+  seekPlaybackOrderIndex: (entryIndex: number) => void;
   startPlayback: () => Promise<void>;
   stopPlayback: () => void;
+  pausePlayback: () => void;
   isPlaybackFinished: () => boolean;
   isPlaybackActive: () => boolean;
+  isPlaybackPaused: () => boolean;
+  getPlaybackOrderIndex: () => number;
+  getPlaybackOrder: () => Array<{
+    stepIndex: number;
+    passIndex: number;
+    measureNumber: number;
+  }>;
+  /** True while SheetMusicDisplay has deferred a mid-playback container resize. */
+  isPendingPlaybackResize: () => boolean;
+  getSheetRenderedSize: () => { width: number; height: number } | null;
+  /** Union client bounds of currently highlighted (green) SVG nodes. */
+  getHighlightBounds: () => {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null;
   /** Per-step played duration (quarter notes) using the live store script. */
   probePlayedDurations: () => Array<{
     pitch: string;
@@ -107,6 +127,10 @@ function installE2EHarness(): void {
       playbackEngine.seekToStep(stepIndex);
     },
 
+    seekPlaybackOrderIndex(entryIndex) {
+      playbackEngine.seekToPlaybackOrderIndex(entryIndex);
+    },
+
     async startPlayback() {
       const before = useEngineStore.getState();
       if (!before.script || !before.scoreTiming) {
@@ -142,12 +166,106 @@ function installE2EHarness(): void {
       playbackEngine.stop();
     },
 
+    pausePlayback() {
+      playbackEngine.pause();
+    },
+
     isPlaybackFinished() {
       return useEngineStore.getState().isPlaybackFinished;
     },
 
     isPlaybackActive() {
       return useEngineStore.getState().isPlaybackActive;
+    },
+
+    isPlaybackPaused() {
+      return useEngineStore.getState().isPlaybackPaused;
+    },
+
+    getPlaybackOrderIndex() {
+      return useEngineStore.getState().currentPlaybackOrderIndex;
+    },
+
+    getPlaybackOrder() {
+      const state = useEngineStore.getState();
+      const script = state.script;
+      const order = state.playbackOrder;
+      if (!script || !order) {
+        return [];
+      }
+      return order.map((entry) => ({
+        stepIndex: entry.stepIndex,
+        passIndex: entry.passIndex,
+        measureNumber: script[entry.stepIndex]?.measureNumber ?? -1,
+      }));
+    },
+
+    isPendingPlaybackResize() {
+      const sheet = document.querySelector('[data-testid="sheet-music"]');
+      return (
+        sheet instanceof HTMLElement &&
+        sheet.dataset.pendingPlaybackResize === 'true'
+      );
+    },
+
+    getSheetRenderedSize() {
+      const sheet = document.querySelector('[data-testid="sheet-music"]');
+      if (!(sheet instanceof HTMLElement)) {
+        return null;
+      }
+      const width = Number(sheet.dataset.sheetRenderedWidth);
+      const height = Number(sheet.dataset.sheetRenderedHeight);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) {
+        return null;
+      }
+      return { width, height };
+    },
+
+    getHighlightBounds() {
+      const sheet = document.querySelector('[data-testid="sheet-music"]');
+      if (!sheet) {
+        return null;
+      }
+
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      let found = false;
+
+      for (const el of sheet.querySelectorAll('*')) {
+        const fill = (el.getAttribute('fill') ?? '').toLowerCase();
+        const stroke = (el.getAttribute('stroke') ?? '').toLowerCase();
+        const style = (el.getAttribute('style') ?? '').toLowerCase();
+        const hit =
+          fill.includes('10b981') ||
+          stroke.includes('10b981') ||
+          style.includes('10b981') ||
+          style.includes('16, 185, 129') ||
+          style.includes('16,185,129');
+        if (!hit) {
+          continue;
+        }
+        const rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          continue;
+        }
+        found = true;
+        minX = Math.min(minX, rect.left);
+        minY = Math.min(minY, rect.top);
+        maxX = Math.max(maxX, rect.right);
+        maxY = Math.max(maxY, rect.bottom);
+      }
+
+      if (!found) {
+        return null;
+      }
+      return {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+      };
     },
 
     probePlayedDurations() {

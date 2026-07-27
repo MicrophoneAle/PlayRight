@@ -352,19 +352,41 @@ export class PlaybackEngine {
   }
 
   seekToStep(stepIndex: number): void {
-    const { script, scoreTiming, actions } = useEngineStore.getState();
+    const { script, scoreTiming } = useEngineStore.getState();
     if (!script || !scoreTiming || stepIndex < 0 || stepIndex >= script.length) {
       return;
     }
 
-    const wasPlaying = this.isPlaying && !this.isPaused;
     const derived = this.getScheduleDerivedData(
       script,
       scoreTiming.divisionsPerQuarter,
     );
     // A clicked document step maps to its FIRST pass on the unrolled timeline.
-    const entryIndex = derived.firstEntryIndexByStep[stepIndex];
+    this.seekToPlaybackOrderIndex(derived.firstEntryIndexByStep[stepIndex]);
+  }
+
+  /**
+   * Seek to an exact PlaybackOrder entry (including second+ passes through a
+   * repeated region). Used by play-mode sheet sync and E2E repeat-jump seeks.
+   */
+  seekToPlaybackOrderIndex(entryIndex: number): void {
+    const { script, scoreTiming, actions } = useEngineStore.getState();
+    if (!script || !scoreTiming) {
+      return;
+    }
+
+    const derived = this.getScheduleDerivedData(
+      script,
+      scoreTiming.divisionsPerQuarter,
+    );
+    if (entryIndex < 0 || entryIndex >= derived.playbackOrder.length) {
+      return;
+    }
+
+    const entry = derived.playbackOrder[entryIndex];
+    const stepIndex = entry.stepIndex;
     const onsetQuarters = derived.entryAttackQuarters[entryIndex];
+    const wasPlaying = this.isPlaying && !this.isPaused;
 
     this.clearScheduledEvents();
     this.audioEngine?.releaseAll();
