@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronLeft,
@@ -54,7 +54,9 @@ function ArtworkImage({ image }: { image: OnboardingImage }) {
     <img
       src={image.src}
       alt={image.alt}
-      className="max-h-full max-w-full object-contain"
+      // Fill the artwork frame (scale up small control screenshots and scale
+      // down large ones) while keeping aspect ratio.
+      className="h-full w-full object-contain"
       draggable={false}
     />
   );
@@ -127,7 +129,9 @@ export function OnboardingTutorial() {
   const panelRef = useRef<HTMLDivElement>(null);
   const autoOpenCheckedRef = useRef(false);
 
-  useEffect(() => {
+  // Layout effect so first-time visitors see the tutorial on the initial paint
+  // instead of a flash of the empty dashboard.
+  useLayoutEffect(() => {
     if (autoOpenCheckedRef.current) {
       return;
     }
@@ -254,7 +258,10 @@ export function OnboardingTutorial() {
             className={`playright-tutorial-page playright-tutorial-page-${direction} flex min-h-0 flex-1 flex-col gap-2 px-4 pt-3 pb-2`}
           >
             {/* Grows into leftover space; copy below stays pinned to the footer. */}
-            <div className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80 px-2 py-1.5">
+            <div
+              data-testid="onboarding-artwork-frame"
+              className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900/80 p-1"
+            >
               <PageArtwork page={page} />
             </div>
 

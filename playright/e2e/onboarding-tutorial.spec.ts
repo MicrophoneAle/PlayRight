@@ -41,6 +41,43 @@ test.describe('onboarding tutorial', () => {
     await expect(dialog(page)).toBeHidden();
   });
 
+  test('single-image pages scale screenshots to fill the artwork frame', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(dialog(page)).toBeVisible();
+
+    // Pages 1–3 (and 5) use one small/large screenshot; they must scale to the
+    // frame rather than sitting as a tiny centered thumbnail.
+    for (const pageLabel of [
+      'Page 1: Signing in',
+      'Page 2: Import',
+      'Page 3: Score Selection',
+    ]) {
+      await page.getByRole('button', { name: pageLabel }).click();
+
+      const fill = await page.evaluate(() => {
+        const frame = document.querySelector(
+          '[data-testid="onboarding-artwork-frame"]',
+        );
+        const image = frame?.querySelector('img');
+        if (!(frame instanceof HTMLElement) || !(image instanceof HTMLImageElement)) {
+          return null;
+        }
+        const frameBox = frame.getBoundingClientRect();
+        const imageBox = image.getBoundingClientRect();
+        return {
+          widthRatio: imageBox.width / frameBox.width,
+          heightRatio: imageBox.height / frameBox.height,
+        };
+      });
+
+      expect(fill).not.toBeNull();
+      // object-contain fills at least one axis of the frame.
+      expect(Math.max(fill!.widthRatio, fill!.heightRatio)).toBeGreaterThan(0.9);
+    }
+  });
+
   test('pages forward and back with buttons and arrow keys', async ({ page }) => {
     await page.goto('/');
     await expect(dialog(page)).toBeVisible();

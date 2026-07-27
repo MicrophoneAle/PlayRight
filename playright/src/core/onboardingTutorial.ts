@@ -35,8 +35,8 @@ export interface OnboardingPage {
   body: string;
   /**
    * Screenshot(s) for the artwork region. Empty → labeled placeholder.
-   * One image → centered contain; two or more → equal-width vertical stack
-   * (scrolls inside the fixed image region when needed).
+   * One image → scaled to fill the frame (object-contain); two or more →
+   * equal-width vertical stack fitted to the region without scrolling.
    */
   images: readonly OnboardingImage[];
 }
