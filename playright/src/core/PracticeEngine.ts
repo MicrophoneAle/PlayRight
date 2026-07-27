@@ -520,9 +520,11 @@ export class PracticeEngine {
 
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
-    this.practiceNotesForStep = [];
+    // Keep practiceNotesForStep until loadPositionNotes so finger-reach
+    // anchors survive step advances. Clear only on early exits below.
 
     if (!script) {
+      this.practiceNotesForStep = [];
       actions.setExpectedNotes([]);
       actions.setPracticeGraceCursor(null);
       return;
@@ -533,6 +535,7 @@ export class PracticeEngine {
     if (exactStep && !stepHasAnyPracticeContent(script, index, engineMode, activeHand)) {
       const nearest = this.findNearestStepWithPracticeNotes(index);
       if (nearest === null) {
+        this.practiceNotesForStep = [];
         actions.setPracticeActive(false);
         actions.setExpectedNotes([]);
         actions.setPracticeGraceCursor(null);
@@ -555,6 +558,7 @@ export class PracticeEngine {
     }
 
     if (index >= script.length) {
+      this.practiceNotesForStep = [];
       actions.setPracticeActive(false);
       actions.setExpectedNotes([]);
       actions.setPracticeGraceCursor(null);

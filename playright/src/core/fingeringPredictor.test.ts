@@ -219,6 +219,15 @@ describe('in-sequence finger ordering (out-of-sequence penalty)', () => {
     expect(transitionCost('R', 3, 66, 1, 68)).toBeGreaterThanOrEqual(
       CROSSING_ONTO_BLACK_COST,
     );
+    // A non-scale/arp "crossing" (wide leap through the thumb) must not use
+    // the cheap crossing tariff — it should price above a classic 3→1 step.
+    expect(transitionCost('R', 3, 60, 1, 67)).toBeGreaterThan(
+      transitionCost('R', 3, 60, 1, 62),
+    );
+    // Fifth-sized 5→1 is outside scale/arp crossing span.
+    expect(transitionCost('R', 5, 60, 1, 67)).toBeGreaterThan(
+      transitionCost('R', 5, 60, 1, 62),
+    );
     // A repositioning leap (> OUT_OF_SEQUENCE_MAX_INTERVAL) is exempt.
     expect(
       transitionCost('R', 4, 60, 2, 60 + OUT_OF_SEQUENCE_MAX_INTERVAL + 4),

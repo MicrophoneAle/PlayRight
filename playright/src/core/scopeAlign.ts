@@ -273,13 +273,18 @@ export function alignScopeToMidis(midis: Iterable<number>): void {
 }
 
 /**
- * Keep scope when notes already fit, or when they still lie inside the
- * previous notes' finger-reach windows (same playing hand). Otherwise move
- * with a finger-aware preferred start.
+ * Keep scope whenever notes are already playable (core or extensions).
+ * Scope shifts are reserved for drastic cases: notes that do not fit the
+ * current key map at all. When a move is required, choose the nearest fitting
+ * start from the current scope — never a finger-preferred re-center.
+ *
+ * `anchors` are retained for API compatibility and for
+ * {@link notesCoveredByFingerReach} callers/tests; playability alone decides
+ * whether to keep.
  */
 export function alignScopeToPracticeNotes(
   notes: readonly ScriptNote[],
-  anchors: readonly ScriptNote[] = [],
+  _anchors: readonly ScriptNote[] = [],
 ): void {
   const midiList = notes.map((note) => note.midi);
   if (midiList.length === 0) {
@@ -288,44 +293,15 @@ export function alignScopeToPracticeNotes(
 
   const { scopeStartMidi, scopeTranspose } = useEngineStore.getState();
 
-  if (midisFitCoreKeys(midiList, scopeStartMidi, scopeTranspose)) {
+  // Already playable → never shift for "better" centering (including pulling
+  // extension notes into the core). Octave leaps that stay on the key map
+  // must keep the prior placement.
+  if (midisFitScopeKeyMap(midiList, scopeStartMidi, scopeTranspose)) {
     return;
   }
 
-  // Still playable in this window (core or extensions) and inside the previous
-  // notes' finger-reach envelope → do not pull into a fresh core centering.
-  // That recenter is what made RH5 → RH5 an octave down feel like a runaway
-  // rescope when the octave was already reachable from the prior placement.
-  if (
-    midisFitScopeKeyMap(midiList, scopeStartMidi, scopeTranspose) &&
-    notesCoveredByFingerReach(notes, anchors)
-  ) {
-    return;
-  }
-
-  const hasFingeredNotes = notes.some((note) => note.finger != null);
-  if (hasFingeredNotes) {
-    const preferredStart = preferredScopeStartFromNotes(notes, midiList);
-    if (midisFitCoreKeys(midiList, preferredStart, scopeTranspose)) {
-      if (preferredStart !== scopeStartMidi) {
-        useEngineStore.getState().actions.setScopeStart(preferredStart);
-      }
-      return;
-    }
-
-    const fingerAwareCoreStart = findBestCoreScopeStart(
-      midiList,
-      preferredStart,
-      scopeTranspose,
-    );
-    if (fingerAwareCoreStart !== null) {
-      if (fingerAwareCoreStart !== scopeStartMidi) {
-        useEngineStore.getState().actions.setScopeStart(fingerAwareCoreStart);
-      }
-      return;
-    }
-  }
-
+  // Drastic: notes are unreachable on the current map. Nearest core fit from
+  // the current start, then nearest full key-map fit.
   const coreScopeStart = findBestCoreScopeStart(
     midiList,
     scopeStartMidi,
@@ -338,16 +314,9 @@ export function alignScopeToPracticeNotes(
     return;
   }
 
-  if (midisFitScopeKeyMap(midiList, scopeStartMidi, scopeTranspose)) {
-    return;
-  }
-
-  const keyMapSearchFrom = hasFingeredNotes
-    ? preferredScopeStartFromNotes(notes, midiList)
-    : scopeStartMidi;
   const keyMapScopeStart = findBestScopeStartForKeyMap(
     midiList,
-    keyMapSearchFrom,
+    scopeStartMidi,
     scopeTranspose,
   );
   if (keyMapScopeStart !== null && keyMapScopeStart !== scopeStartMidi) {

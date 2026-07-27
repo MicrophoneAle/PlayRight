@@ -325,9 +325,11 @@ export const LEGAL_CROSSING_COST = 1.0;
  * alternatives. Spans over this many semitones pay
  * CROSSING_SPAN_COST_PER_SEMITONE for each extra semitone (in the 2026-07-18
  * sweep, flat 1.0 crossings let 5-then-thumb-under-a-fifth beat every
- * properly repositioned hand frame on the chase 49-58 cluster).
+ * properly repositioned hand frame on the chase 49-58 cluster). Free span is
+ * intentionally tight (2) so only scale/arp turns stay near-free; see
+ * {@link isScaleOrArpeggioCrossing}.
  */
-export const CROSSING_SPAN_FREE_SEMITONES = 4;
+export const CROSSING_SPAN_FREE_SEMITONES = 2;
 export const CROSSING_SPAN_COST_PER_SEMITONE = 40;
 /**
  * Crossing preference among the non-thumb finger: 3 is the schooled default
@@ -519,6 +521,20 @@ function isLegalCrossing(
   return thumbUnder || fingerOver;
 }
 
+/**
+ * Thumb-under / finger-over is only cheap for scale/arpeggio motion: a turn
+ * spanning at most a third/fourth (≤4 semitones) through a schooled
+ * crossing finger (3–5). Wider "crossings" are treated as illegal (fall
+ * through to out-of-sequence / reposition pricing) so thumb turns cannot
+ * solve arbitrary leaps.
+ */
+function isScaleOrArpeggioCrossing(
+  absInterval: number,
+  crossingFinger: Finger,
+): boolean {
+  return absInterval >= 1 && absInterval <= 4 && crossingFinger >= 3;
+}
+
 function openFramePairBonus(
   fPrev: Finger,
   fCur: Finger,
@@ -565,14 +581,17 @@ export function transitionCost(
   const inSequence = expectedAscending === actuallyAscending;
 
   if (!inSequence && interval !== 0) {
-    if (isLegalCrossing(hand, fPrev, fCur, actuallyAscending)) {
+    const crossingFinger = fCur === 1 ? fPrev : fCur;
+    if (
+      isLegalCrossing(hand, fPrev, fCur, actuallyAscending) &&
+      isScaleOrArpeggioCrossing(absInterval, crossingFinger)
+    ) {
       // Thumb-under onto a black key is classically avoided. Surcharge it so
       // the DP cannot ladder cheap crossings through black-key thumbs.
       const thumbUnderOntoBlack = fCur === 1 && isBlackKey(pCur);
       // The crossing price is interval- and finger-aware. A small crossing
       // through 3 stays near-free, a wide span is really a reposition, and
       // crossing with 5 is not a standard technique (see the constants' docs).
-      const crossingFinger = fCur === 1 ? fPrev : fCur;
       cost =
         LEGAL_CROSSING_COST +
         (thumbUnderOntoBlack ? CROSSING_ONTO_BLACK_COST : 0) +
@@ -587,6 +606,8 @@ export function transitionCost(
       // come out as e.g. 3-2-4 ascending. Repositioning leaps are exempt, and
       // non-crossing thumb reversals get the smaller pivot cost so a single
       // pivot is usable but 1-x-1-x ladders lose to proper in-sequence fingering.
+      // Non-scale/arp "crossings" also land here so thumb turns cannot solve
+      // arbitrary leaps.
       if (absInterval <= OUT_OF_SEQUENCE_MAX_INTERVAL) {
         cost +=
           fPrev === 1 || fCur === 1
@@ -775,13 +796,46 @@ function argminFinger(
 /**
  * Where the previous phrase left the hand. Seeds the next phrase's DP so the
  * boundary transition is scored like any intra-phrase move (in-sequence rule,
- * same-finger penalty, gap comfort) instead of being a free reposition.
- * Only used when the phrases are temporally adjacent (split by frame-span or
- * directional-run limits, not by a rest).
+ * same-finger penalty, gap comfort) instead of being a free reposition when
+ * {@link applyFullTransition} is true (temporally adjacent phrases).
+ * Across genuine rests, full transition scoring is off but the same-finger
+ * ban still applies so sequential notes never reuse a finger without cause.
  */
 export interface PhraseSeedContext {
   midi: number;
   finger: Finger;
+  /**
+   * When true (default), score the boundary with {@link transitionCost}.
+   * When false (rest gap), only the hard same-finger ban uses this seed.
+   */
+  applyFullTransition?: boolean;
+}
+
+/**
+ * Hard ban: sequential notes on different pitches must not share a finger
+ * unless the current note is score/manual-authored to that finger (lock) or
+ * both notes are authored to it. Same pitch is allowed (repeated notes).
+ * When every alternative is pruned, the DP retries with the ban lifted
+ * ("no other choice").
+ */
+function isBannedSameFingerMove(
+  fPrev: Finger,
+  pPrev: number,
+  fCur: Finger,
+  pCur: number,
+  prevAuthored: Finger | null | undefined,
+  curAuthored: Finger | null | undefined,
+): boolean {
+  if (fCur !== fPrev || pCur === pPrev) {
+    return false;
+  }
+  if (curAuthored === fCur) {
+    return false;
+  }
+  if (prevAuthored === fPrev && curAuthored === fCur) {
+    return false;
+  }
+  return true;
 }
 
 interface DpCell {
@@ -1114,8 +1168,25 @@ export async function fingerPhrase(
       const local = aiCost + noteFingerCost(hand, finger, note.midi);
 
       if (index === 0) {
+        // Hard same-finger ban vs the previous phrase seed (including across
+        // rests). First pass skips the banned finger; if every finger is
+        // banned, the second pass below allows it as last resort.
+        const bannedBySeed =
+          prevContext !== undefined &&
+          isBannedSameFingerMove(
+            prevContext.finger,
+            prevContext.midi,
+            finger,
+            note.midi,
+            null,
+            note.authoredFinger,
+          );
+        if (bannedBySeed) {
+          continue;
+        }
+
         let cost = local + phraseStartCost(hand, finger, note, notes);
-        if (prevContext !== undefined) {
+        if (prevContext !== undefined && prevContext.applyFullTransition !== false) {
           // Score the phrase-boundary transition like an intra-phrase move.
           cost += transitionCost(
             hand,
@@ -1147,81 +1218,149 @@ export async function fingerPhrase(
       const prevAllowed = allowedFingers(notes[index - 1]);
       let bestCell: DpCell | null = null;
 
-      for (const fPrev of prevAllowed) {
-        const prevCell = dp[index - 1][fPrev];
-        if (prevCell === undefined) {
-          continue;
-        }
+      const evaluateFromPrev = (allowSameFinger: boolean): DpCell | null => {
+        let best: DpCell | null = null;
 
-        let anchorFinger: Finger | null = null;
-        const runRootAuthored = inShortRepeatRun
-          ? runRootAuthoredAnchor(notes, index, repeatGapDivisions)
-          : null;
-        if (inShortRepeatRun && anchorNote !== null) {
-          anchorFinger =
-            runRootAuthored ??
-            anchorNote.authoredFinger ??
-            fingerAtAnchor(
-              dp,
-              repeatFollow.anchorIndex!,
-              index - 1,
-              fPrev,
-            );
-        }
+        for (const fPrev of prevAllowed) {
+          const prevCell = dp[index - 1][fPrev];
+          if (prevCell === undefined) {
+            continue;
+          }
 
-        const transition = transitionCost(
-          hand,
-          fPrev,
-          notes[index - 1].midi,
-          finger,
-          note.midi,
-        );
-
-        let repeatPitchPenalty = 0;
-        if (inShortRepeatRun && anchorFinger !== null && finger !== anchorFinger) {
           if (
-            runRootAuthored !== null &&
-            allowsRunRootHardLock(hand, notes, index)
+            !allowSameFinger &&
+            isBannedSameFingerMove(
+              fPrev,
+              notes[index - 1].midi,
+              finger,
+              note.midi,
+              notes[index - 1].authoredFinger,
+              note.authoredFinger,
+            )
           ) {
             continue;
           }
-          repeatPitchPenalty = REPEAT_PITCH_FINGER_MISMATCH;
+
+          let anchorFinger: Finger | null = null;
+          const runRootAuthored = inShortRepeatRun
+            ? runRootAuthoredAnchor(notes, index, repeatGapDivisions)
+            : null;
+          if (inShortRepeatRun && anchorNote !== null) {
+            anchorFinger =
+              runRootAuthored ??
+              anchorNote.authoredFinger ??
+              fingerAtAnchor(
+                dp,
+                repeatFollow.anchorIndex!,
+                index - 1,
+                fPrev,
+              );
+          }
+
+          const transition = transitionCost(
+            hand,
+            fPrev,
+            notes[index - 1].midi,
+            finger,
+            note.midi,
+          );
+
+          let repeatPitchPenalty = 0;
+          if (inShortRepeatRun && anchorFinger !== null && finger !== anchorFinger) {
+            if (
+              runRootAuthored !== null &&
+              allowsRunRootHardLock(hand, notes, index)
+            ) {
+              continue;
+            }
+            repeatPitchPenalty = REPEAT_PITCH_FINGER_MISMATCH;
+          }
+
+          let returningPenalty = 0;
+          if (
+            note.authoredFinger === null &&
+            prevCell.firstFingerByMidi.has(note.midi) &&
+            prevCell.firstFingerByMidi.get(note.midi) !== finger &&
+            !repeatFollow.active
+          ) {
+            returningPenalty = RETURNING_PITCH_FINGER_MISMATCH;
+          }
+
+          const total =
+            prevCell.cost +
+            transition +
+            local +
+            returningPenalty +
+            repeatPitchPenalty;
+
+          const nextCell: DpCell = {
+            cost: total,
+            backFinger: fPrev,
+            firstFingerByMidi: copyFirstFingerMap(prevCell.firstFingerByMidi),
+          };
+
+          if (!nextCell.firstFingerByMidi.has(note.midi)) {
+            nextCell.firstFingerByMidi.set(note.midi, finger);
+          }
+
+          if (
+            best === null ||
+            total < best.cost ||
+            (total === best.cost && fPrev < (best.backFinger ?? 9))
+          ) {
+            best = nextCell;
+          }
         }
 
-        let returningPenalty = 0;
-        if (
-          note.authoredFinger === null &&
-          prevCell.firstFingerByMidi.has(note.midi) &&
-          prevCell.firstFingerByMidi.get(note.midi) !== finger &&
-          !repeatFollow.active
-        ) {
-          returningPenalty = RETURNING_PITCH_FINGER_MISMATCH;
-        }
+        return best;
+      };
 
-        const total =
-          prevCell.cost + transition + local + returningPenalty + repeatPitchPenalty;
-
-        const nextCell: DpCell = {
-          cost: total,
-          backFinger: fPrev,
-          firstFingerByMidi: copyFirstFingerMap(prevCell.firstFingerByMidi),
-        };
-
-        if (!nextCell.firstFingerByMidi.has(note.midi)) {
-          nextCell.firstFingerByMidi.set(note.midi, finger);
-        }
-
-        if (
-          bestCell === null ||
-          total < bestCell.cost ||
-          (total === bestCell.cost && fPrev < (bestCell.backFinger ?? 9))
-        ) {
-          bestCell = nextCell;
-        }
+      bestCell = evaluateFromPrev(false);
+      if (bestCell === null) {
+        // No legal non-same-finger predecessor — last resort.
+        bestCell = evaluateFromPrev(true);
       }
 
       if (bestCell !== null) {
         row[finger] = bestCell;
+      }
+    }
+
+    // Phrase-start same-finger ban: if the seed banned every finger, allow
+    // the banned finger as last resort (authored locks / no other choice).
+    if (index === 0 && Object.keys(row).length === 0 && prevContext !== undefined) {
+      for (const finger of allowed) {
+        const aiCost =
+          mlCosts.length > 0 && inMlRepeatContext
+            ? mlCosts[0][finger - 1] * mlCostWeight
+            : 0;
+        const local = aiCost + noteFingerCost(hand, finger, note.midi);
+        let cost = local + phraseStartCost(hand, finger, note, notes);
+        if (prevContext.applyFullTransition !== false) {
+          cost += transitionCost(
+            hand,
+            prevContext.finger,
+            prevContext.midi,
+            finger,
+            note.midi,
+          );
+        }
+        if (startHome !== undefined) {
+          cost +=
+            HOME_START_WEIGHT * Math.abs(startHome[finger] - notes[0].midi);
+        }
+        if (
+          repeatFinger !== undefined &&
+          note.authoredFinger === null &&
+          finger !== repeatFinger
+        ) {
+          cost += RETURNING_PITCH_FINGER_MISMATCH;
+        }
+        row[finger] = {
+          cost,
+          backFinger: null,
+          firstFingerByMidi: new Map([[note.midi, finger]]),
+        };
       }
     }
 
@@ -1646,14 +1785,21 @@ async function predictFingersForHand(
     const startHome =
       phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
     const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
-    // Seed only across non-rest splits (frame-span/directional-run breaks),
-    // since after a genuine rest the hand repositions freely. Sound gap
-    // (not onset gap) so abutting long notes stay linked.
+    // Full transitionCost only across non-rest splits (frame-span /
+    // directional-run breaks). Across genuine rests the hand repositions
+    // freely for geometry, but the same-finger ban still uses the seed.
+    // Sound gap (not onset gap) so abutting long notes stay linked.
     const soundGap =
       previousSoundEnd !== null ? phrase[0].onset - previousSoundEnd : Infinity;
     const temporallyAdjacent = soundGap < restGapDivisions;
     const prevContext =
-      temporallyAdjacent && previousSeed !== null ? previousSeed : undefined;
+      previousSeed !== null
+        ? {
+            midi: previousSeed.midi,
+            finger: previousSeed.finger,
+            applyFullTransition: temporallyAdjacent,
+          }
+        : undefined;
     const phraseFingers = await fingerPhraseWithChords(
       phrase,
       hand,

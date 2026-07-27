@@ -87,18 +87,18 @@ describe('alignScopeToMidis', () => {
     }
   });
 
-  it('re-centers notes from extension keys into the core when possible', () => {
+  it('keeps notes on extension keys instead of soft-recentering into the core', () => {
     alignScopeToMidis([59]);
 
-    expect(useEngineStore.getState().scopeStartMidi).toBe(59);
-    expect(noteUsesExtensionKey(59, 59)).toBe(false);
+    expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+    expect(midisFitScopeKeyMap([59], 60, 0)).toBe(true);
   });
 
-  it('re-centers low notes into the core instead of leaving them on Shift or Tab', () => {
+  it('keeps low extension notes playable without a soft core recenter', () => {
     alignScopeToMidis([58]);
 
-    const scopeStart = useEngineStore.getState().scopeStartMidi;
-    expect(noteUsesExtensionKey(scopeStart, 58)).toBe(false);
+    expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+    expect(midisFitScopeKeyMap([58], 60, 0)).toBe(true);
   });
 
   it('uses extension keys when the interval is wider than the core', () => {
