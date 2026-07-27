@@ -782,6 +782,57 @@ function shortSamePitchFollow(
   return { active: false, anchorIndex: null };
 }
 
+/**
+ * True when the note at `index` participates in a short repeated-note run -
+ * as a follower (shortSamePitchFollow) OR as the run's head, meaning the next
+ * note repeats it within the same onset-gap / contiguity / run-length bounds.
+ *
+ * The head must be included, and this is not cosmetic. The DP chooses the
+ * head's finger freely, then REPEAT_PITCH_FINGER_MISMATCH (2200) locks every
+ * follower to it. Gating the ML emission cost to followers alone therefore
+ * leaves the model arguing against a lock an order of magnitude larger than
+ * its own influence, and the run simply keeps whatever finger the unassisted
+ * DP picked for the head.
+ *
+ * On chase RH both variants happen to score 45/59, because there ML's own
+ * head preference agrees with the DP (finger 4). The head-inclusive form is
+ * kept because follower-only gating is near-inert BY CONSTRUCTION - the lock
+ * leaves the head as the run's only free choice - so a follower-only gate
+ * would be a feature that cannot act on the very class it exists for.
+ */
+export function isInShortRepeatRunContext(
+  notes: NoteEvent[],
+  index: number,
+  repeatGapDivisions: number,
+): boolean {
+  if (notes[index].authoredFinger !== null) {
+    return false;
+  }
+
+  const asFollower = shortSamePitchFollow(notes, index, repeatGapDivisions);
+  if (
+    asFollower.active &&
+    asFollower.anchorIndex !== null &&
+    samePitchRunLength(notes, index, repeatGapDivisions) <=
+      REPEAT_PITCH_RUN_MAX_LENGTH
+  ) {
+    return true;
+  }
+
+  const nextIndex = index + 1;
+  if (nextIndex >= notes.length) {
+    return false;
+  }
+
+  const nextFollows = shortSamePitchFollow(notes, nextIndex, repeatGapDivisions);
+  return (
+    nextFollows.active &&
+    nextFollows.anchorIndex === index &&
+    samePitchRunLength(notes, nextIndex, repeatGapDivisions) <=
+      REPEAT_PITCH_RUN_MAX_LENGTH
+  );
+}
+
 function fingerAtAnchor(
   dp: Partial<Record<Finger, DpCell>>[],
   anchorIndex: number,
@@ -950,9 +1001,63 @@ export async function fingerPhrase(
     const allowed = allowedFingers(note);
     const row: Partial<Record<Finger, DpCell>> = {};
 
+    // Hoisted out of the finger loop: repeat-run detection reads only
+    // (notes, index), never the candidate finger. It now feeds BOTH the
+    // repeat-pitch reinforcement below and the ML context gate.
+    const repeatFollow = shortSamePitchFollow(notes, index, repeatGapDivisions);
+    const inShortRepeatRun =
+      repeatFollow.active &&
+      repeatFollow.anchorIndex !== null &&
+      note.authoredFinger === null &&
+      samePitchRunLength(notes, index, repeatGapDivisions) <=
+        REPEAT_PITCH_RUN_MAX_LENGTH;
+    const anchorNote =
+      repeatFollow.anchorIndex !== null
+        ? notes[repeatFollow.anchorIndex]
+        : null;
+    // Head-inclusive: see isInShortRepeatRunContext for why the run's first
+    // note must be ML-influenced too.
+    const inMlRepeatContext = isInShortRepeatRunContext(
+      notes,
+      index,
+      repeatGapDivisions,
+    );
+
     for (const finger of allowed) {
+      // Class-conditional ML blend (2026-07-27). The PIG emission model has
+      // structurally OPPOSITE effects on two decision classes, which no
+      // scalar ML_COST_WEIGHT can separate (swept [0,300]: nothing beat
+      // DP-only short of silencing ML entirely):
+      //
+      //   - Repeated-note runs: ML HELPS. The pedagogical "hold one finger,
+      //     usually 3, on a repeated note" default is not expressible in the
+      //     geometric costs, and the DP reaches for 4 (chase RH 51-56, 58).
+      //   - Everything else: ML HURTS. The tuned DP owns hand position,
+      //     crossings and sequencing outright, and the emission prior only
+      //     nudges between already-in-sequence alternatives, breaking whole
+      //     phrases (chase RH 3-5, 17-19, 46-48 - the same E5-D#5-B4-C#5-B4
+      //     figure three times).
+      //
+      // So the emission cost applies ONLY inside a detected short repeated-
+      // note run - the same contiguous / onset-gap-bounded / run-length-capped
+      // condition the repeat-pitch reinforcement uses, plus the run's head
+      // (see isInShortRepeatRunContext). Outside it the local term is
+      // noteFingerCost alone.
+      //
+      // Measured on chase RH (2026-07-27): DP-only 45/59, uniform ML 43/59,
+      // gated ML 45/59. The gate removes uniform ML's 9-index hand-position
+      // regression (3-5, 17-19, 46-48) but does NOT recover the 7-index
+      // repeated-note gain (51-56, 58) an earlier projection expected. Reason,
+      // measured directly: on that passage ML's benefit came from the notes
+      // APPROACHING the run (r49/r50, where its emission strongly prefers the
+      // thumb and reshapes the hand), not from the run itself - at the run
+      // head ML actually prefers finger 4 (weighted 95) over the gold's 3
+      // (371), agreeing with the DP. The two effects are not separable by note
+      // class on that figure. The gate is still a real mechanism elsewhere:
+      // 199 of 8805 notes across the 10 fixtures differ from pure DP.
+      // Pinned by ml-context-gate.test.ts.
       const aiCost =
-        mlCosts.length > 0
+        mlCosts.length > 0 && inMlRepeatContext
           ? mlCosts[index][finger - 1] * mlCostWeight
           : 0;
 
@@ -988,18 +1093,6 @@ export async function fingerPhrase(
         };
         continue;
       }
-
-      const repeatFollow = shortSamePitchFollow(notes, index, repeatGapDivisions);
-      const inShortRepeatRun =
-        repeatFollow.active &&
-        repeatFollow.anchorIndex !== null &&
-        note.authoredFinger === null &&
-        samePitchRunLength(notes, index, repeatGapDivisions) <=
-          REPEAT_PITCH_RUN_MAX_LENGTH;
-      const anchorNote =
-        repeatFollow.anchorIndex !== null
-          ? notes[repeatFollow.anchorIndex]
-          : null;
 
       const prevAllowed = allowedFingers(notes[index - 1]);
       let bestCell: DpCell | null = null;

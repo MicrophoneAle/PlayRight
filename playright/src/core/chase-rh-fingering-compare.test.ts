@@ -126,9 +126,15 @@ describe('chase RH fingering comparison', () => {
     // requirement is that ML must not fall below 31/59. Both counts still
     // beat the pre-rule 32/59 peak in violation terms (zero out-of-sequence
     // progressions). After the 2026-07-18 cost-tuning pass, measured ML+DP
-    // is 40/59 (DP-only 45/59). The floor stays at the historical 31 as a
-    // hard regression stop, and the console line above records the live
-    // number for future sweeps.
+    // was 40/59 (DP-only 45/59).
+    //
+    // On 2026-07-27 the class-conditional ML gate (fingeringPredictor's
+    // isInShortRepeatRunContext) raised ML+DP to 45/59 by confining the
+    // emission cost to repeated-note runs, which removes the hand-position
+    // regression at indices 3-5 / 17-19 / 46-48. ML+DP now equals DP-only on
+    // this piece; it still differs from pure DP on other fixtures. The floor
+    // stays at the historical 31 as a hard regression stop, and the console
+    // line above records the live number for future sweeps.
     expect(mlMatches).toBeGreaterThanOrEqual(31);
   });
 });
