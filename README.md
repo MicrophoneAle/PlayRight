@@ -17,6 +17,7 @@ Keyboard-controlled piano practice in the browser. Load a MusicXML or MXL score,
 - **Play mode** lets you listen to the full piece with tempo-adjustable playback (0.5×–1.5×). Sheet music and keyboard stay visually in sync for each note’s full sounding duration (including half notes and ties). Click the score to seek. The piece auto-ends at the final release and offers **Replay** to start from the top.
 - **Score library** lets you sign in with Clerk to import, save, load, and delete personal MusicXML/MXL files (Supabase). **Public** scores (e.g. River Flows In You, Runaway) are visible to everyone, including signed-out visitors. Saved scores open in a two-column list with inline sort by date, name, or playback duration (parsed from each score’s MusicXML).
 - **Settings** cover Fingering mode (Off / Program), **play mode**, playback tempo, auto-fingering, hand size, smooth vs instant line scroll, and scope shift mode, in a scrollable panel with a slim edge scrollbar when content overflows
+- **Getting started tutorial** opens automatically on the first visit and covers signing in, importing scores, opening scores, changing modes, and settings and shortcuts across five pages. Page through it with the arrow keys or the on-screen controls, close it from any page (dismissal is remembered per browser), and reopen it any time from Settings
 - **Collapsible header** gives more room for sheet music (`Z` to toggle), with a fixed-position collapse control that does not jump when toggled
 
 ### Program mode behavior
