@@ -148,18 +148,16 @@ export const PHRASE_MAX_DIRECTIONAL_RUN = 5;
 export const PHRASE_MIN_ONSET_GAP_DIVISIONS = 480;
 
 /**
- * Quarter-note onset gap at/above which a rest split starts a new fingering
- * phrase, scaled per-piece by divisionsPerQuarter (the original 480-division
- * constant's intent, which never engaged because real divisionsPerQuarter
- * values are 1-12). Set to 4 quarters, not the nominal 1 the old constant
- * implied at 480dpq. The gap measured here is ONSET-to-onset distance, not
- * rest length, so small thresholds shred ordinary melodies (in the 2026-07-18
- * sweep, at 1 quarter chase RH went 2 phrases -> 68 and the gold benchmark
- * 36/59 -> ~22/59, while at 2 quarters DP held 36 but ML+DP fell 38/59 ->
- * 30/59 because shorter phrases starve the emission model of context). 4 quarters keeps
- * chase bit-identical (36/59 DP, 38/59 ML) while real whole-measure-scale
- * rests finally split phrases on the other fixtures (kyrie L 3->11 phrases,
- * fanfare L 1->3, morns R 5->7, ...).
+ * Quarter-note sound gap at/above which a rest split starts a new fingering
+ * phrase, scaled per-piece by divisionsPerQuarter.
+ *
+ * Measured as SOUND gap (next onset minus previous onset group's sounding
+ * end), not raw onset-to-onset distance. Onset gaps alone false-split abutting
+ * long notes (tied wholes/halves whose onset spacing equals their duration),
+ * which on Runaway shredded the RH octave line into solo phrases that each
+ * locked onto finger 5. True multi-beat rests still split. When
+ * durationDivisions is missing, sound end equals onset and this reduces to
+ * the old onset-gap behavior (legacy tests).
  */
 export const PHRASE_MIN_ONSET_GAP_QUARTERS = 4;
 
@@ -202,6 +200,13 @@ function onsetGroupSpan(
 
 function monophonicContourMidi(group: NoteEvent[]): number | null {
   return group.length === 1 ? group[0].midi : null;
+}
+
+/** Latest sounding end (onset + duration) in an onset group. */
+function onsetGroupSoundEnd(group: NoteEvent[]): number {
+  return Math.max(
+    ...group.map((event) => event.onset + (event.durationDivisions ?? 0)),
+  );
 }
 
 export function segmentIntoPhrases(
@@ -247,10 +252,10 @@ export function segmentIntoPhrases(
   for (let index = 1; index < onsetGroups.length; index += 1) {
     const next = onsetGroups[index];
     const previous = onsetGroups[index - 1];
-    const onsetGap = next[0].onset - previous[0].onset;
+    const soundGap = next[0].onset - onsetGroupSoundEnd(previous);
     const expandedSpan = onsetGroupSpan(minMidi, maxMidi, next);
     const exceedsFrame = expandedSpan > PHRASE_MAX_FRAME_SPAN;
-    const exceedsRestGap = onsetGap >= restGapDivisions;
+    const exceedsRestGap = soundGap >= restGapDivisions;
 
     const nextContourMidi = monophonicContourMidi(next);
     let exceedsDirectionalRun = false;
@@ -430,7 +435,12 @@ function isBlackKey(midi: number): boolean {
   return BLACK_KEY_PITCH_CLASSES.has(midi % 12);
 }
 
-/** Tiered ideal finger gap from semitone distance (1-4->1, 5-8->2, 9-11->3, 12+->4). */
+/**
+ * Tiered ideal finger gap from semitone distance (1-4->1, 5-8->2, 9-11->3, 12+->4).
+ * Thirds share ideal gap 1 with seconds here; open descending 5-3-1 shapes are
+ * recovered via {@link openTriadSkipBonus} instead of coarsening this table
+ * (a ≤2/≤4 split regressed chase RH 45→41).
+ */
 export function preferredIdealFingerGap(absInterval: number): number {
   if (absInterval <= 0) {
     return 0;
@@ -449,6 +459,39 @@ export function preferredIdealFingerGap(absInterval: number): number {
   }
 
   return 4;
+}
+
+/**
+ * Bonus for skipping onto the thumb on a melodic third while opening an
+ * RH-descending / LH-ascending hand (the 3→1 leg of a 5-3-1 broken chord).
+ * Must exceed one step of gapDeviationPenalty(|2-1|^3 * scale = 100). Kept
+ * narrow (thumb landing only) so ordinary 4→2 / 5→3 thirds do not cascade
+ * through gold fixtures.
+ */
+export const OPEN_TRIAD_SKIP_BONUS = 150;
+
+function openTriadSkipBonus(
+  hand: Hand,
+  fPrev: Finger,
+  fCur: Finger,
+  absInterval: number,
+  actuallyAscending: boolean,
+): number {
+  if (absInterval < 3 || absInterval > 4 || fCur !== 1) {
+    return 0;
+  }
+
+  const fingerGap = Math.abs(fCur - fPrev);
+  if (fingerGap !== 2) {
+    return 0;
+  }
+
+  const openingTowardThumb =
+    hand === 'R'
+      ? !actuallyAscending && fPrev > fCur
+      : actuallyAscending && fPrev > fCur;
+
+  return openingTowardThumb ? OPEN_TRIAD_SKIP_BONUS : 0;
 }
 
 function gapDeviationPenalty(fingerGap: number, idealGap: number): number {
@@ -597,6 +640,13 @@ export function transitionCost(
   // assignments are monotonic by construction, so no crossing can occur.
   if (inSequence) {
     cost -= openFramePairBonus(fPrev, fCur, absInterval);
+    cost -= openTriadSkipBonus(
+      hand,
+      fPrev,
+      fCur,
+      absInterval,
+      actuallyAscending,
+    );
   }
 
   if (absInterval >= 12) {
@@ -1585,7 +1635,7 @@ async function predictFingersForHand(
   const fingers: (Finger | null)[] = [];
   const lastFingerByMidi = new Map<number, Finger>();
   let previousSeed: PhraseSeedContext | null = null;
-  let previousEndOnset: number | null = null;
+  let previousSoundEnd: number | null = null;
   const restGapDivisions =
     divisionsPerQuarter !== undefined
       ? PHRASE_MIN_ONSET_GAP_QUARTERS * divisionsPerQuarter
@@ -1597,10 +1647,11 @@ async function predictFingersForHand(
       phraseIndex === 0 ? HOME_POSITION[hand] : undefined;
     const repeatFinger = lastFingerByMidi.get(phrase[0].midi);
     // Seed only across non-rest splits (frame-span/directional-run breaks),
-    // since after a genuine rest the hand repositions freely.
-    const temporallyAdjacent =
-      previousEndOnset !== null &&
-      phrase[0].onset - previousEndOnset < restGapDivisions;
+    // since after a genuine rest the hand repositions freely. Sound gap
+    // (not onset gap) so abutting long notes stay linked.
+    const soundGap =
+      previousSoundEnd !== null ? phrase[0].onset - previousSoundEnd : Infinity;
+    const temporallyAdjacent = soundGap < restGapDivisions;
     const prevContext =
       temporallyAdjacent && previousSeed !== null ? previousSeed : undefined;
     const phraseFingers = await fingerPhraseWithChords(
@@ -1622,7 +1673,9 @@ async function predictFingersForHand(
     });
 
     previousSeed = phraseEndSeed(phrase, phraseFingers, hand);
-    previousEndOnset = phrase[phrase.length - 1].onset;
+    previousSoundEnd = Math.max(
+      ...phrase.map((note) => note.onset + (note.durationDivisions ?? 0)),
+    );
 
     fingers.push(...phraseFingers);
   }

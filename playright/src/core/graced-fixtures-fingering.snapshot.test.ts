@@ -26,6 +26,12 @@ async function loadMxl(name: string): Promise<string> {
  * will show up as a snapshot diff here, forcing a deliberate review rather
  * than a silent shift.
  *
+ * Re-pinned 2026-07-27 after rest splits switched from onset-gap to sound-gap
+ * (Runaway RH octaves were false-split into solo finger-5 phrases) and a
+ * narrow OPEN_TRIAD_SKIP_BONUS for descending 3→1 thirds (5-3-1 broken
+ * chords). Chase RH gold held at 45/59; review the diff before accepting
+ * further gold moves.
+ *
  * Runs pure DP (mlCostWeight: 0) for determinism, with no ONNX model dependency.
  */
 describe('graced fixtures gold fingering snapshot', () => {
