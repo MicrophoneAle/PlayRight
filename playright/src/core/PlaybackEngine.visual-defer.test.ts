@@ -180,7 +180,7 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       'requestAnimationFrame',
-      vi.fn((cb: FrameRequestCallback) => {
+      vi.fn((_cb: FrameRequestCallback) => {
         // Never auto-fire — coalesced flushes must not be required for releases.
         return 1 as unknown as number;
       }),
