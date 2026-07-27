@@ -173,7 +173,18 @@ test.describe('onboarding tutorial', () => {
 
     expect(first).toEqual({ width: 544, height: 568 });
 
-    // Page 4: three equal-width stacked shots; region scrolls inside fixed panel.
+    // Equal inset above and below the panel (matches backdrop p-4).
+    const panelBox = await panel.boundingBox();
+    expect(panelBox).not.toBeNull();
+    const viewport = page.viewportSize();
+    expect(viewport).not.toBeNull();
+    const topGap = panelBox!.y;
+    const bottomGap = viewport!.height - (panelBox!.y + panelBox!.height);
+    expect(topGap).toBeGreaterThanOrEqual(15);
+    expect(bottomGap).toBeGreaterThanOrEqual(15);
+    expect(Math.abs(topGap - bottomGap)).toBeLessThanOrEqual(2);
+
+    // Page 4: three equal-width stacked shots, all visible with no scrollbar.
     await page.getByRole('button', { name: 'Page 4: Modify Controls' }).click();
     const stack = panel.getByTestId('onboarding-artwork-stack');
     const imgs = stack.locator('img');
@@ -188,6 +199,8 @@ test.describe('onboarding tutorial', () => {
           nh: image.naturalHeight,
           w: rect.width,
           h: rect.height,
+          top: rect.top,
+          bottom: rect.bottom,
         };
       }),
     );
@@ -209,43 +222,15 @@ test.describe('onboarding tutorial', () => {
       scrollHeight: el.scrollHeight,
       clientHeight: el.clientHeight,
     }));
-    expect(scrollState.scrollHeight).toBeGreaterThan(scrollState.clientHeight);
+    expect(scrollState.scrollHeight).toBeLessThanOrEqual(
+      scrollState.clientHeight + 1,
+    );
 
-    await stack.evaluate((el) => {
-      el.scrollTop = 0;
-    });
-    await expect
-      .poll(async () =>
-        stack.evaluate((el) => {
-          const firstImg = el.querySelector('img');
-          if (!firstImg) {
-            return false;
-          }
-          const stackRect = el.getBoundingClientRect();
-          const imgRect = firstImg.getBoundingClientRect();
-          return imgRect.top >= stackRect.top - 1 && imgRect.top <= stackRect.bottom;
-        }),
-      )
-      .toBe(true);
-
-    await stack.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
-    await expect
-      .poll(async () =>
-        stack.evaluate((el) => {
-          const lastImg = el.querySelector('img:last-of-type');
-          if (!lastImg) {
-            return false;
-          }
-          const stackRect = el.getBoundingClientRect();
-          const imgRect = lastImg.getBoundingClientRect();
-          return (
-            imgRect.bottom <= stackRect.bottom + 1 &&
-            imgRect.bottom >= stackRect.top
-          );
-        }),
-      )
-      .toBe(true);
+    const stackBox = await stack.boundingBox();
+    expect(stackBox).not.toBeNull();
+    expect(metrics[0].top).toBeGreaterThanOrEqual(stackBox!.y - 1);
+    expect(metrics[2].bottom).toBeLessThanOrEqual(
+      stackBox!.y + stackBox!.height + 1,
+    );
   });
 });
