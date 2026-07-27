@@ -45,20 +45,20 @@ function PageArtwork({ pageIndex }: { pageIndex: number }) {
       <img
         src={page.image.src}
         alt={page.image.alt}
-        className="aspect-video w-full rounded-lg border border-zinc-800 bg-zinc-900 object-cover"
+        className="h-36 w-full rounded-lg border border-zinc-800 bg-zinc-900 object-cover"
       />
     );
   }
 
   return (
     <div
-      className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/60"
+      className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-700 bg-zinc-900/60"
       style={{ backgroundImage: PLACEHOLDER_HATCH }}
       role="img"
       aria-label={`Screenshot placeholder for ${page.title}`}
     >
-      <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-violet-600/15 text-violet-400">
-        <Icon size={20} strokeWidth={1.75} aria-hidden />
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-600/15 text-violet-400">
+        <Icon size={18} strokeWidth={1.75} aria-hidden />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium text-zinc-300">{page.title}</p>
@@ -167,16 +167,16 @@ export function OnboardingTutorial() {
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="my-auto flex w-full max-w-xl flex-col rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl outline-none"
+        className="my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl outline-none"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="onboarding-title"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-800 px-4 py-3">
           <h2
             id="onboarding-title"
-            className="min-w-0 truncate text-base font-semibold text-zinc-100"
+            className="min-w-0 truncate text-sm font-semibold text-zinc-100"
           >
             Getting started
           </h2>
@@ -192,26 +192,26 @@ export function OnboardingTutorial() {
 
         <div
           key={page.id}
-          className={`playright-tutorial-page playright-tutorial-page-${direction} flex flex-col gap-4 px-5 py-5`}
+          className={`playright-tutorial-page playright-tutorial-page-${direction} flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4`}
         >
           <PageArtwork pageIndex={pageIndex} />
 
-          <div className="min-h-[6.5rem]">
+          <div className="min-h-0">
             <p
               className="text-[11px] font-medium uppercase tracking-[0.14em] text-violet-400"
             >
               {page.eyebrow}
             </p>
-            <h3 className="mt-1 text-xl font-semibold tracking-tight text-zinc-100">
+            <h3 className="mt-1 text-lg font-semibold tracking-tight text-zinc-100">
               {page.title}
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+            <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
               {page.body}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-800 px-4 py-3">
           <button
             type="button"
             onClick={() => goTo(pageIndex - 1)}
@@ -237,9 +237,9 @@ export function OnboardingTutorial() {
                     aria-current={isCurrent ? 'step' : undefined}
                     aria-label={`Page ${index + 1}: ${indicatorPage.title}`}
                     onClick={() => goTo(index)}
-                    className={`h-9 w-[18px] rounded-b-[3px] border shadow-[inset_0_-7px_9px_-7px_rgba(0,0,0,0.55)] transition-all duration-150 ${
+                    className={`h-7 w-3.5 rounded-b-[3px] border shadow-[inset_0_-7px_9px_-7px_rgba(0,0,0,0.55)] transition-all duration-150 ${
                       isCurrent
-                        ? 'translate-y-[3px] border-violet-400 bg-violet-500 shadow-[0_0_14px_rgba(139,92,246,0.5)]'
+                        ? 'translate-y-[2px] border-violet-400 bg-violet-500 shadow-[0_0_14px_rgba(139,92,246,0.5)]'
                         : isPassed
                           ? 'border-zinc-600 bg-zinc-500 hover:bg-zinc-400'
                           : 'border-zinc-400 bg-zinc-200 hover:bg-white'
