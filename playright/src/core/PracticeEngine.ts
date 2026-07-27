@@ -7,7 +7,7 @@ import {
   positionHasRequiredPracticeNotes,
   stepHasAnyPracticeContent,
 } from './practiceSteps.ts';
-import { alignScopeToMidis, centerScopeOnMidis } from './scopeAlign.ts';
+import { alignScopeToPracticeNotes, centerScopeOnPracticeNotes } from './scopeAlign.ts';
 import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
 import type { Hand, PlaybackScript, PracticePosition, ScriptNote } from '../types/index.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
@@ -492,6 +492,7 @@ export class PracticeEngine {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
 
+    const previousPracticeNotes = this.practiceNotesForStep;
     const playableNotes = getPlayablePracticeNotesForPosition(
       script,
       position,
@@ -507,9 +508,9 @@ export class PracticeEngine {
     actions.setExpectedNotes(stepMidis);
 
     if (alignScope && engineMode === 'one-hand') {
-      centerScopeOnMidis(stepMidis);
+      centerScopeOnPracticeNotes(playableNotes);
     } else if (alignScope || useEngineStore.getState().isPracticeActive) {
-      alignScopeToMidis(stepMidis);
+      alignScopeToPracticeNotes(playableNotes, previousPracticeNotes);
     }
   }
 

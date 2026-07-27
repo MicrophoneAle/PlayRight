@@ -241,8 +241,27 @@ describe('PracticeEngine one-hand progression', () => {
 
     engine.start();
 
-    expect(useEngineStore.getState().scopeStartMidi).toBe(52);
+    // RH 1: reach is 16 up, so the note sits at the bottom of the core window.
+    expect(useEngineStore.getState().scopeStartMidi).toBe(60);
     expect(useEngineStore.getState().expectedMidiNotes).toEqual([60]);
+  });
+
+  it('places RH 5 at the top of the core window on one-hand start', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C5', midi: 72, hand: 'R', finger: 5 }],
+      },
+    ]);
+    useEngineStore.getState().actions.setScopeStart(60);
+
+    engine.start();
+
+    expect(useEngineStore.getState().scopeStartMidi).toBe(56);
+    expect(midisFitScopeKeyMap([72], 56, 0)).toBe(true);
+    expect(midisFitScopeKeyMap([60], 56, 0)).toBe(true);
   });
 
   it('centers the scope when the first note sits above the default anchors', () => {
