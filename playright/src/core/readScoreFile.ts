@@ -1,4 +1,6 @@
-import { MXLHelper } from 'opensheetmusicdisplay';
+// MXLHelper is the only runtime OpenSheetMusicDisplay value this module needs,
+// and only on the .mxl branch. Importing it statically would pull all ~1.25MB
+// of OSMD back into the entry chunk and defeat the split in Dashboard.tsx.
 
 function isMxlFile(file: File): boolean {
   const lowerName = file.name.toLowerCase();
@@ -39,6 +41,7 @@ export function downloadMusicXml(title: string, rawXml: string): void {
 /** Read a MusicXML or compressed MXL score file into a plain XML string. */
 export async function readMusicXmlFromFile(file: File): Promise<string> {
   if (isMxlFile(file)) {
+    const { MXLHelper } = await import('opensheetmusicdisplay');
     return MXLHelper.MXLtoXMLstring(file);
   }
 

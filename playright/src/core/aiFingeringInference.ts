@@ -1,4 +1,12 @@
-import * as ort from 'onnxruntime-web';
+/**
+ * Type-only import: onnxruntime-web's JS wrapper is ~396KB raw / 107KB gzip
+ * (14% of the app bundle) and is dead weight for every session that never
+ * runs ML fingering. A static import pulled it into the entry chunk, so slow
+ * machines paid its parse/compile cost on every load even though the prior
+ * lazy-init work already deferred the much larger WASM + model FETCH.
+ * The module itself is now fetched on first use too, via loadOrt() below.
+ */
+import type * as OrtModule from 'onnxruntime-web';
 import type { Hand } from '../types/index.ts';
 import type { NoteEvent } from './fingeringPredictor.ts';
 import {
@@ -7,7 +15,37 @@ import {
 } from './fingeringModelFeatures.ts';
 import { isMlFingeringEnabled } from './fingeringMlConfig.ts';
 
-let session: ort.InferenceSession | null = null;
+/**
+ * Resolved onnxruntime-web module, cached after the first dynamic import.
+ * Never reset by dispose(): the module itself is immutable and re-importing
+ * is free after the first fetch, while clearing it would re-download on every
+ * bfcache restore.
+ */
+let ortModule: typeof OrtModule | null = null;
+let ortModulePromise: Promise<typeof OrtModule> | null = null;
+
+function loadOrt(): Promise<typeof OrtModule> {
+  if (ortModule) {
+    return Promise.resolve(ortModule);
+  }
+
+  if (!ortModulePromise) {
+    ortModulePromise = import('onnxruntime-web')
+      .then((loaded) => {
+        ortModule = loaded;
+        return loaded;
+      })
+      .catch((error) => {
+        // Allow a later attempt to retry rather than caching the rejection.
+        ortModulePromise = null;
+        throw error;
+      });
+  }
+
+  return ortModulePromise;
+}
+
+let session: OrtModule.InferenceSession | null = null;
 /** Shared in-flight init so concurrent callers await one create(), not many. */
 let initPromise: Promise<void> | null = null;
 /**
@@ -89,6 +127,7 @@ export async function initFingeringModel(
   const generation = initGeneration;
   initPromise = (async () => {
     try {
+      const ort = await loadOrt();
       const created = await ort.InferenceSession.create(modelUrl);
       if (generation !== initGeneration) {
         await created.release();
@@ -173,6 +212,9 @@ export async function getMLFingerCosts(
     inputData.set(row, i * FINGERING_FEATURE_COUNT);
   }
 
+  // Safe without an await: reaching here means initFingeringModel resolved
+  // AND left a live session, which is only possible once loadOrt() resolved.
+  const ort = ortModule!;
   const tensor = new ort.Tensor('float32', inputData, [
     1,
     seqLength,

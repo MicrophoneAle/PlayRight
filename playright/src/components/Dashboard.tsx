@@ -1,13 +1,27 @@
-import { useLayoutEffect } from 'react';
+import { lazy, Suspense, useLayoutEffect } from 'react';
 import { Lid } from './Lid.tsx';
 import { PianoKeyboard } from './PianoKeyboard.tsx';
-import { SheetMusicDisplay } from './SheetMusicDisplay.tsx';
 import {
   countCompletedPracticeSteps,
   countPracticeSteps,
 } from '../core/practiceSteps.ts';
 import { playbackEngine } from '../core/PlaybackEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+
+/**
+ * OpenSheetMusicDisplay is ~1.25MB raw / 320KB gzip - 45% of the app bundle -
+ * and is only reachable once a score is loaded. Statically importing it made
+ * every session parse/compile it before the app became interactive, which is
+ * the dominant startup cost on low-end machines (measured 2026-07-27:
+ * 7.7s to interactive at 6x CPU throttle). Splitting it here defers that work
+ * to the first score load. The named export is remapped rather than adding a
+ * default export, so SheetMusicDisplay's public API is unchanged.
+ */
+const SheetMusicDisplay = lazy(() =>
+  import('./SheetMusicDisplay.tsx').then((module) => ({
+    default: module.SheetMusicDisplay,
+  })),
+);
 
 function formatHandLabel(hand: 'L' | 'R'): string {
   return hand === 'L' ? 'Left hand' : 'Right hand';
@@ -51,7 +65,17 @@ export function Dashboard() {
       >
         {rawXml ? (
           <>
-            <SheetMusicDisplay musicXml={rawXml} />
+            <Suspense
+              fallback={
+                <div className="flex flex-1 items-center justify-center">
+                  <p className="text-sm font-medium text-zinc-500">
+                    Preparing sheet music…
+                  </p>
+                </div>
+              }
+            >
+              <SheetMusicDisplay musicXml={rawXml} />
+            </Suspense>
             <div className="shrink-0 py-0.5 text-center">
               {script ? (
                 <>

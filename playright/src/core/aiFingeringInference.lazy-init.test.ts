@@ -104,7 +104,12 @@ describe('aiFingeringInference lazy init', () => {
     ];
 
     const costsPromise = getMLFingerCosts(notes as never, 'R');
-    expect(create).toHaveBeenCalledTimes(1);
+    // create() is now reached one microtask later than it used to be, because
+    // onnxruntime-web is itself dynamically imported (bundle split). The
+    // guarantee under test is unchanged - nothing is created until the first
+    // getMLFingerCosts call, asserted above - so wait for that tick rather
+    // than assuming create lands synchronously.
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
 
     pending.resolve({ release, run });
     const costs = await costsPromise;
@@ -129,7 +134,10 @@ describe('aiFingeringInference lazy init', () => {
 
     const first = getMLFingerCosts(notes as never, 'R');
     const second = getMLFingerCosts(notes as never, 'R');
-    expect(create).toHaveBeenCalledTimes(1);
+    // Same one-microtask shift as above (dynamic onnxruntime-web import). The
+    // sharing guarantee is what matters: exactly one create for two concurrent
+    // callers, re-asserted after both resolve below.
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
 
     pending.resolve({ release, run });
     const [a, b] = await Promise.all([first, second]);
