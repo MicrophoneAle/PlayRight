@@ -3,7 +3,9 @@ import {
   buildFermataPlaybackContext,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  PLAYBACK_MAX_WINDOW_LAG_QUARTERS,
   PLAYBACK_SCHEDULE_AHEAD_QUARTERS,
+  PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS,
   quartersToTicks,
   scheduledPlaybackAttackQuarterNotes,
 } from './playbackTiming.ts';
@@ -24,6 +26,14 @@ export interface PlaybackScheduleSimulationOptions {
   useLegacyTransportFloor?: boolean;
   /** Shift entire window forward when extension runs late (current engine). */
   useWindowLagShift?: boolean;
+  /** Cap lag shift (current engine). Default true. */
+  useWindowLagCap?: boolean;
+  /**
+   * Model early-lead extensions: transport is LEAD quarters before the window
+   * anchor when the extension runs (plus optional drift). Default false so
+   * existing late-extension regressions stay meaningful.
+   */
+  useEarlyExtensionLead?: boolean;
 }
 
 /**
@@ -42,6 +52,8 @@ export function simulatePlaybackAttackSchedule(
   const drift = options.extensionTransportDriftTicks ?? 0;
   const useLegacyTransportFloor = options.useLegacyTransportFloor ?? false;
   const useWindowLagShift = options.useWindowLagShift ?? true;
+  const useWindowLagCap = options.useWindowLagCap ?? true;
+  const useEarlyExtensionLead = options.useEarlyExtensionLead ?? false;
 
   const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
   const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
@@ -55,6 +67,12 @@ export function simulatePlaybackAttackSchedule(
   const attacks: ScheduledAttackRecord[] = [];
   let nextUnscheduledStepIndex = 0;
   let lastScheduledAttackTick = -1;
+    const maxWindowLagTicks = Math.round(
+    quartersToTicks(PLAYBACK_MAX_WINDOW_LAG_QUARTERS, ppq),
+  );
+  const earlyLeadTicks = Math.round(
+    quartersToTicks(PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS, ppq),
+  );
 
   while (nextUnscheduledStepIndex < script.length) {
     const fromStepIndex = nextUnscheduledStepIndex;
@@ -65,13 +83,23 @@ export function simulatePlaybackAttackSchedule(
     );
     const anchorTick = Math.round(quartersToTicks(anchorQuarters, ppq));
     const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
+    // Late extension: transport sits at/after the window anchor (+ drift).
+    // Early-lead extension: transport is still LEAD quarters before the anchor
+    // when the fill runs, so modest main-thread delay does not create lag.
     const transportNow =
-      fromStepIndex === 0 ? anchorTick : anchorTick + drift;
+      fromStepIndex === 0
+        ? anchorTick
+        : useEarlyExtensionLead
+          ? anchorTick - earlyLeadTicks + drift
+          : anchorTick + drift;
 
-    const windowLagTicks =
+    const rawWindowLagTicks =
       useWindowLagShift && lastScheduledAttackTick >= 0
         ? Math.max(0, transportNow - anchorTick)
         : 0;
+    const windowLagTicks = useWindowLagCap
+      ? Math.min(rawWindowLagTicks, maxWindowLagTicks)
+      : rawWindowLagTicks;
 
     let lastSafeAttackTick: number;
     if (useLegacyTransportFloor) {

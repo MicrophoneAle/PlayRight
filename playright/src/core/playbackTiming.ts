@@ -126,6 +126,24 @@ export function quarterNotesToSecondsWithTempoMap(
 /** Pre-schedule this many quarter-note beats ahead of the transport. */
 export const PLAYBACK_SCHEDULE_AHEAD_QUARTERS = 24;
 
+/**
+ * How far before the next unscheduled attack the rolling-window extension
+ * fires. Scheduling the next chunk at the first unscheduled attack meant the
+ * ~200-event `scheduleOnce` burst ran when notes were already due; under load
+ * that lateness became wall-clock tempo drag via windowLagTicks. Firing this
+ * many quarters earlier keeps a buffer of already-scheduled audio while the
+ * extension runs (half a window at the default ahead size).
+ */
+export const PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS =
+  PLAYBACK_SCHEDULE_AHEAD_QUARTERS / 2;
+
+/**
+ * Cap on per-window lag shift (quarter notes). Unbounded lag preserves
+ * inter-attack spacing but compounds into a slower piece when extensions keep
+ * running late; past this, prefer a small seam over cumulative crawl.
+ */
+export const PLAYBACK_MAX_WINDOW_LAG_QUARTERS = 0.125;
+
 /** Smallest release gap (sixteenth-note feel at 4/4). */
 export const PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS = 0.02;
 

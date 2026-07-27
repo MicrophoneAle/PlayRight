@@ -11,7 +11,9 @@ import {
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
+  PLAYBACK_MAX_WINDOW_LAG_QUARTERS,
   PLAYBACK_SCHEDULE_AHEAD_QUARTERS,
+  PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS,
   resolveNotePlaybackDurationQuarterNotes,
   quarterNotesToTickDuration,
   quartersToTicks,
@@ -159,7 +161,11 @@ const PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS = 40;
  */
 const GRACE_NOTE_DURATION_QUARTERS = 1 / 8;
 
-export { PLAYBACK_SCHEDULE_AHEAD_QUARTERS } from './playbackTiming.ts';
+export {
+  PLAYBACK_SCHEDULE_AHEAD_QUARTERS,
+  PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS,
+  PLAYBACK_MAX_WINDOW_LAG_QUARTERS,
+} from './playbackTiming.ts';
 
 export class PlaybackEngine {
   private audioEngine: AudioEngine | null = null;
@@ -1048,6 +1054,17 @@ export class PlaybackEngine {
     this.nextUnscheduledEntryIndex = fromEntryIndex;
     this.lastScheduledAttackTick = -1;
     this.extendScheduleWindow();
+    // Prime a second window while transport is still at the seek/start point.
+    // The first mid-piece extension then isn't the first heavy schedule burst,
+    // and early-lead extensions keep ~1.5 windows buffered thereafter.
+    const derived = this.scheduleDerivedData;
+    if (
+      derived &&
+      this.nextUnscheduledEntryIndex > fromEntryIndex &&
+      this.nextUnscheduledEntryIndex < derived.playbackOrder.length
+    ) {
+      this.extendScheduleWindow();
+    }
   }
 
   /**
@@ -1148,10 +1165,16 @@ export class PlaybackEngine {
     // When a rolling-window extension fires slightly late, shift this window's
     // events forward together so inter-attack gaps stay at score tempo instead
     // of past-due attacks firing in a burst (audible speed-up/slow-down wobble).
-    const windowLagTicks =
+    // Cap the shift so sustained main-thread load cannot compound into a
+    // permanently slower wall-clock tempo across many windows.
+    const rawWindowLagTicks =
       this.lastScheduledAttackTick < 0
         ? 0
         : Math.max(0, transportNow - anchorTick);
+    const maxWindowLagTicks = Math.round(
+      quartersToTicks(PLAYBACK_MAX_WINDOW_LAG_QUARTERS, ppq),
+    );
+    const windowLagTicks = Math.min(rawWindowLagTicks, maxWindowLagTicks);
     const laggedTicksFromQuarters = (quarterNotes: number): number =>
       quartersToTicks(quarterNotes, ppq) + windowLagTicks;
 
@@ -1408,12 +1431,25 @@ export class PlaybackEngine {
     this.lastScheduledAttackTick = lastSafeAttackTick;
 
     if (lastScheduledEntry < totalEntries) {
-      const triggerQuarters = entryAttackQuarters[lastScheduledEntry];
+      // Fire the extension LEAD quarters before the next unscheduled attack so
+      // the scheduleOnce storm runs while a buffer of audio is still covered,
+      // instead of at the moment those notes become due.
+      const nextWindowStartQuarters = entryAttackQuarters[lastScheduledEntry];
+      const triggerQuarters = Math.max(
+        anchorQuarters,
+        nextWindowStartQuarters - PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS,
+      );
       const { text: extensionTime } = safeTickTime(
         laggedTicksFromQuarters(triggerQuarters),
-        lastSafeAttackTick,
+        // Extension may sit before the last attack of this window (by design);
+        // allow that without clamping up to lastSafeAttackTick.
+        Math.min(lastSafeAttackTick, Math.round(laggedTicksFromQuarters(triggerQuarters)) - 1),
         'schedule extension',
-        { fromEntryIndex: lastScheduledEntry },
+        {
+          fromEntryIndex: lastScheduledEntry,
+          nextWindowStartQuarters,
+          triggerQuarters,
+        },
       );
       const extensionEventId = transport.scheduleOnce((_time) => {
         try {

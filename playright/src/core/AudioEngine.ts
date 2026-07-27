@@ -10,10 +10,10 @@ type ToneTime = Tone.Unit.Time;
 
 const audioContext = new Tone.Context({
   latencyHint: 'interactive',
-  // 50ms of scheduling slack (Tone's default is 100ms). The previous 20ms
-  // value kept practice-feeling latency low but left almost no room for
-  // main-thread work on dense play-mode bars before the transport slipped.
-  lookAhead: 0.05,
+  // Tone's default (100ms). Lower values cut note-on latency but leave almost
+  // no room for rolling-window schedule bursts / React / OSMD on dense scores
+  // (e.g. unwelcome-school at 180 BPM) before the transport slips.
+  lookAhead: 0.1,
 });
 Tone.setContext(audioContext);
 
@@ -157,11 +157,11 @@ export class AudioEngine {
       return;
     }
 
-    // Release any lingering voice so repeated pitches re-articulate with the
-    // same gap as transitions to a different pitch.
-    this.sampler!.triggerRelease(note, time);
-    this.sampler!.triggerAttack(note, time, velocity);
-    this.sampler!.triggerRelease(note, time + playSeconds);
+    // Single attack+release schedule. Consecutive same-pitch gaps come from
+    // shortened playSeconds (articulation trim in PlaybackEngine), not an
+    // extra pre-attack triggerRelease — that tripled WebAudio graph ops per
+    // note and starved the transport on dense 180 BPM textures.
+    this.sampler!.triggerAttackRelease(note, playSeconds, time, velocity);
   }
 
   releaseAll(): void {
