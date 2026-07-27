@@ -587,7 +587,7 @@ export class InputManager {
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
     const state = useEngineStore.getState();
-    if (state.scoreLibraryOpen || state.tutorialOpen) {
+    if (state.scoreLibraryOpen || state.tutorialOpen || state.keyBindingEditorOpen) {
       return true;
     }
 
@@ -603,9 +603,9 @@ export class InputManager {
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     const state = useEngineStore.getState();
-    // The tutorial overlay owns the keyboard while it is open; keyup still runs
-    // so any key held when it opened is released cleanly.
-    if (state.tutorialOpen) {
+    // Tutorial / key-binding editor own the keyboard while open; keyup still
+    // runs so any key held when they opened is released cleanly.
+    if (state.tutorialOpen || state.keyBindingEditorOpen) {
       return;
     }
 
@@ -629,7 +629,10 @@ export class InputManager {
         return;
       }
 
-      const mapping = getFingerMappingFromKeyboard(event);
+      const mapping = getFingerMappingFromKeyboard(
+        event,
+        useEngineStore.getState().twoHandKeyBindings,
+      );
       if (mapping !== null) {
         if (this.activePhysicalKeys.has(event.code)) {
           return;
@@ -684,7 +687,10 @@ export class InputManager {
       state.fingeringMode === 'program' || state.engineMode === 'two-hand';
 
     if (useFingerKeys) {
-      const mapping = getFingerMappingFromKeyboard(event);
+      const mapping = getFingerMappingFromKeyboard(
+        event,
+        useEngineStore.getState().twoHandKeyBindings,
+      );
       if (mapping !== null) {
         if (this.activePhysicalKeys.has(event.code)) {
           this.activePhysicalKeys.delete(event.code);
@@ -728,7 +734,10 @@ export class InputManager {
     if (useEngineStore.getState().engineMode === 'two-hand' ||
         useEngineStore.getState().fingeringMode !== 'off') {
       return (
-        getFingerMappingFromKeyboard(event) !== null ||
+        getFingerMappingFromKeyboard(
+          event,
+          useEngineStore.getState().twoHandKeyBindings,
+        ) !== null ||
         this.isOneHandNoteKeyCode(event.code)
       );
     }

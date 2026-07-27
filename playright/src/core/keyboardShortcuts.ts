@@ -1,4 +1,10 @@
-import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
+import {
+  DEFAULT_TWO_HAND_KEY_BINDINGS,
+  TWO_HAND_FINGER_SLOTS,
+  formatBoundKeyLabel,
+  parseFingerSlotId,
+  type TwoHandKeyBindings,
+} from './twoHandMapping.ts';
 import type { EngineMode, Hand } from '../types/index.ts';
 
 export interface KeyboardShortcut {
@@ -14,35 +20,46 @@ const GLOBAL_SHORTCUTS: KeyboardShortcut[] = [
   { keys: 'C', description: 'Open saved scores' },
 ];
 
-function formatDisplayKey(key: string): string {
-  return key;
-}
-
-function fingerShortcutsForHand(hand: Hand): KeyboardShortcut {
-  const entries = Object.entries(TWO_HAND_KEY_MAP)
-    .filter(([, mapping]) => mapping.hand === hand)
-    .sort(([, left], [, right]) =>
-      hand === 'L' ? right.finger - left.finger : left.finger - right.finger,
-    );
+function fingerShortcutsForHand(
+  hand: Hand,
+  bindings: TwoHandKeyBindings,
+): KeyboardShortcut {
+  const slots = TWO_HAND_FINGER_SLOTS.filter(
+    (slot) => parseFingerSlotId(slot).hand === hand,
+  ).sort((left, right) => {
+    const leftFinger = parseFingerSlotId(left).finger;
+    const rightFinger = parseFingerSlotId(right).finger;
+    return hand === 'L' ? rightFinger - leftFinger : leftFinger - rightFinger;
+  });
 
   const handLabel = hand === 'L' ? 'Left hand' : 'Right hand';
 
   return {
-    keys: entries.map(([key]) => formatDisplayKey(key)).join(' '),
-    description: `${handLabel} fingers ${entries.map(([, mapping]) => mapping.finger).join(' ')}`,
+    keys: slots
+      .map((slot) => formatBoundKeyLabel(bindings[slot]))
+      .join(' '),
+    description: `${handLabel} fingers ${slots
+      .map((slot) => parseFingerSlotId(slot).finger)
+      .join(' ')}`,
   };
 }
 
-function getTwoHandFingerShortcuts(): KeyboardShortcut[] {
-  return [fingerShortcutsForHand('L'), fingerShortcutsForHand('R')];
+function getTwoHandFingerShortcuts(
+  bindings: TwoHandKeyBindings,
+): KeyboardShortcut[] {
+  return [
+    fingerShortcutsForHand('L', bindings),
+    fingerShortcutsForHand('R', bindings),
+  ];
 }
 
 export function getKeyboardShortcuts(
   shiftModeLabel: string,
   engineMode: EngineMode,
+  bindings: TwoHandKeyBindings = DEFAULT_TWO_HAND_KEY_BINDINGS,
 ): KeyboardShortcut[] {
   if (engineMode === 'two-hand') {
-    return [...GLOBAL_SHORTCUTS, ...getTwoHandFingerShortcuts()];
+    return [...GLOBAL_SHORTCUTS, ...getTwoHandFingerShortcuts(bindings)];
   }
 
   return [

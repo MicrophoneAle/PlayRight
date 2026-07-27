@@ -16,7 +16,11 @@ import {
   resolveGraceManualAssignment,
   resolveManualAssignment,
 } from '../types/index.ts';
-import { TWO_HAND_KEY_MAP } from './twoHandMapping.ts';
+import {
+  DEFAULT_TWO_HAND_KEY_BINDINGS,
+  buildFingerToPhysicalKeyMap,
+  type TwoHandKeyBindings,
+} from './twoHandMapping.ts';
 
 /**
  * Derived practice-facing sequence in which grace positions for step i precede
@@ -546,14 +550,10 @@ export function programTargetMidis(
   return next ? new Set([next.note.midi]) : new Set();
 }
 
-function buildTwoHandFingerToPhysicalKeyMap(): Map<string, string> {
-  const map = new Map<string, string>();
-
-  for (const [physicalKey, mapping] of Object.entries(TWO_HAND_KEY_MAP)) {
-    map.set(`${mapping.hand}:${mapping.finger}`, physicalKey);
-  }
-
-  return map;
+function buildTwoHandFingerToPhysicalKeyMap(
+  bindings: TwoHandKeyBindings = DEFAULT_TWO_HAND_KEY_BINDINGS,
+): Map<string, string> {
+  return buildFingerToPhysicalKeyMap(bindings);
 }
 
 /** Resolve store (stepIndex, graceCursor) into a practice walk position. */
@@ -864,6 +864,7 @@ export function buildTwoHandPhysicalKeysByMidiFromPlayback(
   script: PlaybackScript | null,
   playingPlaybackNotes: readonly PlayingPlaybackNote[],
   currentStepIndex: number,
+  bindings: TwoHandKeyBindings = DEFAULT_TWO_HAND_KEY_BINDINGS,
 ): Map<number, string[]> {
   const keysByMidi = new Map<number, string[]>();
 
@@ -871,7 +872,7 @@ export function buildTwoHandPhysicalKeysByMidiFromPlayback(
     return keysByMidi;
   }
 
-  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap(bindings);
   for (const note of collectPlaybackFingeringNotes(
     script,
     playingPlaybackNotes,
@@ -887,6 +888,7 @@ export function buildTwoHandPhysicalKeysByMidiFromPlayback(
 export function buildTwoHandPhysicalKeysByMidi(
   script: PlaybackScript | null,
   stepIndex: number,
+  bindings: TwoHandKeyBindings = DEFAULT_TWO_HAND_KEY_BINDINGS,
 ): Map<number, string[]> {
   const keysByMidi = new Map<number, string[]>();
 
@@ -894,7 +896,7 @@ export function buildTwoHandPhysicalKeysByMidi(
     return keysByMidi;
   }
 
-  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap(bindings);
 
   for (const note of script[stepIndex].notes) {
     if (note.finger === null) {
@@ -922,6 +924,7 @@ export function buildTwoHandPhysicalKeysByMidi(
 export function buildTwoHandPhysicalKeysByMidiForProgram(
   script: PlaybackScript | null,
   stepIndex: number,
+  bindings: TwoHandKeyBindings = DEFAULT_TWO_HAND_KEY_BINDINGS,
 ): Map<number, string[]> {
   const keysByMidi = new Map<number, string[]>();
 
@@ -929,7 +932,7 @@ export function buildTwoHandPhysicalKeysByMidiForProgram(
     return keysByMidi;
   }
 
-  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap(bindings);
   const step = script[stepIndex];
 
   for (const grace of step.graceBefore ?? []) {
@@ -946,6 +949,7 @@ export function buildTwoHandPhysicalKeysByMidiForProgram(
 export function buildTwoHandPhysicalKeysByMidiForPosition(
   script: PlaybackScript | null,
   position: PracticePosition,
+  bindings: TwoHandKeyBindings = DEFAULT_TWO_HAND_KEY_BINDINGS,
 ): Map<number, string[]> {
   const keysByMidi = new Map<number, string[]>();
 
@@ -953,7 +957,7 @@ export function buildTwoHandPhysicalKeysByMidiForPosition(
     return keysByMidi;
   }
 
-  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap();
+  const fingerToKey = buildTwoHandFingerToPhysicalKeyMap(bindings);
 
   for (const note of getPlayablePracticeNotesForPosition(
     script,

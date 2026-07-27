@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
-import { CircleQuestionMark, Info, Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
+import { CircleQuestionMark, Info, Keyboard, Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { migrateLegacyHandOverridesOnLoad } from '../core/manualHandOverrideMigration.ts';
@@ -73,6 +73,9 @@ export function Lid() {
   const setTempoFactor = useEngineStore((state) => state.actions.setTempoFactor);
 
   const setTutorialOpen = useEngineStore((state) => state.actions.setTutorialOpen);
+  const setKeyBindingEditorOpen = useEngineStore(
+    (state) => state.actions.setKeyBindingEditorOpen,
+  );
   const setFingeringMode = useEngineStore((state) => state.actions.setFingeringMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
@@ -450,6 +453,17 @@ export function Lid() {
           >
             <CircleQuestionMark size={14} strokeWidth={2} aria-hidden />
             Getting started tutorial
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsOpen(false);
+              setKeyBindingEditorOpen(true);
+            }}
+            className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          >
+            <Keyboard size={14} strokeWidth={2} aria-hidden />
+            Two-hand key bindings
           </button>
         </div>
       </div>

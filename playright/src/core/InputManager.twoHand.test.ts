@@ -3,7 +3,11 @@ import type { AudioEngine } from './AudioEngine.ts';
 import { InputManager } from './InputManager.ts';
 import { practiceEngine } from './PracticeEngine.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
-import type { FingerMapping } from './twoHandMapping.ts';
+import {
+  DEFAULT_TWO_HAND_KEY_BINDINGS,
+  cloneTwoHandKeyBindings,
+  type FingerMapping,
+} from './twoHandMapping.ts';
 
 type StubListener = (event: MockKeyboardEvent) => void;
 
@@ -103,6 +107,10 @@ describe('InputManager two-hand routing', () => {
   afterEach(() => {
     inputManager?.destroy();
     inputManager = null;
+    useEngineStore.setState({
+      keyBindingEditorOpen: false,
+      twoHandKeyBindings: cloneTwoHandKeyBindings(DEFAULT_TWO_HAND_KEY_BINDINGS),
+    });
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -170,5 +178,27 @@ describe('InputManager two-hand routing', () => {
     expect(onFingerPress).not.toHaveBeenCalled();
     expect(practiceEngine.handleNoteOn).toHaveBeenCalledTimes(1);
     expect(practiceEngine.handleNoteOn).toHaveBeenCalledWith(61);
+  });
+
+  it('uses remapped store bindings for finger press routing', () => {
+    const remapped = cloneTwoHandKeyBindings(DEFAULT_TWO_HAND_KEY_BINDINGS);
+    remapped['R:1'] = { key: 'a', code: 'KeyA' };
+    remapped['L:5'] = { key: 'n', code: 'KeyN' };
+    useEngineStore.setState({ twoHandKeyBindings: remapped });
+    mount();
+
+    windowStub.dispatchEvent(keyEvent('keydown', 'a', 'KeyA'));
+    expect(onFingerPress).toHaveBeenCalledWith({ hand: 'R', finger: 1 });
+
+    windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    expect(onFingerPress).toHaveBeenCalledWith({ hand: 'L', finger: 5 });
+  });
+
+  it('ignores finger keys while the key-bindings editor is open', () => {
+    useEngineStore.setState({ keyBindingEditorOpen: true });
+    mount();
+
+    windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    expect(onFingerPress).not.toHaveBeenCalled();
   });
 });

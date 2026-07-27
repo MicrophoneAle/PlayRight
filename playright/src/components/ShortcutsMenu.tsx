@@ -29,9 +29,11 @@ export function ShortcutsMenu({
   } | null>(null);
   const shiftMode = useEngineStore((state) => state.shiftMode);
   const engineMode = useEngineStore((state) => state.engineMode);
+  const twoHandKeyBindings = useEngineStore((state) => state.twoHandKeyBindings);
   const shortcuts = getKeyboardShortcuts(
     SHIFT_MODE_LABELS[shiftMode],
     engineMode,
+    twoHandKeyBindings,
   );
 
   useEffect(() => {

@@ -12,6 +12,7 @@ import { playbackEngine } from './core/PlaybackEngine.ts';
 import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
 import { Dashboard } from './components/Dashboard.tsx';
 import { OnboardingTutorial } from './components/OnboardingTutorial.tsx';
+import { KeyBindingsEditor } from './components/KeyBindingsEditor.tsx';
 import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
 import { useEngineStore } from './store/useEngineStore.ts';
 
@@ -111,6 +112,7 @@ function App() {
       <SupabaseClerkBridge />
       <Dashboard />
       <OnboardingTutorial />
+      <KeyBindingsEditor />
     </>
   );
 }

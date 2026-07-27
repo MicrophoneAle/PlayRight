@@ -21,6 +21,13 @@ import type {
   SelectedFingeringNote,
 } from '../types/index.ts';
 import { fingeringKey, graceFingeringKey } from '../types/index.ts';
+import {
+  DEFAULT_TWO_HAND_KEY_BINDINGS,
+  cloneTwoHandKeyBindings,
+  readTwoHandKeyBindingsFromStorage,
+  writeTwoHandKeyBindingsToStorage,
+  type TwoHandKeyBindings,
+} from '../core/twoHandMapping.ts';
 
 export type ShiftMode = 'octave' | 'semitone' | 'full-range';
 export type SheetScrollMode = 'smooth' | 'instant';
@@ -273,6 +280,10 @@ interface EngineState {
   scoreLibraryOpen: boolean;
   /** True while the onboarding tutorial overlay is open; suppresses global keys. */
   tutorialOpen: boolean;
+  /** True while the two-hand key-bindings editor is open; suppresses global keys. */
+  keyBindingEditorOpen: boolean;
+  /** Active QWERTY→finger map for two-hand practice (persisted). */
+  twoHandKeyBindings: TwoHandKeyBindings;
   /** Non-fatal parse notices for the current piece, shown in a dismissible panel. */
   parseWarnings: string[];
   currentStepIndex: number;
@@ -347,6 +358,9 @@ interface EngineState {
     setScoreLibraryOpen: (open: boolean) => void;
     toggleScoreLibrary: () => void;
     setTutorialOpen: (open: boolean) => void;
+    setKeyBindingEditorOpen: (open: boolean) => void;
+    setTwoHandKeyBindings: (bindings: TwoHandKeyBindings) => void;
+    resetTwoHandKeyBindings: () => void;
     setParseWarnings: (warnings: string[]) => void;
     setStepIndex: (index: number) => void;
     setPlaybackOrderIndex: (index: number) => void;
@@ -390,6 +404,8 @@ export const useEngineStore = create<EngineState>((set) => {
   headerCollapsed: false,
   scoreLibraryOpen: false,
   tutorialOpen: false,
+  keyBindingEditorOpen: false,
+  twoHandKeyBindings: readTwoHandKeyBindingsFromStorage(),
   parseWarnings: [],
   currentStepIndex: 0,
   currentPlaybackOrderIndex: 0,
@@ -889,6 +905,18 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     setTutorialOpen: (open) => {
       set({ tutorialOpen: open });
+    },
+    setKeyBindingEditorOpen: (open) => {
+      set({ keyBindingEditorOpen: open });
+    },
+    setTwoHandKeyBindings: (bindings) => {
+      writeTwoHandKeyBindingsToStorage(bindings);
+      set({ twoHandKeyBindings: cloneTwoHandKeyBindings(bindings) });
+    },
+    resetTwoHandKeyBindings: () => {
+      const defaults = cloneTwoHandKeyBindings(DEFAULT_TWO_HAND_KEY_BINDINGS);
+      writeTwoHandKeyBindingsToStorage(defaults);
+      set({ twoHandKeyBindings: defaults });
     },
     setParseWarnings: (warnings) => {
       set({ parseWarnings: warnings });

@@ -219,6 +219,7 @@ export function PianoKeyboard() {
   const script = useEngineStore((state) => state.script);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
   const practiceGraceCursor = useEngineStore((state) => state.practiceGraceCursor);
+  const twoHandKeyBindings = useEngineStore((state) => state.twoHandKeyBindings);
   const totalSteps = useEngineStore((state) => state.totalSteps);
   const manualFingerings = useEngineStore((state) => state.manualFingerings);
   const programRefingerNoteIndex = useEngineStore((state) => state.programRefingerNoteIndex);
@@ -373,11 +374,16 @@ export function PianoKeyboard() {
         script,
         playingPlaybackNotes,
         currentStepIndex,
+        twoHandKeyBindings,
       );
     }
 
     if (isProgramMode) {
-      return buildTwoHandPhysicalKeysByMidiForProgram(script, currentStepIndex);
+      return buildTwoHandPhysicalKeysByMidiForProgram(
+        script,
+        currentStepIndex,
+        twoHandKeyBindings,
+      );
     }
 
     if (inPositionAwarePractice) {
@@ -386,16 +392,22 @@ export function PianoKeyboard() {
           script,
           playingPlaybackNotes,
           currentStepIndex,
+          twoHandKeyBindings,
         );
       }
 
       return buildTwoHandPhysicalKeysByMidiForPosition(
         script,
         practicePositionFromGraceCursor(currentStepIndex, practiceGraceCursor),
+        twoHandKeyBindings,
       );
     }
 
-    return buildTwoHandPhysicalKeysByMidi(script, currentStepIndex);
+    return buildTwoHandPhysicalKeysByMidi(
+      script,
+      currentStepIndex,
+      twoHandKeyBindings,
+    );
   }, [
     showFingeringHints,
     showPlayFingerings,
@@ -405,6 +417,7 @@ export function PianoKeyboard() {
     currentStepIndex,
     practiceGraceCursor,
     playingPlaybackNotes,
+    twoHandKeyBindings,
   ]);
 
   const oneHandExpectedCoverage = useMemo(() => {
@@ -484,11 +497,14 @@ export function PianoKeyboard() {
   useEffect(() => {
     if (isTwoHand) {
       const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.repeat || useEngineStore.getState().tutorialOpen) {
+        if (event.repeat || useEngineStore.getState().tutorialOpen || useEngineStore.getState().keyBindingEditorOpen) {
           return;
         }
 
-        const mapping = getFingerMappingFromKeyboard(event);
+        const mapping = getFingerMappingFromKeyboard(
+          event,
+          useEngineStore.getState().twoHandKeyBindings,
+        );
         if (mapping !== null) {
           flushSync(() => {
             setActiveTwoHandFingers((previous) => {
@@ -506,7 +522,10 @@ export function PianoKeyboard() {
       };
 
       const handleKeyUp = (event: KeyboardEvent) => {
-        const mapping = getFingerMappingFromKeyboard(event);
+        const mapping = getFingerMappingFromKeyboard(
+          event,
+          useEngineStore.getState().twoHandKeyBindings,
+        );
         if (mapping === null) {
           return;
         }
@@ -537,8 +556,9 @@ export function PianoKeyboard() {
     setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      const { scoreLibraryOpen, tutorialOpen } = useEngineStore.getState();
-      if (scoreLibraryOpen || tutorialOpen) {
+      const { scoreLibraryOpen, tutorialOpen, keyBindingEditorOpen } =
+        useEngineStore.getState();
+      if (scoreLibraryOpen || tutorialOpen || keyBindingEditorOpen) {
         return;
       }
 
