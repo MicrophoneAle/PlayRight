@@ -516,6 +516,32 @@ describe('playbackTiming', () => {
     expect(
       isRepeatedPlaybackAttack(nonConsecutiveScript, 2, nonConsecutiveScript[2].notes[0]),
     ).toBe(false);
+
+    // Other-hand-only steps between same-hand ostinato repeats still count as
+    // an immediate re-press (Runaway-style treble plinks over bass eighths).
+    const otherHandBetween: PlaybackScript = [
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'G3', midi: 55, hand: 'L', finger: 3, durationDivisions: 240 }],
+      },
+      {
+        order: 1,
+        onset: 240,
+        measureNumber: 1,
+        notes: [{ pitch: 'E6', midi: 88, hand: 'R', finger: 5, durationDivisions: 480 }],
+      },
+      {
+        order: 2,
+        onset: 480,
+        measureNumber: 1,
+        notes: [{ pitch: 'G3', midi: 55, hand: 'L', finger: 3, durationDivisions: 240 }],
+      },
+    ];
+    expect(
+      isRepeatedPlaybackAttack(otherHandBetween, 2, otherHandBetween[2].notes[0]),
+    ).toBe(true);
     expect(
       isSamePitchReattack(consecutiveScript, 1, consecutiveScript[1].notes[0]),
     ).toBe(true);

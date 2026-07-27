@@ -175,4 +175,51 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
 
     vi.useRealTimers();
   });
+
+  it('paints the key-up from a release even while visual store sync is coalesced', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((cb: FrameRequestCallback) => {
+        // Never auto-fire — coalesced flushes must not be required for releases.
+        return 1 as unknown as number;
+      }),
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    useEngineStore.setState({
+      playingMidiNotes: [],
+      playingPlaybackNotes: [],
+    });
+
+    const engine = new PlaybackEngine();
+    type EngineInternals = {
+      isPlaying: boolean;
+      isPaused: boolean;
+      pressPlayingNote: (
+        stepIndex: number,
+        midi: number,
+        hand: 'R' | 'L',
+        pressId: number,
+      ) => void;
+      releasePlayingNote: (pressId: number) => void;
+      playingPressTracker: { allocatePressId: () => number };
+    };
+    const internals = engine as unknown as EngineInternals;
+    internals.isPaused = false;
+
+    const pressId = internals.playingPressTracker.allocatePressId();
+    // Press while stopped so the lit state commits immediately.
+    internals.isPlaying = false;
+    internals.pressPlayingNote(0, 60, 'R', pressId);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([60]);
+
+    // Release while "playing" with a stuck rAF — must still clear highlights.
+    internals.isPlaying = true;
+    internals.releasePlayingNote(pressId);
+    expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
+
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
 });

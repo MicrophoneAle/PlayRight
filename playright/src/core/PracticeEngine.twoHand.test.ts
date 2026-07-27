@@ -469,4 +469,38 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.handleFingerRelease({ hand: 'R', finger: 3 });
     expect(useEngineStore.getState().currentStepIndex).toBe(1);
   });
+
+  it('does not move scope during two-hand practice step advances', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'E2', midi: 40, hand: 'L', finger: 5 },
+          { pitch: 'E6', midi: 88, hand: 'R', finger: 5 },
+        ],
+      },
+      {
+        order: 1,
+        onset: 480,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C2', midi: 36, hand: 'L', finger: 5 },
+          { pitch: 'E6', midi: 88, hand: 'R', finger: 5 },
+        ],
+      },
+    ]);
+    useEngineStore.getState().actions.setScopeStart(60);
+    engine.start();
+
+    expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+
+    engine.handleFingerPress({ hand: 'L', finger: 5 });
+    engine.handleFingerPress({ hand: 'R', finger: 5 });
+    flushAdvance();
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().scopeStartMidi).toBe(60);
+  });
 });

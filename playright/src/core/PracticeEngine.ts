@@ -507,10 +507,14 @@ export class PracticeEngine {
 
     actions.setExpectedNotes(stepMidis);
 
-    if (alignScope && engineMode === 'one-hand') {
-      centerScopeOnPracticeNotes(playableNotes);
-    } else if (alignScope || useEngineStore.getState().isPracticeActive) {
-      alignScopeToPracticeNotes(playableNotes, previousPracticeNotes);
+    // Scope is the one-hand keyboard window. Two-hand practice uses finger
+    // bindings and must not thrash scope when a step spans bass + treble.
+    if (engineMode === 'one-hand') {
+      if (alignScope) {
+        centerScopeOnPracticeNotes(playableNotes);
+      } else if (useEngineStore.getState().isPracticeActive) {
+        alignScopeToPracticeNotes(playableNotes, previousPracticeNotes);
+      }
     }
   }
 

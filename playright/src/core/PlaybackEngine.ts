@@ -801,12 +801,10 @@ export class PlaybackEngine {
   private releasePlayingNote(pressId: number): void {
     this.scheduledReleaseTickByPressId.delete(pressId);
     this.playingPressTracker.release(pressId);
-    // No flushSync here even for consecutive same-note releases. The re-press
-    // is deferred by PLAYBACK_CONSECUTIVE_VISUAL_PRESS_DELAY_MS (~2 frames),
-    // so React's normal async commit paints the release in time. Forcing a
-    // synchronous render inside the transport callback burned CPU on every
-    // repeated-note release and contributed to audio-scheduling starvation.
-    this.syncPlayingNotes();
+    // Releases must paint before a deferred same-pitch re-press. rAF coalescing
+    // can merge release+press into one frame and erase the key-up that is the
+    // re-press indication (regression from play-mode visual coalesce).
+    this.flushVisualStoreSyncImmediate();
   }
 
   /**
@@ -820,6 +818,9 @@ export class PlaybackEngine {
     hand: Hand,
     pressId: number,
   ): void {
+    // Commit any pending release (same transport tick) before the delay so the
+    // lift cannot be overwritten by a coalesced re-press flush.
+    this.flushVisualStoreSyncImmediate();
     const timeoutId = setTimeout(() => {
       this.pendingPressTimeouts.delete(timeoutId);
       if (!this.isPlaying || this.isPaused) {

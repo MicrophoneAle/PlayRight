@@ -676,7 +676,12 @@ export function isPlaybackTieContinuation(
   );
 }
 
-/** True when this attack immediately repeats the same hand+pitch on the prior step (not a tie). */
+/**
+ * True when this attack immediately repeats the same hand+pitch after the
+ * prior same-hand attack (not a tie). Other-hand-only steps in between are
+ * skipped so a treble plink between bass ostinato repeats does not suppress
+ * the re-press visual defer.
+ */
 export function isRepeatedPlaybackAttack(
   script: PlaybackScript,
   stepIndex: number,
@@ -686,13 +691,23 @@ export function isRepeatedPlaybackAttack(
     return false;
   }
 
-  const previousStep = script[stepIndex - 1];
-  return previousStep.notes.some(
-    (previous) =>
-      previous.midi === note.midi &&
-      previous.hand === note.hand &&
-      !isPlaybackTieContinuation(script, stepIndex - 1, previous),
-  );
+  for (let prev = stepIndex - 1; prev >= 0; prev -= 1) {
+    const previousStep = script[prev];
+    const sameHandNotes = previousStep.notes.filter(
+      (candidate) => candidate.hand === note.hand,
+    );
+    if (sameHandNotes.length === 0) {
+      continue;
+    }
+
+    return sameHandNotes.some(
+      (previous) =>
+        previous.midi === note.midi &&
+        !isPlaybackTieContinuation(script, prev, previous),
+    );
+  }
+
+  return false;
 }
 
 function findNextReattackStepIndex(
