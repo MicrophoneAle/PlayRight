@@ -25,6 +25,10 @@ export function usePracticeKeyboardShortcuts(): void {
 
       const state = useEngineStore.getState();
 
+      if (state.tutorialOpen) {
+        return;
+      }
+
       if (event.code === 'KeyC') {
         event.preventDefault();
         state.actions.toggleScoreLibrary();

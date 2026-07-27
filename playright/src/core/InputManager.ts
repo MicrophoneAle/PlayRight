@@ -586,7 +586,8 @@ export class InputManager {
   }
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
-    if (useEngineStore.getState().scoreLibraryOpen) {
+    const state = useEngineStore.getState();
+    if (state.scoreLibraryOpen || state.tutorialOpen) {
       return true;
     }
 
@@ -602,6 +603,12 @@ export class InputManager {
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     const state = useEngineStore.getState();
+    // The tutorial overlay owns the keyboard while it is open; keyup still runs
+    // so any key held when it opened is released cleanly.
+    if (state.tutorialOpen) {
+      return;
+    }
+
     if (state.playMode) {
       if (event.repeat) {
         return;

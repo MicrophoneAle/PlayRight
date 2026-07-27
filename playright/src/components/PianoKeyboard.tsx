@@ -484,7 +484,7 @@ export function PianoKeyboard() {
   useEffect(() => {
     if (isTwoHand) {
       const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.repeat) {
+        if (event.repeat || useEngineStore.getState().tutorialOpen) {
           return;
         }
 
@@ -537,7 +537,8 @@ export function PianoKeyboard() {
     setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (useEngineStore.getState().scoreLibraryOpen) {
+      const { scoreLibraryOpen, tutorialOpen } = useEngineStore.getState();
+      if (scoreLibraryOpen || tutorialOpen) {
         return;
       }
 

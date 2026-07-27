@@ -271,6 +271,8 @@ interface EngineState {
   headerCollapsed: boolean;
   /** True while the saved scores library modal is open. */
   scoreLibraryOpen: boolean;
+  /** True while the onboarding tutorial overlay is open; suppresses global keys. */
+  tutorialOpen: boolean;
   /** Non-fatal parse notices for the current piece, shown in a dismissible panel. */
   parseWarnings: string[];
   currentStepIndex: number;
@@ -344,6 +346,7 @@ interface EngineState {
     toggleHeaderCollapsed: () => void;
     setScoreLibraryOpen: (open: boolean) => void;
     toggleScoreLibrary: () => void;
+    setTutorialOpen: (open: boolean) => void;
     setParseWarnings: (warnings: string[]) => void;
     setStepIndex: (index: number) => void;
     setPlaybackOrderIndex: (index: number) => void;
@@ -386,6 +389,7 @@ export const useEngineStore = create<EngineState>((set) => {
   tempoFactor: readStoredTempoFactor(),
   headerCollapsed: false,
   scoreLibraryOpen: false,
+  tutorialOpen: false,
   parseWarnings: [],
   currentStepIndex: 0,
   currentPlaybackOrderIndex: 0,
@@ -882,6 +886,9 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     toggleScoreLibrary: () => {
       set((state) => ({ scoreLibraryOpen: !state.scoreLibraryOpen }));
+    },
+    setTutorialOpen: (open) => {
+      set({ tutorialOpen: open });
     },
     setParseWarnings: (warnings) => {
       set({ parseWarnings: warnings });

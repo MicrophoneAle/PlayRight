@@ -71,6 +71,39 @@ button:focus-visible {
   width: 0;
 }
 
+/* Onboarding tutorial: page turns slide in the direction of travel. */
+@media (prefers-reduced-motion: no-preference) {
+  .playright-tutorial-page {
+    animation: playright-tutorial-page-forward 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .playright-tutorial-page-back {
+    animation-name: playright-tutorial-page-back;
+  }
+}
+
+@keyframes playright-tutorial-page-forward {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes playright-tutorial-page-back {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Scrollable popup bodies reserve a gutter so scrollbars are not clipped by rounded shells. */
 .playright-popup-scroll {
   min-height: 0;

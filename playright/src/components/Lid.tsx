@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
-import { Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
+import { CircleQuestionMark, Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { migrateLegacyHandOverridesOnLoad } from '../core/manualHandOverrideMigration.ts';
@@ -72,6 +72,7 @@ export function Lid() {
   );
   const setTempoFactor = useEngineStore((state) => state.actions.setTempoFactor);
 
+  const setTutorialOpen = useEngineStore((state) => state.actions.setTutorialOpen);
   const setFingeringMode = useEngineStore((state) => state.actions.setFingeringMode);
   const fingeringMode = useEngineStore((state) => state.fingeringMode);
   const currentStepIndex = useEngineStore((state) => state.currentStepIndex);
@@ -437,6 +438,19 @@ export function Lid() {
               {SHIFT_MODE_LABELS['full-range']}
             </option>
           </select>
+        </div>
+        <div className="border-t border-zinc-800 pt-3">
+          <button
+            type="button"
+            onClick={() => {
+              setSettingsOpen(false);
+              setTutorialOpen(true);
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100"
+          >
+            <CircleQuestionMark size={14} strokeWidth={2} aria-hidden />
+            Getting started tutorial
+          </button>
         </div>
       </div>
     </div>

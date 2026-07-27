@@ -105,6 +105,14 @@ async function constrainSheetForScroll(page: Page): Promise<void> {
 
 test.describe('sheet sync (OSMD browser)', () => {
   test.beforeEach(async ({ page }) => {
+    // Sheet tests run as a returning user: the first-launch tutorial overlay
+    // would otherwise cover the score. Onboarding has its own spec.
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'playright-onboarding-tutorial-seen',
+        new Date().toISOString(),
+      );
+    });
     await page.goto('/');
     await expect
       .poll(async () => page.evaluate(() => Boolean(window.__playrightE2E)), {

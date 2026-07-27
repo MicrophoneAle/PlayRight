@@ -11,6 +11,7 @@ import { practiceEngine } from './core/PracticeEngine.ts';
 import { playbackEngine } from './core/PlaybackEngine.ts';
 import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcuts.ts';
 import { Dashboard } from './components/Dashboard.tsx';
+import { OnboardingTutorial } from './components/OnboardingTutorial.tsx';
 import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
 import { useEngineStore } from './store/useEngineStore.ts';
 
@@ -109,6 +110,7 @@ function App() {
     <>
       <SupabaseClerkBridge />
       <Dashboard />
+      <OnboardingTutorial />
     </>
   );
 }
