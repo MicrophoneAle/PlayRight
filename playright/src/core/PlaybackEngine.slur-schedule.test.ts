@@ -25,6 +25,7 @@ import {
   buildStepPlaybackDurationQuarterNotesByStep,
   noteDurationQuarterNotes,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
+  playbackDurationQuarterNotes,
   resolveNotePlaybackDurationQuarterNotes,
   scheduledPlaybackAttackQuarterNotes,
   shouldUnifyStepPlaybackDuration,
@@ -275,6 +276,106 @@ describe('S1 slur schedule integration', () => {
         expect(record!.durationTicks / PPQ).toBeCloseTo(expectedQuarters, 6);
       }
     }
+
+    // S2 gap: each slur's STOP note (flag absent by S0 design) must resume the
+    // standard articulation gap in REAL replayed audio — previously only
+    // proven at resolver level and on the synthetic cross-repeat fixture.
+    // These measures are start→stop pairs; the stop is the unflagged same
+    // pitch/hand on the immediately following step (14 stops: 3+4+3+4).
+    let stopNotesChecked = 0;
+    const stopNoteDurations: Array<{
+      measure: number;
+      pitch: string;
+      durationQuarters: number;
+    }> = [];
+
+    for (let entryIndex = 0; entryIndex < playbackOrder.length; entryIndex += 1) {
+      const stepIndex = playbackOrder[entryIndex].stepIndex;
+      const step = script[stepIndex];
+      if (![24, 25, 60, 61].includes(step.measureNumber) || stepIndex === 0) {
+        continue;
+      }
+
+      const prevStep = script[stepIndex - 1];
+      const attackTick = Math.round(
+        playbackOrder[entryIndex].playbackOnset * ticksPerDivision,
+      );
+      const attackQuarters = entryAttackQuarters[entryIndex];
+      const nextEntry = playbackOrder[entryIndex + 1];
+      const nextGraceCount =
+        nextEntry !== undefined ? (script[nextEntry.stepIndex].graceBefore?.length ?? 0) : 0;
+      const nextAttackQuarters =
+        nextEntry !== undefined ? entryAttackQuarters[entryIndex + 1] : Infinity;
+      const graceWindowStart =
+        nextGraceCount > 0
+          ? nextAttackQuarters - nextGraceCount * GRACE_NOTE_DURATION_QUARTERS
+          : null;
+
+      for (const note of step.notes) {
+        if (note.slurLegatoNext) {
+          continue;
+        }
+        const isSlurStop = prevStep.notes.some(
+          (prev) =>
+            prev.midi === note.midi &&
+            prev.hand === note.hand &&
+            prev.slurLegatoNext === true,
+        );
+        if (!isSlurStop) {
+          continue;
+        }
+
+        const written = noteDurationQuarterNotes(note.durationDivisions ?? dpq, dpq);
+        // Gap resumes: same articulation path as an unflagged note. These
+        // stops are staccato eighths (often consecutive), so the plain 0.965
+        // control case becomes staccato+gap here — never slur-suppressed full
+        // length. Built from playbackDurationQuarterNotes options, NOT
+        // resolveNotePlaybackDurationQuarterNotes.
+        let expectedQuarters = playbackDurationQuarterNotes(
+          written,
+          note.tiedToNext ?? false,
+          {
+            hasStaccato: note.hasStaccato ?? false,
+            hasStaccatissimo: note.hasStaccatissimo ?? false,
+            hasTenuto: note.hasTenuto ?? false,
+            hasDetachedLegato: note.hasDetachedLegato ?? false,
+            hasMarcato: note.hasMarcato ?? false,
+            followedByConsecutiveSameNote: tables.consecutiveSameNoteKeys.has(
+              `${stepIndex}:${note.hand}:${note.midi}`,
+            ),
+          },
+        );
+        expect(expectedQuarters).toBeLessThan(written);
+
+        if (graceWindowStart !== null) {
+          const release = attackQuarters + expectedQuarters;
+          if (release > graceWindowStart && release <= nextAttackQuarters) {
+            expectedQuarters = graceWindowStart - attackQuarters;
+          }
+        }
+        const boundary = nextJumpBoundaryQuarters[entryIndex];
+        if (Number.isFinite(boundary)) {
+          const maxPlayed =
+            boundary - attackQuarters - PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS;
+          if (expectedQuarters > maxPlayed) {
+            expectedQuarters = Math.max(Math.min(expectedQuarters, maxPlayed), 0.01);
+          }
+        }
+
+        const record = audio.find(
+          (candidate) => candidate.tick === attackTick && candidate.midi === note.midi,
+        );
+        expect(record).toBeDefined();
+        expect(record!.durationTicks / PPQ).toBeCloseTo(expectedQuarters, 6);
+        stopNotesChecked += 1;
+        stopNoteDurations.push({
+          measure: step.measureNumber,
+          pitch: note.pitch,
+          durationQuarters: record!.durationTicks / PPQ,
+        });
+      }
+    }
+    expect(stopNotesChecked).toBe(14);
 
     // 6 flags in m24 + 8 in m25 + 6 in m60 + 8 in m61 (S0 pinned data). The
     // first-ending measures play exactly once each. Both classes must be
