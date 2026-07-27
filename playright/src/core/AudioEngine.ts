@@ -10,7 +10,10 @@ type ToneTime = Tone.Unit.Time;
 
 const audioContext = new Tone.Context({
   latencyHint: 'interactive',
-  lookAhead: 0.02,
+  // 50ms of scheduling slack (Tone's default is 100ms). The previous 20ms
+  // value kept practice-feeling latency low but left almost no room for
+  // main-thread work on dense play-mode bars before the transport slipped.
+  lookAhead: 0.05,
 });
 Tone.setContext(audioContext);
 

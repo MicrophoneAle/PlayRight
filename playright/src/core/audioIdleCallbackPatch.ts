@@ -4,6 +4,9 @@
  * play-mode load those callbacks can starve and leak Gain nodes into the
  * WebAudio graph.
  * See AudioEngine.ts for full rationale.
+ *
+ * Default timeout is 50ms (was 100ms) so disposal still runs under continuous
+ * polyphony instead of waiting for a rare idle gap.
  */
 if (
   typeof window !== 'undefined' &&
@@ -16,6 +19,6 @@ if (
   ) =>
     nativeRequestIdleCallback(callback, {
       ...options,
-      timeout: options?.timeout ?? 100,
+      timeout: options?.timeout ?? 50,
     });
 }

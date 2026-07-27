@@ -149,6 +149,15 @@ describe('useEngineStore settings and mode', () => {
     expect(useEngineStore.getState().engineMode).toBe('one-hand');
   });
 
+  it('bails on identical setExpectedNotes arrays', () => {
+    const before = useEngineStore.getState().expectedMidiNotes;
+    useEngineStore.getState().actions.setExpectedNotes([62]);
+    expect(useEngineStore.getState().expectedMidiNotes).toBe(before);
+
+    useEngineStore.getState().actions.setExpectedNotes([60, 64]);
+    expect(useEngineStore.getState().expectedMidiNotes).toEqual([60, 64]);
+  });
+
   it('persists autoFingering and recomputes the script without resetting practice state', async () => {
     const before = useEngineStore.getState();
 

@@ -176,6 +176,15 @@ export class PlaybackEngine {
   /** PlaybackOrder entry whose attack must fire after a sheet seek (Tone skips same-tick events). */
   private seekTargetEntryIndex: number | null = null;
   private scheduleDerivedData: ScheduleDerivedData | null = null;
+  /**
+   * Pending rAF that coalesces Zustand visual writes (step + keyboard highlights)
+   * to one commit per frame during live playback. Dense bars otherwise drive
+   * dozens of 88-key PianoKeyboard re-renders inside Tone transport callbacks
+   * and starve the audio lookahead.
+   */
+  private visualStoreSyncFrame: number | null = null;
+  private pendingStepVisual: { stepIndex: number; entryIndex: number } | null =
+    null;
 
   /** Subscribe to store changes once. Safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -337,6 +346,8 @@ export class PlaybackEngine {
     this.isPlaying = false;
     this.isPaused = false;
     this.hasFinishedPiece = false;
+    this.cancelVisualStoreSyncFrame();
+    this.pendingStepVisual = null;
     const { actions } = useEngineStore.getState();
     actions.setPlaybackActive(false);
     actions.setPlaybackFinished(false);
@@ -398,7 +409,8 @@ export class PlaybackEngine {
     transport.ticks = Math.round(quartersToTicks(onsetQuarters, this.transportPpq()));
     this.hasFinishedPiece = false;
     this.seekTargetEntryIndex = entryIndex;
-    this.applyStepVisual(stepIndex, entryIndex);
+    // Seek must paint immediately; do not wait for a coalesced playback frame.
+    this.applyStepVisual(stepIndex, entryIndex, { immediate: true });
     this.scheduleFromEntry(entryIndex);
     this.seekTargetEntryIndex = null;
 
@@ -706,11 +718,68 @@ export class PlaybackEngine {
     return data;
   }
 
-  private syncPlayingNotes(): void {
+  /**
+   * True while Tone is advancing and visual store writes should ride the next
+   * animation frame instead of committing synchronously inside transport work.
+   */
+  private shouldCoalesceVisualStoreSync(): boolean {
+    return (
+      this.isPlaying &&
+      !this.isPaused &&
+      typeof requestAnimationFrame === 'function'
+    );
+  }
+
+  private scheduleVisualStoreSync(): void {
+    if (this.visualStoreSyncFrame !== null) {
+      return;
+    }
+
+    this.visualStoreSyncFrame = requestAnimationFrame(() => {
+      this.visualStoreSyncFrame = null;
+      this.flushVisualStoreSync();
+    });
+  }
+
+  private cancelVisualStoreSyncFrame(): void {
+    if (this.visualStoreSyncFrame === null) {
+      return;
+    }
+
+    cancelAnimationFrame(this.visualStoreSyncFrame);
+    this.visualStoreSyncFrame = null;
+  }
+
+  /** Apply any pending step visual + current press-tracker highlights to the store. */
+  private flushVisualStoreSync(): void {
+    if (this.pendingStepVisual) {
+      const { stepIndex, entryIndex } = this.pendingStepVisual;
+      this.pendingStepVisual = null;
+      this.writeStepVisual(stepIndex, entryIndex);
+    }
+
     const activeNotes = this.playingPressTracker.activeNotes();
     const { actions } = useEngineStore.getState();
     actions.setPlayingMidiNotes(this.playingPressTracker.activeMidis());
     actions.setPlayingPlaybackNotes(activeNotes);
+  }
+
+  /**
+   * Cancel a pending coalesced frame and flush now so pause/stop/seek never
+   * leave the keyboard or step cursor a frame behind (or overwrite empties).
+   */
+  private flushVisualStoreSyncImmediate(): void {
+    this.cancelVisualStoreSyncFrame();
+    this.flushVisualStoreSync();
+  }
+
+  private syncPlayingNotes(): void {
+    if (this.shouldCoalesceVisualStoreSync()) {
+      this.scheduleVisualStoreSync();
+      return;
+    }
+
+    this.flushVisualStoreSyncImmediate();
   }
 
   private pressPlayingNote(
@@ -847,6 +916,9 @@ export class PlaybackEngine {
     this.cancelPendingPressTimeouts();
     this.scheduledReleaseTickByPressId.clear();
     this.playingPressTracker.clear();
+    // Drop a pending coalesced flush so it cannot re-light keys after clear.
+    this.cancelVisualStoreSyncFrame();
+    this.pendingStepVisual = null;
     const { actions } = useEngineStore.getState();
     actions.setPlayingMidiNotes([]);
     actions.setPlayingPlaybackNotes([]);
@@ -858,8 +930,33 @@ export class PlaybackEngine {
    * to different cursor-walk offsets than its first). Every caller knows the
    * entry index natively (play/seek/replay resolve it, the attack callback
    * closes over it), so no reverse lookup is ever needed.
+   *
+   * During live playback, store writes are coalesced onto the next animation
+   * frame (with press highlights) so dense bars do not sync-commit React on
+   * every Tone callback. Seek/restart/play-start pass `{ immediate: true }`.
    */
-  private applyStepVisual(stepIndex: number, entryIndex: number): void {
+  private applyStepVisual(
+    stepIndex: number,
+    entryIndex: number,
+    options?: { immediate?: boolean },
+  ): void {
+    const { script } = useEngineStore.getState();
+    if (!script || stepIndex < 0 || stepIndex >= script.length) {
+      return;
+    }
+
+    if (!options?.immediate && this.shouldCoalesceVisualStoreSync()) {
+      this.pendingStepVisual = { stepIndex, entryIndex };
+      this.scheduleVisualStoreSync();
+      return;
+    }
+
+    this.cancelVisualStoreSyncFrame();
+    this.pendingStepVisual = null;
+    this.writeStepVisual(stepIndex, entryIndex);
+  }
+
+  private writeStepVisual(stepIndex: number, entryIndex: number): void {
     const { script, engineMode, activeHand, playMode, actions } =
       useEngineStore.getState();
     if (!script || stepIndex < 0 || stepIndex >= script.length) {

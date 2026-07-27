@@ -939,7 +939,14 @@ export const useEngineStore = create<EngineState>((set) => {
       set({ currentPlaybackOrderIndex: index });
     },
     setExpectedNotes: (notes) => {
-      set({ expectedMidiNotes: notes });
+      // Bail on no-op updates. Play mode rewrites expected midis on every
+      // attack; identical chords would otherwise re-render the keyboard.
+      set((state) =>
+        state.expectedMidiNotes.length === notes.length &&
+        state.expectedMidiNotes.every((midi, index) => midi === notes[index])
+          ? state
+          : { expectedMidiNotes: notes },
+      );
     },
     setPlayingMidiNotes: (notes) => {
       // Bail on no-op updates. Play mode syncs after every transport event,
