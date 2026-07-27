@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '@clerk/react';
-import { CircleQuestionMark, Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
+import { CircleQuestionMark, Info, Library, Music2, Pause, Play, RotateCcw, Settings, Upload, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseMusicXmlToScript } from '../core/parser/index.ts';
 import { prepareScriptWithFingering } from '../core/fingeringPredictor.ts';
 import { migrateLegacyHandOverridesOnLoad } from '../core/manualHandOverrideMigration.ts';
@@ -848,6 +848,20 @@ export function Lid() {
           }}
           onClose={() => setShortcutsOpen(false)}
         />
+
+        <button
+          type="button"
+          onClick={() => {
+            setShortcutsOpen(false);
+            setSettingsOpen(false);
+            setTutorialOpen(true);
+          }}
+          aria-label="Getting started tutorial"
+          title="Getting started tutorial"
+          className={headerActionClass}
+        >
+          <Info size={15} strokeWidth={2} aria-hidden />
+        </button>
 
         <div className="relative" ref={settingsRef}>
           <button

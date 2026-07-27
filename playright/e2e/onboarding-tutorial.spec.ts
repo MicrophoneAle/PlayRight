@@ -111,6 +111,20 @@ test.describe('onboarding tutorial', () => {
     expect(await scopeAnchorX(page)).toBeGreaterThan(anchorBefore);
   });
 
+  test('reopens from the header info button after dismissal', async ({ page }) => {
+    await page.addInitScript(
+      (key) => window.localStorage.setItem(key, new Date().toISOString()),
+      STORAGE_KEY,
+    );
+    await page.goto('/');
+    await expect(dialog(page)).toBeHidden();
+
+    await page.getByRole('button', { name: 'Getting started tutorial' }).click();
+
+    await expect(dialog(page)).toBeVisible();
+    await expect(page.getByText('1 of 5')).toBeVisible();
+  });
+
   test('reopens from the settings menu after dismissal', async ({ page }) => {
     await page.addInitScript(
       (key) => window.localStorage.setItem(key, new Date().toISOString()),
@@ -120,7 +134,10 @@ test.describe('onboarding tutorial', () => {
     await expect(dialog(page)).toBeHidden();
 
     await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('button', { name: 'Getting started tutorial' }).click();
+    // hasText targets the settings-panel entry; the header button is icon-only.
+    await page
+      .locator('button', { hasText: 'Getting started tutorial' })
+      .click();
 
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByText('1 of 5')).toBeVisible();
