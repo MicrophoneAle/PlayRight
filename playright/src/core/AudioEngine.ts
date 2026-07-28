@@ -178,6 +178,44 @@ export class AudioEngine {
     this.loaded = false;
   }
 
+  /** True when the browser has suspended or interrupted the audio context. */
+  get isContextSuspended(): boolean {
+    return Tone.getContext().state !== 'running';
+  }
+
+  /**
+   * Explicitly resume a browser-suspended context.
+   *
+   * resumeContextIfNeeded() below cannot cover this on its own: it only runs
+   * from noteOn/schedulePlayedNote, and every playback-path call to those
+   * originates inside a Tone Transport callback. A suspended context freezes
+   * AudioContext.currentTime, so Tone's Clock._loop sees a zero-length elapsed
+   * range and stops emitting ticks - no transport callback fires, so nothing
+   * ever reaches the lazy resume. A suspended context therefore never
+   * self-recovers during playback. This is the external path out of that.
+   */
+  async resumeContext(): Promise<void> {
+    const context = Tone.getContext();
+    if (context.state === 'running') {
+      return;
+    }
+
+    try {
+      await context.resume();
+    } catch (err) {
+      console.warn('[AudioEngine] audio context resume failed:', err);
+    }
+  }
+
+  /** Subscribe to context state transitions. Returns an unsubscribe function. */
+  onContextStateChange(listener: () => void): () => void {
+    const context = Tone.getContext();
+    context.on('statechange', listener);
+    return () => {
+      context.off('statechange', listener);
+    };
+  }
+
   private resumeContextIfNeeded(): void {
     const context = Tone.getContext();
     if (context.state !== 'running') {

@@ -5,6 +5,7 @@ import {
   restoreSessionAfterPageShow,
 } from './core/sessionLifecycle.ts';
 import { AudioEngine } from './core/AudioEngine.ts';
+import { startAudioContextRecovery } from './core/audioContextRecovery.ts';
 import { InputManager } from './core/InputManager.ts';
 import { fingeringProgramEngine } from './core/FingeringProgramEngine.ts';
 import { practiceEngine } from './core/PracticeEngine.ts';
@@ -88,6 +89,7 @@ function App() {
       },
     );
     playbackEngine.attachAudioEngine(audioEngine);
+    const stopAudioContextRecovery = startAudioContextRecovery(audioEngine);
 
     const warmAudio = () => {
       void audioEngine.init();
@@ -99,6 +101,7 @@ function App() {
     return () => {
       window.removeEventListener('pointerdown', warmAudio, { capture: true });
       window.removeEventListener('keydown', warmAudio, { capture: true });
+      stopAudioContextRecovery();
       inputManager.destroy();
       playbackEngine.dispose();
       audioEngine.destroy();

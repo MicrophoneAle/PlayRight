@@ -144,6 +144,16 @@ export const PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS =
  */
 export const PLAYBACK_MAX_WINDOW_LAG_QUARTERS = 0.125;
 
+/**
+ * How far ahead of the transport the first attack is placed when the rolling
+ * window resynchronizes after a clock stall (see PlaybackEngine's catch-up
+ * path). Tone's Transport dispatches on exact tick equality, so an attack
+ * written at precisely the current tick is routinely missed - the same reason
+ * a sheet seek bumps its target entry forward a tick. Small enough to be
+ * inaudible, large enough to clear the tick the clock is standing on.
+ */
+export const PLAYBACK_CATCHUP_RESYNC_LEAD_QUARTERS = 0.05;
+
 /** Smallest release gap (sixteenth-note feel at 4/4). */
 export const PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS = 0.02;
 

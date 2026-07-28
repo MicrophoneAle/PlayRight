@@ -11,6 +11,7 @@ import {
   noteDurationQuarterNotes,
   playbackReleaseOnsetQuarterNotes,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
+  PLAYBACK_CATCHUP_RESYNC_LEAD_QUARTERS,
   PLAYBACK_MAX_WINDOW_LAG_QUARTERS,
   PLAYBACK_SCHEDULE_AHEAD_QUARTERS,
   PLAYBACK_SCHEDULE_EXTENSION_LEAD_QUARTERS,
@@ -465,6 +466,29 @@ export class PlaybackEngine {
     }
 
     this.syncPlayingNotes();
+  }
+
+  /**
+   * Re-drive the rolling window after the transport clock may have stalled
+   * (tab backgrounded, AudioContext suspended/resumed, long GC pause).
+   *
+   * The catch-up path inside extendScheduleWindow normally repairs a stall on
+   * its own, but only if the window's extension trigger event survived. A
+   * stall long enough to strand that trigger in the past leaves nothing to
+   * ever call extendScheduleWindow again, so playback would stay silent
+   * forever. This is the outside kick for that case.
+   *
+   * Safe to call at any time and as often as needed: entries are scheduled
+   * from the monotonically advancing nextUnscheduledEntryIndex, so a spurious
+   * call can only schedule the next window slightly early - it can never
+   * re-schedule an entry that already fired, and never double-fires anything.
+   */
+  resyncAfterInterruption(): void {
+    if (!this.isPlaying || this.isPaused) {
+      return;
+    }
+
+    this.extendScheduleWindow();
   }
 
   dispose(): void {
@@ -1150,10 +1174,87 @@ export class PlaybackEngine {
       pieceEndQuarters,
     } = this.getScheduleDerivedData(script, divisionsPerQuarter);
 
-    const fromEntryIndex = this.nextUnscheduledEntryIndex;
     const totalEntries = playbackOrder.length;
-    if (fromEntryIndex >= totalEntries) {
+    if (this.nextUnscheduledEntryIndex >= totalEntries) {
       return;
+    }
+
+    const transportNow = Math.round(transportTicksAtEntry);
+    const maxWindowLagTicks = Math.round(
+      quartersToTicks(PLAYBACK_MAX_WINDOW_LAG_QUARTERS, ppq),
+    );
+
+    // Resynchronize when the transport clock has jumped past this window's
+    // anchor by more than the lag shift can absorb.
+    //
+    // Tone drives Transport from a setTimeout chain inside a Web Worker, and
+    // its Clock._loop processes the whole ELAPSED REAL-TIME range on each
+    // wake-up. A backgrounded tab (browsers clamp background timers to ~1s,
+    // and to ~1/min after a few minutes hidden), a suspended/resumed
+    // AudioContext, or a long GC pause on slow hardware therefore does not
+    // drop ticks - it delivers them in one late batch, and every callback in
+    // that batch reads transport.ticks as the END of the range. The rolling
+    // window's extension callback then computes a window whose events all sit
+    // BEHIND the transport. Tone's Timeline dispatches on exact tick equality
+    // (Timeline.forEachAtTime), so past-tick events are never dispatched:
+    // they are silently stranded forever. That is the "audio cuts out and
+    // later cuts back in" symptom - and when the window's own extension
+    // trigger is stranded too, the rolling window stops advancing entirely
+    // and playback goes permanently silent.
+    //
+    // windowLagTicks deliberately cannot rescue this: it is capped at
+    // PLAYBACK_MAX_WINDOW_LAG_QUARTERS to stop small recurring lag from
+    // compounding into wall-clock tempo crawl. A stall this large is a
+    // different event - the music has genuinely lost that time, so replaying
+    // it as a burst would be wrong. The transport position is the truth, so
+    // skip to the entry the clock has actually reached and resume there.
+    let fromEntryIndex = this.nextUnscheduledEntryIndex;
+    if (this.lastScheduledAttackTick >= 0 && fromEntryIndex > 0) {
+      const pendingAnchorTick = Math.round(
+        quartersToTicks(entryAttackQuarters[fromEntryIndex], ppq),
+      );
+      if (transportNow > pendingAnchorTick + maxWindowLagTicks) {
+        const resumeTick =
+          transportNow +
+          Math.round(quartersToTicks(PLAYBACK_CATCHUP_RESYNC_LEAD_QUARTERS, ppq));
+        let resyncEntryIndex = fromEntryIndex;
+        while (
+          resyncEntryIndex < totalEntries &&
+          Math.round(quartersToTicks(entryAttackQuarters[resyncEntryIndex], ppq)) <=
+            resumeTick
+        ) {
+          resyncEntryIndex += 1;
+        }
+
+        console.warn(
+          '[PlaybackEngine] transport clock stalled past the schedule window - resynchronizing',
+          {
+            transportNow,
+            pendingAnchorTick,
+            skippedEntries: resyncEntryIndex - fromEntryIndex,
+            resyncEntryIndex,
+            totalEntries,
+          },
+        );
+
+        // Nothing from before the stall may keep sounding across the resync.
+        this.clearPlayingNotes();
+        this.audioEngine?.releaseAll();
+
+        if (resyncEntryIndex >= totalEntries) {
+          // The clock ran past the end of the piece while stalled.
+          this.nextUnscheduledEntryIndex = totalEntries;
+          this.completePlayback();
+          return;
+        }
+
+        fromEntryIndex = resyncEntryIndex;
+        this.nextUnscheduledEntryIndex = resyncEntryIndex;
+        // Rebase the monotonic floor onto the transport (as a seek does), so
+        // the shift below computes zero lag and safeTickTime's floor becomes
+        // transportNow - 1 rather than a stranded past attack.
+        this.lastScheduledAttackTick = -1;
+      }
     }
 
     const currentQuarters = transportTicksAtEntry / ppq;
@@ -1162,7 +1263,6 @@ export class PlaybackEngine {
     const windowEndQuarters = anchorQuarters + PLAYBACK_SCHEDULE_AHEAD_QUARTERS;
 
     const anchorTick = Math.round(quartersToTicks(anchorQuarters, ppq));
-    const transportNow = Math.round(transportTicksAtEntry);
     // When a rolling-window extension fires slightly late, shift this window's
     // events forward together so inter-attack gaps stay at score tempo instead
     // of past-due attacks firing in a burst (audible speed-up/slow-down wobble).
@@ -1172,9 +1272,6 @@ export class PlaybackEngine {
       this.lastScheduledAttackTick < 0
         ? 0
         : Math.max(0, transportNow - anchorTick);
-    const maxWindowLagTicks = Math.round(
-      quartersToTicks(PLAYBACK_MAX_WINDOW_LAG_QUARTERS, ppq),
-    );
     const windowLagTicks = Math.min(rawWindowLagTicks, maxWindowLagTicks);
     const laggedTicksFromQuarters = (quarterNotes: number): number =>
       quartersToTicks(quarterNotes, ppq) + windowLagTicks;
@@ -1219,7 +1316,6 @@ export class PlaybackEngine {
         // event scheduled at the current tick, so bump the seek entry one tick
         // forward so the jump is audible and visuals stay in sync.
         if (entryIndex === this.seekTargetEntryIndex) {
-          const transportNow = Math.round(transportTicksAtEntry);
           if (attackTick <= transportNow) {
             attackTick = transportNow + 1;
             attackTimeText = `${attackTick}i`;
