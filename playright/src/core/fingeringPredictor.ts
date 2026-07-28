@@ -582,10 +582,9 @@ export function transitionCost(
 
   if (!inSequence && interval !== 0) {
     const crossingFinger = fCur === 1 ? fPrev : fCur;
-    if (
-      isLegalCrossing(hand, fPrev, fCur, actuallyAscending) &&
-      isScaleOrArpeggioCrossing(absInterval, crossingFinger)
-    ) {
+    // Thumb-under / finger-over SHAPE, independent of how wide the turn is.
+    const isCrossingShape = isLegalCrossing(hand, fPrev, fCur, actuallyAscending);
+    if (isCrossingShape && isScaleOrArpeggioCrossing(absInterval, crossingFinger)) {
       // Thumb-under onto a black key is classically avoided. Surcharge it so
       // the DP cannot ladder cheap crossings through black-key thumbs.
       const thumbUnderOntoBlack = fCur === 1 && isBlackKey(pCur);
@@ -606,9 +605,18 @@ export function transitionCost(
       // come out as e.g. 3-2-4 ascending. Repositioning leaps are exempt, and
       // non-crossing thumb reversals get the smaller pivot cost so a single
       // pivot is usable but 1-x-1-x ladders lose to proper in-sequence fingering.
-      // Non-scale/arp "crossings" also land here so thumb turns cannot solve
-      // arbitrary leaps.
-      if (absInterval <= OUT_OF_SEQUENCE_MAX_INTERVAL) {
+      //
+      // The leap exemption is for genuine REPOSITIONS - moves whose finger
+      // order only inverts because the hand relocates. A thumb-under /
+      // finger-over shape that merely spans too far to be a scale/arp turn is
+      // not a reposition, so it must not inherit that exemption. Letting it do
+      // so inverted the cost curve outright: gate-rejected crossings dropped
+      // through to CONTRACTION_BASE + 0.5*interval alone, making a 7-semitone
+      // thumb turn (8.5) cheaper than a 3-semitone one (41) and 500x cheaper
+      // than the 5-semitone case, which is the opposite of both piano
+      // technique and the gate's own intent. Pricing crossing shapes at every
+      // width restores a monotonic curve.
+      if (absInterval <= OUT_OF_SEQUENCE_MAX_INTERVAL || isCrossingShape) {
         cost +=
           fPrev === 1 || fCur === 1
             ? THUMB_PIVOT_REVERSAL_COST
