@@ -241,7 +241,7 @@ export function OnboardingTutorial() {
               id="onboarding-title"
               className="min-w-0 truncate text-sm font-semibold text-zinc-100"
             >
-              Getting started
+              Getting Started
             </h2>
             <button
               type="button"
