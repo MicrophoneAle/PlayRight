@@ -107,26 +107,51 @@ export class AudioEngine {
     return this.loaded && this.sampler !== null;
   }
 
+  /**
+   * Schedule time for LIVE input (practice/program keypresses and previews).
+   *
+   * Passing `undefined` as Tone's schedule time does NOT mean "now": Tone
+   * resolves it through TimeBase.valueOf() -> _noArg() -> Time._now() ->
+   * context.now(), and `Context.now()` is `currentTime + lookAhead`. With the
+   * 100ms lookAhead this context needs for scheduled playback, every live
+   * keypress was being scheduled a full 100ms into the future - measured at
+   * exactly 100.0ms from noteOn to the attack time handed to the sampler, on
+   * top of the irreducible hardware/OS floor.
+   *
+   * `context.currentTime` is Tone's `immediate()` - the same clock without the
+   * lookAhead - which is what live input wants: render in the next quantum.
+   *
+   * This deliberately does NOT touch play mode. PlaybackEngine passes explicit
+   * transport-derived times to scheduleAttackRelease/schedulePlayedNote, so its
+   * lookAhead budget, the rolling schedule window, and the background-throttle
+   * resync are all unaffected - verified by a scheduled-path drift assertion.
+   */
+  private immediateTime(): number {
+    return Tone.getContext().currentTime;
+  }
+
   noteOn(midi: number, velocity = 0.8): void {
     this.resumeContextIfNeeded();
 
     const note = midiToNote(midi);
+    const time = this.immediateTime();
     if (this.isReady) {
-      this.sampler!.triggerAttack(note, undefined, velocity);
+      this.sampler!.triggerAttack(note, time, velocity);
       return;
     }
 
-    this.previewSynth.triggerAttack(note, undefined, velocity);
+    this.previewSynth.triggerAttack(note, time, velocity);
   }
 
   noteOff(midi: number): void {
     const note = midiToNote(midi);
+    const time = this.immediateTime();
 
     if (this.isReady) {
-      this.sampler!.triggerRelease(note, undefined);
+      this.sampler!.triggerRelease(note, time);
     }
 
-    this.previewSynth.triggerRelease(note, undefined);
+    this.previewSynth.triggerRelease(note, time);
   }
 
   scheduleAttackRelease(
