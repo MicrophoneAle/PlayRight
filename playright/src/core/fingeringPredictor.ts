@@ -522,17 +522,20 @@ function isLegalCrossing(
 }
 
 /**
- * Thumb-under / finger-over is only cheap for scale/arpeggio motion: a turn
- * spanning at most a third/fourth (≤4 semitones) through a schooled
- * crossing finger (3–5). Wider "crossings" are treated as illegal (fall
- * through to out-of-sequence / reposition pricing) so thumb turns cannot
- * solve arbitrary leaps.
+ * Width half of the crossing test: a real thumb-under / finger-over turn
+ * spans at most a third/fourth (≤4 semitones). Wider "crossings" fall through
+ * to out-of-sequence pricing so thumb turns cannot solve arbitrary leaps.
+ *
+ * The schooled-finger half of the rule (cross through 3–5, never 2) lives in
+ * {@link isLegalCrossing}, which requires the non-thumb finger to be >= 3 in
+ * all four of its branches. This function is only ever reached once that has
+ * passed, so a crossingFinger >= 3 clause here was unreachable and is not
+ * repeated - keeping the finger rule in one place. Relaxing it belongs in
+ * isLegalCrossing (measured and rejected; see the graced-fixtures snapshot
+ * test's header for the numbers).
  */
-function isScaleOrArpeggioCrossing(
-  absInterval: number,
-  crossingFinger: Finger,
-): boolean {
-  return absInterval >= 1 && absInterval <= 4 && crossingFinger >= 3;
+function isScaleOrArpeggioCrossing(absInterval: number): boolean {
+  return absInterval >= 1 && absInterval <= 4;
 }
 
 function openFramePairBonus(
@@ -584,7 +587,7 @@ export function transitionCost(
     const crossingFinger = fCur === 1 ? fPrev : fCur;
     // Thumb-under / finger-over SHAPE, independent of how wide the turn is.
     const isCrossingShape = isLegalCrossing(hand, fPrev, fCur, actuallyAscending);
-    if (isCrossingShape && isScaleOrArpeggioCrossing(absInterval, crossingFinger)) {
+    if (isCrossingShape && isScaleOrArpeggioCrossing(absInterval)) {
       // Thumb-under onto a black key is classically avoided. Surcharge it so
       // the DP cannot ladder cheap crossings through black-key thumbs.
       const thumbUnderOntoBlack = fCur === 1 && isBlackKey(pCur);
