@@ -32,6 +32,34 @@ async function loadMxl(name: string): Promise<string> {
  * chords). Chase RH gold held at 45/59; review the diff before accepting
  * further gold moves.
  *
+ * Re-pinned 2026-07-28 after fixing a cost-curve inversion in
+ * isScaleOrArpeggioCrossing. Gate-rejected crossings fell through to a branch
+ * that only applies OUT_OF_SEQUENCE_PENALTY when absInterval <=
+ * OUT_OF_SEQUENCE_MAX_INTERVAL (5), so anything wider got just
+ * CONTRACTION_BASE + 0.5*interval. The curve went non-monotonic with a ~500x
+ * cliff - a 7-semitone thumb turn cost 8.5 against 41 for a 3-semitone one and
+ * 4007.5 for a 5-semitone one - making wide "crossings" cheaper than narrow
+ * ones, the opposite of both piano technique and the gate's own intent. The
+ * fix prices crossing SHAPES at every width (the leap exemption is for genuine
+ * repositions, which a too-wide thumb turn is not). These snapshots reflect
+ * the corrected monotonic curve. Chase RH gold held at 45/59.
+ *
+ * river-flows-in-you carries the largest diff (293/840). That is driven by the
+ * gate's absInterval <= 4 window, NOT by its finger clause: widening the
+ * window to <= 12 drops it to 130, while changing the finger threshold moves
+ * nothing. Admitting finger 2 as a crossing finger was measured and rejected -
+ * it raises churn on all four pieces (river-flows 293 -> 323), breaks the
+ * out-of-sequence invariant with 7 genuine LH violations in river-flows
+ * (descending pitch with descending finger numbers, no thumb involved), and
+ * produces exactly the cramped substitutions the scale rule exists to prevent
+ * (m23 RH arpeggio 1,3,1,4 -> 1,2,1,3).
+ *
+ * Thumb-under-to-2 IS idiomatic in broken-chord figuration, so the ideal
+ * behaviour differs between scalar and arpeggiated passages. Distinguishing
+ * them needs harmonic context (is this figure spelling a chord?) that the DP
+ * does not currently model - interval width alone does not separate an
+ * arpeggio from a leap. Noted as a possible future feature, not a pending bug.
+ *
  * Runs pure DP (mlCostWeight: 0) for determinism, with no ONNX model dependency.
  */
 describe('graced fixtures gold fingering snapshot', () => {
