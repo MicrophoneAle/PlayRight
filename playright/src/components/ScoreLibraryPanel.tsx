@@ -65,7 +65,7 @@ function sortLibraryEntries(
   const factor = direction === 'asc' ? 1 : -1;
 
   return [...entries].sort((left, right) => {
-    let comparison = 0;
+    let comparison: number;
 
     if (sortKey === 'date') {
       const leftTime = new Date(left.created_at).getTime();

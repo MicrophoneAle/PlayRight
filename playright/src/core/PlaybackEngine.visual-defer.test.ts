@@ -97,7 +97,6 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
     // Fire every scheduled step-attack callback (deferred presses go through
     // setTimeout, counted separately below) to see which pressPlayingNote path
     // each attack actually takes at runtime.
-    let immediatePresses = 0;
     const pressSpy = vi.spyOn(
       engine as unknown as { pressPlayingNote: (...a: unknown[]) => void },
       'pressPlayingNote',
@@ -113,7 +112,7 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
       }
     }
 
-    immediatePresses = pressSpy.mock.calls.length;
+    const immediatePresses = pressSpy.mock.calls.length;
     const deferredPresses = deferSpy.mock.calls.length;
     const total = immediatePresses + deferredPresses;
     const deferredFraction = deferredPresses / total;

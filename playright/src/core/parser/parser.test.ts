@@ -270,7 +270,7 @@ describe('parseMusicXmlToScript', () => {
       pitch: step.notes[0].pitch,
       durationDivisions: step.notes[0].durationDivisions,
     }));
-    // eslint-disable-next-line no-console -- intentional P0-1 onset dump for articulation regression
+    // Intentional P0-1 onset dump for articulation regression.
     console.log('[articulations-extended] P0-1 onset table:', onsetTable);
 
     expect(script).toHaveLength(8);

@@ -898,6 +898,12 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       osmdRef.current = null;
       container.innerHTML = "";
     };
+    // Keyed on `musicXml` only: this owns the full OSMD mount/teardown
+    // lifecycle. Adding scheduleVisualIndexBuild/syncPracticeVisuals would
+    // re-run it on every change of their identity, tearing down and remounting
+    // the score and causing the highlight/scroll thrash e2e/sheet-sync.spec.ts
+    // guards against.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [musicXml]);
 
   // Runs the reflow deferred from mid-playback. When a genuine container
@@ -910,13 +916,18 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     }
 
     pendingPlaybackResizeRef.current = false;
-    containerRef.current &&
-      (containerRef.current.dataset.pendingPlaybackResize = 'false');
+    if (containerRef.current) {
+      containerRef.current.dataset.pendingPlaybackResize = 'false';
+    }
     safeRenderRef.current?.(true);
   }, [playbackRunning]);
 
   useEffect(() => {
     scheduleVisualIndexBuild();
+    // Deliberately keyed on the mode/script inputs that invalidate the visual
+    // index, not on scheduleVisualIndexBuild itself — including the callback
+    // would rebuild the index on every render and thrash OSMD.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineMode, playMode, activeHand, fingeringMode, script]);
 
   useEffect(() => {
@@ -930,6 +941,10 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       return;
     }
     syncPracticeVisuals();
+    // Deliberately keyed on the practice/playback state that should move the
+    // highlight, not on syncPracticeVisuals itself — including the callback
+    // would re-sync on every render and cause highlight/scroll thrash.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     currentStepIndex,
     currentPlaybackOrderIndex,
@@ -966,6 +981,11 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
         syncPracticeVisuals();
       }
     });
+    // Mount-once store subscription: it reads fresh state from the callback on
+    // every notification, so it never needs to re-subscribe. Adding
+    // syncPracticeVisuals would tear down and rebuild the subscription on each
+    // render and drop playback notifications mid-transport.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!musicXml) {

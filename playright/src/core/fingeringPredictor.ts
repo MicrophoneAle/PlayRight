@@ -1227,7 +1227,7 @@ export async function fingerPhrase(
       }
 
       const prevAllowed = allowedFingers(notes[index - 1]);
-      let bestCell: DpCell | null = null;
+      let bestCell: DpCell | null;
 
       const evaluateFromPrev = (allowSameFinger: boolean): DpCell | null => {
         let best: DpCell | null = null;

@@ -18,6 +18,11 @@ export function titleFromFileName(fileName: string): string {
 export function musicXmlDownloadFilename(title: string): string {
   const sanitized = title
     .trim()
+    // The C0 control range in this class is intentional: control characters,
+    // along with the path metacharacters listed alongside them, are illegal in
+    // filenames on Windows/macOS and must be stripped before the title is used
+    // as a download filename.
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
     .replace(/\s+/g, ' ')
     .slice(0, 120);
