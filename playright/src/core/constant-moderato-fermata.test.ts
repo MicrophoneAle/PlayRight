@@ -34,7 +34,7 @@ describe('constant moderato fermata playback', () => {
       finalKeys,
       fermataContext,
     );
-    const consecutive = buildConsecutiveSameNoteKeySet(script, dpq, offsets);
+    const consecutive = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       dpq,

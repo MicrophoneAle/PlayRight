@@ -144,7 +144,7 @@ function buildDurationTables(script: PlaybackScript, dpq: number) {
     finalNoteKeys,
     fermataContext,
   );
-  const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script, dpq, fermataOffsets);
+  const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script);
   const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
     script,
     dpq,

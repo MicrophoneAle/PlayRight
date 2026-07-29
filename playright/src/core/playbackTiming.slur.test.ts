@@ -128,7 +128,7 @@ describe('slur precedence row 3: tenuto on the LAST note of a slur', () => {
     const dpq = 480;
     const finalKeys = buildFinalNoteKeySet(script, dpq);
     const fermataContext = buildFermataPlaybackContext(script, dpq);
-    const consecutive = buildConsecutiveSameNoteKeySet(script, dpq);
+    const consecutive = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       dpq,
@@ -301,7 +301,7 @@ describe('slur precedence row 6: immediate same-pitch re-strike guard', () => {
     const dpq = 480;
     const finalKeys = buildFinalNoteKeySet(script, dpq);
     const fermataContext = buildFermataPlaybackContext(script, dpq);
-    const consecutive = buildConsecutiveSameNoteKeySet(script, dpq);
+    const consecutive = buildConsecutiveSameNoteKeySet(script);
     // Sanity check that the any-spacing set DOES contain step 0's C4, which
     // the mask must see past.
     expect(consecutive.has('0:R:60')).toBe(true);
@@ -350,7 +350,7 @@ describe('slur precedence row 6: immediate same-pitch re-strike guard', () => {
     const dpq = 480;
     const finalKeys = buildFinalNoteKeySet(script, dpq);
     const fermataContext = buildFermataPlaybackContext(script, dpq);
-    const consecutive = buildConsecutiveSameNoteKeySet(script, dpq);
+    const consecutive = buildConsecutiveSameNoteKeySet(script);
     // Sanity check that the pipeline really classified step 0's C4 as re-struck.
     expect(consecutive.has('0:R:60')).toBe(true);
 

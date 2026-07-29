@@ -474,7 +474,7 @@ export function buildPlaybackFermataOffsetsByStep(
     script,
     divisionsPerQuarter,
     finalNoteKeys,
-    buildConsecutiveSameNoteKeySet(script, divisionsPerQuarter),
+    buildConsecutiveSameNoteKeySet(script),
     fermataContext,
   ),
 ): number[] {
@@ -785,11 +785,28 @@ export function isSamePitchReattack(
   );
 }
 
-/** Notes whose same hand+pitch is re-attacked later (any spacing, excluding ties). */
+/**
+ * Notes whose same hand+pitch is re-attacked later (any spacing, excluding ties).
+ *
+ * Takes no timing inputs, deliberately. This once accepted
+ * `divisionsPerQuarter` and `fermataOffsets` and tested whether the re-attack
+ * landed exactly at this note's written end ("immediately following step").
+ * 38279af broadened the semantics to "any spacing" and removed that adjacency
+ * test; the params were left behind underscore-prefixed and are dropped here.
+ *
+ * The surviving predicate is structurally timing-independent: it reads only
+ * hand, midi, and tie-continuation. Fermata offsets shift attacks monotonically
+ * forward, so they can never create or destroy a *later* re-attack - the result
+ * is invariant under any offset vector (verified against constant-moderato,
+ * whose 626 steps carry 552 nonzero offsets up to 5.81 quarters).
+ *
+ * Do not reintroduce offset-awareness: it would recreate the
+ * buildPlaybackFermataOffsetsByStep -> stepDurations ->
+ * buildConsecutiveSameNoteKeySet -> offsets circular dependency that the
+ * broadening dissolved.
+ */
 export function buildConsecutiveSameNoteKeySet(
   script: PlaybackScript,
-  _divisionsPerQuarter: number,
-  _fermataOffsets?: number[],
 ): Set<string> {
   const keys = new Set<string>();
 
@@ -1073,11 +1090,7 @@ export function pieceEndQuarterNotes(
     finalNoteKeys,
     fermataContext,
   );
-  const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
-    script,
-    divisionsPerQuarter,
-    fermataOffsets,
-  );
+  const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script);
   const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
     script,
     divisionsPerQuarter,

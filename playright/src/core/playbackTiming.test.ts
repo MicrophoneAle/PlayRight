@@ -405,16 +405,16 @@ describe('playbackTiming', () => {
       },
     ];
 
-    expect(buildConsecutiveSameNoteKeySet(contiguousScript, 480)).toEqual(
+    expect(buildConsecutiveSameNoteKeySet(contiguousScript)).toEqual(
       new Set(['0:R:76']),
     );
-    expect(buildConsecutiveSameNoteKeySet(separatedScript, 480)).toEqual(
+    expect(buildConsecutiveSameNoteKeySet(separatedScript)).toEqual(
       new Set(['0:R:76']),
     );
-    expect(buildConsecutiveSameNoteKeySet(restGappedScript, 480)).toEqual(
+    expect(buildConsecutiveSameNoteKeySet(restGappedScript)).toEqual(
       new Set(['0:R:76']),
     );
-    expect(buildConsecutiveSameNoteKeySet(noRepeatScript, 480)).toEqual(new Set());
+    expect(buildConsecutiveSameNoteKeySet(noRepeatScript)).toEqual(new Set());
   });
 
   it('caps the consecutive re-strike gap as a fraction of the written note length', () => {
@@ -704,17 +704,7 @@ describe('playbackTiming', () => {
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
     const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
-    const fermataOffsets = buildPlaybackFermataOffsetsByStep(
-      script,
-      divisionsPerQuarter,
-      finalNoteKeys,
-      fermataContext,
-    );
-    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
-      script,
-      divisionsPerQuarter,
-      fermataOffsets,
-    );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       divisionsPerQuarter,
@@ -760,10 +750,7 @@ describe('playbackTiming', () => {
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
     const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
-    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
-      script,
-      divisionsPerQuarter,
-    );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       divisionsPerQuarter,
@@ -821,10 +808,7 @@ describe('playbackTiming', () => {
     ];
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
-    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
-      script,
-      divisionsPerQuarter,
-    );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       divisionsPerQuarter,
@@ -932,7 +916,7 @@ describe('playbackTiming', () => {
     const divisionsPerQuarter = 480;
     const finalNoteKeys = buildFinalNoteKeySet(script, divisionsPerQuarter);
     const fermataContext = buildFermataPlaybackContext(script, divisionsPerQuarter);
-    const consecutive = buildConsecutiveSameNoteKeySet(script, divisionsPerQuarter);
+    const consecutive = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       divisionsPerQuarter,

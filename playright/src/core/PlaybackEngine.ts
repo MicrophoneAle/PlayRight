@@ -609,11 +609,7 @@ export class PlaybackEngine {
       finalNoteKeys,
       fermataContext,
     );
-    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(
-      script,
-      divisionsPerQuarter,
-      fermataOffsets,
-    );
+    const consecutiveSameNoteKeys = buildConsecutiveSameNoteKeySet(script);
     const stepDurations = buildStepPlaybackDurationQuarterNotesByStep(
       script,
       divisionsPerQuarter,
