@@ -152,6 +152,16 @@ export function ScoreLibraryPanel({
       ? 0
       : Math.min(rawFocusedIndex, sortedEntries.length - 1);
 
+  // The two headings render as separate grids, so column position is relative
+  // to each section's own start rather than the combined list.
+  const gridSections = useMemo(
+    () => [
+      { start: 0, length: sortedPublicEntries.length },
+      { start: sortedPublicEntries.length, length: sortedPersonalEntries.length },
+    ],
+    [sortedPublicEntries.length, sortedPersonalEntries.length],
+  );
+
   const loadEntries = useCallback(async () => {
     setFetchFailed(false);
     setNotConfigured(false);
@@ -217,7 +227,23 @@ export function ScoreLibraryPanel({
     }
 
     const updateColumns = () => {
-      setGridColumns(getScoreLibraryGridColumns(list.clientWidth));
+      // Read the column count off the rendered grid. The Tailwind class
+      // (`min-[520px]:grid-cols-2`) is a VIEWPORT media query while the width
+      // heuristic measures this CONTAINER, and the two disagree in a band
+      // around the breakpoint - where the layout shows two columns but the
+      // heuristic reports one, silently killing left/right. The computed style
+      // is the layout's own answer; the heuristic stays as the fallback for
+      // when no grid is mounted yet.
+      const grid = list.querySelector('ul');
+      const template = grid ? getComputedStyle(grid).gridTemplateColumns : '';
+      // Resolved track sizes only ("328px 328px"). `none`, `''`, or any
+      // unresolved keyword means the grid is not laid out yet, so fall back.
+      const measured = template
+        .split(' ')
+        .filter((track) => /^\d/.test(track)).length;
+      setGridColumns(
+        measured > 0 ? measured : getScoreLibraryGridColumns(list.clientWidth),
+      );
     };
 
     updateColumns();
@@ -264,32 +290,56 @@ export function ScoreLibraryPanel({
 
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setFocusedIndex((current) =>
-          moveScoreLibraryGridFocus(current, 'down', sortedEntries.length, gridColumns),
+        setFocusedIndex(
+          moveScoreLibraryGridFocus(
+            focusedIndex,
+            'down',
+            sortedEntries.length,
+            gridColumns,
+            gridSections,
+          ),
         );
         return;
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setFocusedIndex((current) =>
-          moveScoreLibraryGridFocus(current, 'up', sortedEntries.length, gridColumns),
+        setFocusedIndex(
+          moveScoreLibraryGridFocus(
+            focusedIndex,
+            'up',
+            sortedEntries.length,
+            gridColumns,
+            gridSections,
+          ),
         );
         return;
       }
 
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        setFocusedIndex((current) =>
-          moveScoreLibraryGridFocus(current, 'right', sortedEntries.length, gridColumns),
+        setFocusedIndex(
+          moveScoreLibraryGridFocus(
+            focusedIndex,
+            'right',
+            sortedEntries.length,
+            gridColumns,
+            gridSections,
+          ),
         );
         return;
       }
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        setFocusedIndex((current) =>
-          moveScoreLibraryGridFocus(current, 'left', sortedEntries.length, gridColumns),
+        setFocusedIndex(
+          moveScoreLibraryGridFocus(
+            focusedIndex,
+            'left',
+            sortedEntries.length,
+            gridColumns,
+            gridSections,
+          ),
         );
         return;
       }
@@ -311,7 +361,7 @@ export function ScoreLibraryPanel({
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [gridColumns, handleSelect, deleteTarget, focusedIndex, onClose, sortedEntries]);
+  }, [gridColumns, gridSections, handleSelect, deleteTarget, focusedIndex, onClose, sortedEntries]);
 
   useEffect(() => {
     const entry = sortedEntries[focusedIndex];
