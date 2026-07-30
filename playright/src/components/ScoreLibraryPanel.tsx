@@ -452,7 +452,17 @@ export function ScoreLibraryPanel({
         <button
           type="button"
           onClick={() => handleSelect(entry.id)}
-          onMouseEnter={() => setFocusedIndex(index)}
+          // mousemove, not mouseenter: when arrow-key navigation scrolls the
+          // list, rows slide under a stationary cursor and the browser fires
+          // mouseenter on whichever row arrives there - which yanked focus
+          // backwards to the hovered row on every keypress past the fold.
+          // mousemove only fires on genuine pointer movement, so hover-to-focus
+          // still works while keyboard navigation is left alone.
+          onMouseMove={() => {
+            if (index !== focusedIndex) {
+              setFocusedIndex(index);
+            }
+          }}
           className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2.5 text-left"
         >
           <span className="truncate text-sm font-medium text-zinc-100">

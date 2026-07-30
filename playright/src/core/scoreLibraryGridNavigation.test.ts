@@ -87,6 +87,50 @@ describe('scoreLibraryGridNavigation', () => {
     expect(moveScoreLibraryGridFocus(1, 'down', 3, 2, sections)).toBe(2);
   });
 
+  it('advances continuously to the end and back, across the section boundary', () => {
+    // Long enough to scroll: 9 public + 6 personal over 2 columns.
+    const sections = [
+      { start: 0, length: 9 },
+      { start: 9, length: 6 },
+    ];
+    const total = 15;
+    const columns = 2;
+
+    // Repeated ArrowDown must keep advancing - never stall, never go backwards -
+    // until it reaches the last reachable row.
+    const visited: number[] = [0];
+    let index = 0;
+    for (let press = 0; press < 20; press += 1) {
+      const next = moveScoreLibraryGridFocus(index, 'down', total, columns, sections);
+      if (next === index) {
+        break;
+      }
+      expect(next).toBeGreaterThan(index);
+      index = next;
+      visited.push(index);
+    }
+
+    // It must have crossed out of the public section into the personal one.
+    expect(visited.some((i) => i < 9)).toBe(true);
+    expect(visited.some((i) => i >= 9)).toBe(true);
+    expect(index).toBeGreaterThanOrEqual(9);
+
+    // And walking back up must retrace to the top without stalling.
+    const back: number[] = [index];
+    for (let press = 0; press < 20; press += 1) {
+      const previous = moveScoreLibraryGridFocus(index, 'up', total, columns, sections);
+      if (previous === index) {
+        break;
+      }
+      expect(previous).toBeLessThan(index);
+      index = previous;
+      back.push(index);
+    }
+    expect(index).toBe(0);
+    expect(back.some((i) => i >= 9)).toBe(true);
+    expect(back.some((i) => i < 9)).toBe(true);
+  });
+
   it('single-column layout still steps linearly and never sideways', () => {
     expect(moveScoreLibraryGridFocus(0, 'down', 3, 1)).toBe(1);
     expect(moveScoreLibraryGridFocus(1, 'up', 3, 1)).toBe(0);
