@@ -924,7 +924,13 @@ export function Lid() {
           onClose={() => setScoreLibraryOpen(false)}
           onSelect={handleSelectFromLibrary}
           canDelete={canManageLibrary}
-          userId={userId ?? null}
+          userId={
+            // VITE_E2E harness stand-in so the personal section mounts without
+            // a real Clerk session (see e2eHarness.setLibraryUserId).
+            import.meta.env.VITE_E2E === '1'
+              ? (window.__playrightE2E?.getLibraryUserId() ?? userId ?? null)
+              : (userId ?? null)
+          }
         />
       ) : null}
     </>

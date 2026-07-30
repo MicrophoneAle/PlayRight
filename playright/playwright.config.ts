@@ -29,6 +29,13 @@ export default defineConfig({
       VITE_E2E: '1',
       VITE_CLERK_PUBLISHABLE_KEY:
         process.env.VITE_CLERK_PUBLISHABLE_KEY || 'pk_test_e2e_placeholder',
+      // Fake project so isSupabaseConfigured() is true in E2E. Specs that
+      // exercise the scores panel mock REST via page.route; other specs just
+      // see a failed prefetch (null) and are unaffected.
+      VITE_SUPABASE_URL:
+        process.env.VITE_SUPABASE_URL || 'http://127.0.0.1:54321',
+      VITE_SUPABASE_ANON_KEY:
+        process.env.VITE_SUPABASE_ANON_KEY || 'e2e-anon-key',
     },
   },
 });

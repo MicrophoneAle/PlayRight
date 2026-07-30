@@ -67,6 +67,16 @@ export interface PlayRightE2EHarness {
   countHighlightedSvgNodes: () => number;
   /** Center of an engraved notehead, or null if none. */
   getNoteheadClientPoint: (indexFromEnd?: number) => { x: number; y: number } | null;
+  /**
+   * E2E-only Clerk stand-in for the scores panel. Lid passes this as
+   * ScoreLibraryPanel's userId so the personal section mounts without a
+   * real signed-in session (same VITE_E2E gate as the rest of the harness).
+   */
+  setLibraryUserId: (userId: string | null) => void;
+  getLibraryUserId: () => string | null;
+  /** Open the scores library dialog via the engine store. */
+  openScoreLibrary: () => void;
+  closeScoreLibrary: () => void;
 }
 
 declare global {
@@ -79,6 +89,8 @@ function installE2EHarness(): void {
   if (typeof window === 'undefined') {
     return;
   }
+
+  let libraryUserId: string | null = null;
 
   const harness: PlayRightE2EHarness = {
     async loadXml(xml, title = 'e2e-score') {
@@ -361,6 +373,22 @@ function installE2EHarness(): void {
         }
       }
       return count;
+    },
+
+    setLibraryUserId(userId) {
+      libraryUserId = userId;
+    },
+
+    getLibraryUserId() {
+      return libraryUserId;
+    },
+
+    openScoreLibrary() {
+      useEngineStore.getState().actions.setScoreLibraryOpen(true);
+    },
+
+    closeScoreLibrary() {
+      useEngineStore.getState().actions.setScoreLibraryOpen(false);
     },
   };
 
