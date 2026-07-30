@@ -20,8 +20,17 @@ import { useEngineStore } from './store/useEngineStore.ts';
 function App() {
   const initializedRef = useRef(false);
   const { userId } = useAuth();
+  // Latest-value mirror so the mount-once input wiring below (which closes over
+  // nothing) can read the current userId. Written in an effect rather than
+  // during render: the only reader is routeFingerPress -> persistManualFingerings,
+  // which early-returns on a falsy userId and otherwise upserts the full
+  // cumulative manualFingerings map. A one-render-stale read is therefore
+  // harmless in both directions - on sign-in it skips one persist that the next
+  // press re-sends in full, and on sign-out the write is rejected by RLS.
   const userIdRef = useRef(userId);
-  userIdRef.current = userId;
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
   usePracticeKeyboardShortcuts();
 
   useEffect(() => {

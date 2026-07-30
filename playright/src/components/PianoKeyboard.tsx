@@ -490,7 +490,18 @@ export function PianoKeyboard() {
     return { whiteKeys, blackKeys };
   }, []);
 
+  // Clears the fingering-assignment selection when the step changes, so a
+  // selection made on one step can never be applied to the next.
+  //
+  // Deliberately an effect, not derived state or a `key`. Deriving validity
+  // (e.g. selectedNote.onset === script[currentStepIndex].onset) would make the
+  // selection RESURRECT when the user navigates back to the same step, because
+  // the underlying state was never destroyed - and destroying it is exactly the
+  // intent. A `key` is not an option either: it would remount the whole
+  // keyboard and drop held-key state (activePhysicalKeys/activeTwoHandFingers)
+  // on every step advance.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedNote(null);
   }, [currentStepIndex]);
 
@@ -553,6 +564,14 @@ export function PianoKeyboard() {
       };
     }
 
+    // Leaving two-hand mode: drop any fingers still marked held, so re-entering
+    // two-hand mode never starts with a stale held-finger highlight from keys
+    // whose keyup landed in the other mode. activeTwoHandFingers is only read
+    // under `isTwoHand` (see the key render paths), so this clears state that
+    // is currently invisible - which is why it must destroy the state rather
+    // than be derived: a derived `isTwoHand ? fingers : EMPTY` would leave the
+    // stale set intact and show it again on re-entry.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {

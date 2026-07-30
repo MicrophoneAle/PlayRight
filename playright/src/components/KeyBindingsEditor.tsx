@@ -16,8 +16,17 @@ import {
 } from '../core/twoHandMapping.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
+/**
+ * Mounts the panel only while open, so every per-open piece of state (draft,
+ * listening slot, status message) resets by unmounting rather than via a
+ * reset-on-open effect. The inner panel can then assume it is always open.
+ */
 export function KeyBindingsEditor() {
   const isOpen = useEngineStore((state) => state.keyBindingEditorOpen);
+  return isOpen ? <KeyBindingsEditorPanel /> : null;
+}
+
+function KeyBindingsEditorPanel() {
   const storedBindings = useEngineStore((state) => state.twoHandKeyBindings);
   const setKeyBindingEditorOpen = useEngineStore(
     (state) => state.actions.setKeyBindingEditorOpen,
@@ -37,16 +46,6 @@ export function KeyBindingsEditor() {
     () => !twoHandKeyBindingsEqual(draft, storedBindings),
     [draft, storedBindings],
   );
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    setDraft(cloneTwoHandKeyBindings(storedBindings));
-    setListeningSlot(null);
-    setStatusMessage(null);
-  }, [isOpen, storedBindings]);
 
   const closeWithoutSaving = useCallback(() => {
     setListeningSlot(null);
@@ -68,10 +67,6 @@ export function KeyBindingsEditor() {
   }, []);
 
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -124,17 +119,11 @@ export function KeyBindingsEditor() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [closeWithoutSaving, draft, isOpen, listeningSlot]);
+  }, [closeWithoutSaving, draft, listeningSlot]);
 
   useEffect(() => {
-    if (isOpen) {
-      panelRef.current?.focus();
-    }
-  }, [isOpen]);
-
-  if (!isOpen) {
-    return null;
-  }
+    panelRef.current?.focus();
+  }, []);
 
   const leftSlots = TWO_HAND_FINGER_SLOTS.filter(
     (slot) => parseFingerSlotId(slot).hand === 'L',

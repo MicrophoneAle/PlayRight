@@ -18,7 +18,6 @@ import {
 import { isSupabaseConfigured } from '../core/supabaseClient.ts';
 
 interface ScoreLibraryPanelProps {
-  isOpen: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
   canDelete: boolean;
@@ -108,7 +107,6 @@ function formatCreatedAt(createdAt: string): string {
 }
 
 export function ScoreLibraryPanel({
-  isOpen,
   onClose,
   onSelect,
   canDelete,
@@ -125,7 +123,7 @@ export function ScoreLibraryPanel({
   const [deleteTarget, setDeleteTarget] = useState<LibraryEntry | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [sortOption, setSortOption] = useState<LibrarySortOption>('date-desc');
-  const [focusedIndex, setFocusedIndex] = useState(0);
+  const [rawFocusedIndex, setFocusedIndex] = useState(0);
   const [gridColumns, setGridColumns] = useState(1);
   const entryRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const listRef = useRef<HTMLDivElement>(null);
@@ -144,20 +142,15 @@ export function ScoreLibraryPanel({
     [sortedPublicEntries, sortedPersonalEntries],
   );
 
-  useEffect(() => {
-    if (!isOpen) {
-      setFocusedIndex(0);
-      return;
-    }
-
-    setFocusedIndex((current) => {
-      if (sortedEntries.length === 0) {
-        return 0;
-      }
-
-      return Math.min(current, sortedEntries.length - 1);
-    });
-  }, [isOpen, sortedEntries.length, sortOption]);
+  // Focus is clamped during render rather than reset by an effect: if the list
+  // shrinks or is re-sorted underneath the cursor, the stored index may point
+  // past the end, and deriving the in-range value avoids a second render pass.
+  // Per-open reset is handled by unmounting (the panel is mounted only while
+  // open - see Lid.tsx), so nothing needs to be reset on close.
+  const focusedIndex =
+    sortedEntries.length === 0
+      ? 0
+      : Math.min(rawFocusedIndex, sortedEntries.length - 1);
 
   const loadEntries = useCallback(async () => {
     setFetchFailed(false);
@@ -208,21 +201,16 @@ export function ScoreLibraryPanel({
   );
 
   useEffect(() => {
-    if (!isOpen) {
-      setDeleteTarget(null);
-      setDeleteError(null);
-      setDownloadError(null);
-      return;
-    }
-
+    // Fetching the library from Supabase is exactly the "synchronize with an
+    // external system" case effects exist for. The rule fires because
+    // loadEntries clears its own error/loading flags before awaiting; that is
+    // fetch bookkeeping, not a derivable render value, so there is nothing to
+    // lift into render or a `key`.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadEntries();
-  }, [isOpen, loadEntries, userId]);
+  }, [loadEntries, userId]);
 
   useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
     const list = listRef.current;
     if (!list) {
       return;
@@ -236,7 +224,7 @@ export function ScoreLibraryPanel({
     const observer = new ResizeObserver(updateColumns);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [isOpen, sortedEntries.length]);
+  }, [sortedEntries.length]);
 
   useEffect(() => {
     if (!deleteTarget) {
@@ -255,7 +243,7 @@ export function ScoreLibraryPanel({
   }, [deleteTarget, deletingId]);
 
   useEffect(() => {
-    if (!isOpen || deleteTarget) {
+    if (deleteTarget) {
       return;
     }
 
@@ -323,7 +311,7 @@ export function ScoreLibraryPanel({
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, [gridColumns, handleSelect, isOpen, deleteTarget, focusedIndex, onClose, sortedEntries]);
+  }, [gridColumns, handleSelect, deleteTarget, focusedIndex, onClose, sortedEntries]);
 
   useEffect(() => {
     const entry = sortedEntries[focusedIndex];
@@ -525,10 +513,6 @@ export function ScoreLibraryPanel({
       </div>,
       document.body,
     );
-
-  if (!isOpen) {
-    return deleteDialog;
-  }
 
   return (
     <>

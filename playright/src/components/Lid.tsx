@@ -916,13 +916,17 @@ export function Lid() {
 
       {collapsed ? collapsedToggleOverlay : expandedHeader}
       {settingsPanel ? createPortal(settingsPanel, document.body) : null}
-      <ScoreLibraryPanel
-        isOpen={isLibraryOpen}
-        onClose={() => setScoreLibraryOpen(false)}
-        onSelect={handleSelectFromLibrary}
-        canDelete={canManageLibrary}
-        userId={userId ?? null}
-      />
+      {/* Mounted only while open so per-open state (focus index, delete
+          confirmation, fetch errors) resets by unmounting rather than via
+          reset-on-close effects. */}
+      {isLibraryOpen ? (
+        <ScoreLibraryPanel
+          onClose={() => setScoreLibraryOpen(false)}
+          onSelect={handleSelectFromLibrary}
+          canDelete={canManageLibrary}
+          userId={userId ?? null}
+        />
+      ) : null}
     </>
   );
 }
