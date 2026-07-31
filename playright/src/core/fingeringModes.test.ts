@@ -929,4 +929,88 @@ describe('useEngineStore fingering mode', async () => {
     expect(state.engineMode).toBe('one-hand');
     expect(state.fingeringMode).toBe('off');
   });
+
+  it('preserves a mid-score step index when entering program mode', async () => {
+    const script = await loadMinimalFixture();
+    const midIndex = script.length - 1;
+    useEngineStore.setState({
+      engineMode: 'two-hand',
+      isPracticeActive: true,
+      hasPracticeStarted: true,
+      currentStepIndex: midIndex,
+    });
+
+    useEngineStore.getState().actions.setFingeringMode('program');
+
+    // Regression: this used to be forced to 0 by setFingeringMode, and the
+    // engine's skip-forward then rescanned from the top of the score.
+    expect(useEngineStore.getState().currentStepIndex).toBe(midIndex);
+  });
+
+  it('preserves the step index when leaving program mode back to practice', async () => {
+    const script = await loadMinimalFixture();
+    const midIndex = script.length - 1;
+    useEngineStore.setState({ engineMode: 'two-hand', currentStepIndex: midIndex });
+    useEngineStore.getState().actions.setFingeringMode('program');
+    expect(useEngineStore.getState().currentStepIndex).toBe(midIndex);
+
+    useEngineStore.getState().actions.setFingeringMode('off');
+    expect(useEngineStore.getState().currentStepIndex).toBe(midIndex);
+  });
+
+  it('round-trips practice -> program -> practice on the same step', async () => {
+    const script = await loadMinimalFixture();
+    const midIndex = script.length - 1;
+    useEngineStore.setState({
+      engineMode: 'two-hand',
+      isPracticeActive: true,
+      hasPracticeStarted: true,
+      currentStepIndex: midIndex,
+    });
+
+    const actions = useEngineStore.getState().actions;
+    actions.setFingeringMode('program');
+    actions.setFingeringMode('off');
+    actions.setFingeringMode('program');
+    actions.setFingeringMode('off');
+
+    expect(useEngineStore.getState().currentStepIndex).toBe(midIndex);
+  });
+
+  it('preserves the grace sub-position across a mode switch', async () => {
+    await loadMinimalFixture();
+    useEngineStore.setState({
+      engineMode: 'two-hand',
+      isPracticeActive: true,
+      hasPracticeStarted: true,
+      currentStepIndex: 1,
+      practiceGraceCursor: 0,
+    });
+
+    useEngineStore.getState().actions.setFingeringMode('program');
+    expect(useEngineStore.getState().practiceGraceCursor).toBe(0);
+
+    useEngineStore.getState().actions.setFingeringMode('off');
+    expect(useEngineStore.getState().practiceGraceCursor).toBe(0);
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
+
+  it('still skips forward to the first incomplete step on a fresh entry at step 0', async () => {
+    const script = await loadMinimalFixture();
+    const prefilled: ManualFingeringMap = {};
+    for (const note of script[0].notes) {
+      prefilled[fingeringKey(script[0].onset, note.hand, note.midi)] = 1 as Finger;
+    }
+    useEngineStore.setState({
+      engineMode: 'two-hand',
+      currentStepIndex: 0,
+      manualFingerings: prefilled,
+    });
+
+    useEngineStore.getState().actions.setFingeringMode('program');
+
+    // Step 0 is fully fingered and there is no reading position to protect,
+    // so skip-forward still applies.
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
 });

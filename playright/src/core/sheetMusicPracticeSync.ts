@@ -1910,7 +1910,7 @@ export function syncSheetMusicPracticeVisuals(
     resetGraphicalNotes(highlightedNotes);
 
     const cursor = osmd.cursor;
-    if (!cursor || !visualIndex || expectedMidiNotes.length === 0) {
+    if (!cursor || !visualIndex) {
       cursorOffsetRef.current = -1;
       safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide(no-visualIndex)', () =>
         cursor?.hide(),
@@ -1941,6 +1941,24 @@ export function syncSheetMusicPracticeVisuals(
       safeOsmdCall('syncSheetMusicPracticeVisuals:cursor.hide(empty-toHighlight)', () =>
         cursor.hide(),
       );
+      return [];
+    }
+
+    // Scrolling follows the STEP; highlighting follows the expected notes.
+    // Keeping the view anchored without painting anything green is what a mode
+    // switch needs: leaving program mode clears expectedMidiNotes and does not
+    // restart practice, so this used to return early before any scroll and the
+    // sheet was left showing the top of the score instead of the current step.
+    if (expectedMidiNotes.length === 0) {
+      if (scrollVisualIndex) {
+        scrollContainerForPlayback(
+          container,
+          toHighlight,
+          scrollStateRef,
+          scrollMode,
+          scrollVisualIndex,
+        );
+      }
       return [];
     }
 

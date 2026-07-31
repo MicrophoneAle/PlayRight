@@ -144,8 +144,21 @@ function stopFingeringProgramSession(): void {
   fingeringProgramEngine.stop();
 }
 
+/**
+ * Precedence between "preserve the reading position" and
+ * "skip forward to the first incomplete step".
+ *
+ * Both a mode switch from practice and a fresh entry (score load, then select
+ * program mode) reach the engine through this same path, so the call site
+ * cannot tell them apart. The discriminator is whether a reading position
+ * actually exists: a freshly loaded score sits at step 0, whereas a user who
+ * navigated mid-score does not. So step 0 keeps the convenience of skipping
+ * past already-fingered steps, and any other step is treated as a deliberate
+ * position that wins.
+ */
 function startFingeringProgramSession(): void {
-  fingeringProgramEngine.start();
+  const { currentStepIndex } = useEngineStore.getState();
+  fingeringProgramEngine.start({ preserveStepIndex: currentStepIndex > 0 });
 }
 
 const ML_FINGERING_FALLBACK_WARNING =
@@ -612,8 +625,6 @@ export const useEngineStore = create<EngineState>((set) => {
           engineModeBeforeFingering = state.engineMode;
         }
 
-        const enteringProgram = mode === 'program' && prevMode !== 'program';
-
         const restoredEngineMode =
           mode === 'program'
             ? ('two-hand' as const)
@@ -629,7 +640,9 @@ export const useEngineStore = create<EngineState>((set) => {
           fingeringMode: mode,
           playMode: false,
           isPracticeActive: false,
-          practiceGraceCursor: null,
+          // Carried across the switch so a mid-score reading position (and a
+          // grace sub-position within its step) survives in both directions.
+          practiceGraceCursor: state.practiceGraceCursor,
           hasPracticeStarted: false,
           isPlaybackActive: false,
           isPlaybackFinished: false,
@@ -638,7 +651,13 @@ export const useEngineStore = create<EngineState>((set) => {
           playingMidiNotes: [],
           playingPlaybackNotes: [],
           selectedFingeringNote: null,
-          currentStepIndex: enteringProgram ? 0 : state.currentStepIndex,
+          // Never reset on a mode switch. Entering program mode used to zero
+          // this, which is what made the piece jump to the top: the program
+          // engine's skip-forward then started its scan from step 0, and on a
+          // score with no saved fingerings step 0 is already incomplete, so it
+          // stayed there. The engine's start() now preserves this position
+          // when arriving from another mode (see FingeringProgramEngine.start).
+          currentStepIndex: state.currentStepIndex,
           engineMode: restoredEngineMode,
         };
 

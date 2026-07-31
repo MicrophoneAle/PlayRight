@@ -115,7 +115,10 @@ export class PracticeEngine {
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
     actions.setExpectedNotes([]);
-    actions.setPracticeGraceCursor(null);
+    // The grace cursor is deliberately NOT cleared: this path suspends practice
+    // without resetting position, and the grace sub-position is part of that
+    // position. Program mode ignores it (it derives its own capture target), so
+    // holding it here is inert until practice resumes.
   }
 
   /** End the current playthrough and return to the beginning. */

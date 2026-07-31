@@ -168,7 +168,15 @@ export class FingeringProgramEngine {
     this.syncCurrentStepState();
   }
 
-  start(): void {
+  /**
+   * @param options.preserveStepIndex Keep whatever step the store already holds
+   * instead of skipping forward to the first incomplete step. Set when the user
+   * has a real reading position to protect (see startFingeringProgramSession
+   * for the precedence rule); left unset for a fresh entry - app boot with
+   * program mode persisted, or a freshly loaded score - where skipping forward
+   * past already-fingered steps is the wanted behaviour.
+   */
+  start(options: { preserveStepIndex?: boolean } = {}): void {
     this.ensureStoreSubscription();
 
     const { script, actions } = useEngineStore.getState();
@@ -180,7 +188,9 @@ export class FingeringProgramEngine {
     actions.setHasPracticeStarted(true);
     actions.setPracticeActive(true);
     actions.setProgramRefingerNoteIndex(null);
-    this.skipForwardToFirstIncompleteStep();
+    if (!options.preserveStepIndex) {
+      this.skipForwardToFirstIncompleteStep();
+    }
     this.syncCurrentStepState();
   }
 
