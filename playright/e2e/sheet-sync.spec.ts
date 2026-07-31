@@ -363,4 +363,97 @@ test.describe('sheet sync (OSMD browser)', () => {
       Math.abs((await api.getSheetOverflow()).scrollTop - firstPassScroll) > 2;
     expect(moved).toBe(true);
   });
+
+  // End-of-piece scroll stability. The last line's raw scroll target ("put this
+  // line at the top of the viewport") is genuinely unreachable - there is not
+  // enough content below it - so it must be clamped to the container maximum
+  // before being issued. If that clamp is ever lost, the target is re-requested,
+  // rejected by the browser, and recomputed, producing a visible
+  // scroll-down-then-bounce-back jitter. That jitter lives in the REQUESTED
+  // value, so a coarse scrollTop probe misses it; these tests sample every
+  // animation frame and look for direction reversals instead.
+  test('end of piece settles without scroll churn (play mode)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const api = await e2e(page);
+    await api.loadXml(CONSTANT_MODERATO_XML, 'end-of-piece');
+    await waitForSheetReady(page);
+
+    const overflow = await api.getSheetOverflow();
+    const maxScrollTop = overflow.scrollHeight - overflow.clientHeight;
+    expect(maxScrollTop).toBeGreaterThan(0);
+
+    await api.setPlayMode(true);
+    const total = await api.getTotalSteps();
+    await api.seekPlayback(total - 6);
+
+    await page.evaluate(() => {
+      (window as unknown as { __topSamples: number[] }).__topSamples = [];
+      const el = document.querySelector('[data-testid="sheet-music"]') as HTMLElement;
+      const samples = (window as unknown as { __topSamples: number[] }).__topSamples;
+      const tick = () => {
+        samples.push(el.scrollTop);
+        if (samples.length < 900) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    await api.startPlayback();
+    await expect.poll(async () => api.isPlaybackFinished(), { timeout: 60_000 }).toBe(true);
+    await page.waitForTimeout(1000);
+
+    const samples = await page.evaluate(
+      () => (window as unknown as { __topSamples: number[] }).__topSamples,
+    );
+    expect(samples.length).toBeGreaterThan(50);
+
+    // A bounce shows up as the scroll position changing direction.
+    let reversals = 0;
+    for (let i = 2; i < samples.length; i += 1) {
+      const previousDelta = samples[i - 1] - samples[i - 2];
+      const delta = samples[i] - samples[i - 1];
+      if (
+        Math.abs(previousDelta) > 1 &&
+        Math.abs(delta) > 1 &&
+        Math.sign(previousDelta) !== Math.sign(delta)
+      ) {
+        reversals += 1;
+      }
+    }
+    expect(reversals).toBe(0);
+
+    const settled = await api.getSheetOverflow();
+    expect(settled.scrollTop).toBeLessThanOrEqual(maxScrollTop + 1);
+    // The final line must still have been scrolled INTO view, not skipped.
+    expect(settled.scrollTop).toBeGreaterThan(0);
+  });
+
+  test('final steps scroll into view and never past the container maximum (practice)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const api = await e2e(page);
+    await api.loadXml(CONSTANT_MODERATO_XML, 'end-of-piece-practice');
+    await waitForSheetReady(page);
+    await api.startPractice();
+
+    const overflow = await api.getSheetOverflow();
+    const maxScrollTop = overflow.scrollHeight - overflow.clientHeight;
+    expect(maxScrollTop).toBeGreaterThan(0);
+
+    const total = await api.getTotalSteps();
+    const tops: number[] = [];
+    for (let step = total - 10; step < total; step += 1) {
+      await api.seekPractice(step);
+      await page.waitForTimeout(120);
+      tops.push((await api.getSheetOverflow()).scrollTop);
+    }
+
+    // Never requests past the end, and never walks backwards through the
+    // closing lines (a bounce would show as a decrease).
+    for (let i = 0; i < tops.length; i += 1) {
+      expect(tops[i]).toBeLessThanOrEqual(maxScrollTop + 1);
+      if (i > 0) {
+        expect(tops[i]).toBeGreaterThanOrEqual(tops[i - 1] - 1);
+      }
+    }
+    expect(tops[tops.length - 1]).toBeGreaterThan(0);
+  });
 });
