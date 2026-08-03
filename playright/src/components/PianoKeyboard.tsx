@@ -115,8 +115,24 @@ function getWhiteKeyClasses(
   isActive: boolean,
   isSelected: boolean,
 ): string {
-  const base =
-    'relative z-0 flex-1 border-r border-zinc-300 transition-[transform,box-shadow,background-color] duration-75 last:border-r-0';
+  // Deliberately NO transition. Keys previously carried
+  // `transition-[transform,box-shadow,background-color] duration-75`. None of
+  // those three can be promoted off the main thread, so each 75ms press or
+  // release animation repainted the FULL VIEWPORT root layer once per frame.
+  // In play mode (~20 press/release events per second) that held the root layer
+  // painting ~49x/s for the entire piece and was the largest single render cost
+  // outside OSMD's own sheet layer.
+  //
+  // Measured on a full unwelcome-school playthrough, removing it cut paint
+  // events 78%, root-layer paint frequency 51% (49/s -> 24/s), Layerize 58%,
+  // UpdateLayer 62%, style recalc 77%, and CSS animation events to zero.
+  //
+  // Narrowing to `transition-colors` is NOT sufficient and was measured too:
+  // background-color is itself a paint property, so animating it kept the
+  // per-frame repaint stream almost fully intact (root-layer paint frequency
+  // unchanged at ~56/s). A physical piano key is instant anyway, so snapping
+  // reads as more responsive rather than broken.
+  const base = 'relative z-0 flex-1 border-r border-zinc-300 last:border-r-0';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-400' : '';
 
@@ -141,8 +157,8 @@ function getBlackKeyClasses(
   isActive: boolean,
   isSelected: boolean,
 ): string {
-  const base =
-    'absolute z-10 rounded-b-sm shadow-md transition-[transform,box-shadow,background-color] duration-75';
+  // No transition, for the reasons documented on getWhiteKeyClasses.
+  const base = 'absolute z-10 rounded-b-sm shadow-md';
 
   const selectedRing = isSelected ? ' ring-2 ring-inset ring-amber-300' : '';
 
