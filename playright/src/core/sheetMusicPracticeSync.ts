@@ -1633,12 +1633,17 @@ function scrollContainerForPlayback(
 
   const currentSystemKey = scrollState.current.systemKey;
 
-  // On the same line, hold the committed anchor WITHOUT any layout reads. The
-  // anchor scroll position was computed when the line was entered, and
-  // recomputing it per tick (full-system bounds scan -> forced reflows) was
+  // On the same line, hold the committed anchor without rescanning system
+  // bounds. The anchor scroll position was computed when the line was entered,
+  // and recomputing it per tick (full-system bounds scan -> forced reflows) was
   // heavy enough to starve the audio scheduler on dense bars. Skip micro-drift and never
   // restart an in-flight animation toward the same anchor, so a busy bar of
   // highlight ticks cannot make the viewport wiggle either.
+  //
+  // The drift check still READS container.scrollTop, which forces a synchronous
+  // layout flush of the engraved SVG (~0.75ms on a dense score). That is cheap
+  // once per step but not once per press, so the caller gates entry to this
+  // function per step - see the scroll memo in syncSheetMusicPlaybackVisuals.
   if (currentSystemKey !== null && systemKey === currentSystemKey) {
     const anchor = scrollState.current.lineScrollTop;
     if (
@@ -1701,12 +1706,41 @@ function scrollContainerForPlayback(
 }
 
 let lastPlaybackVisualKey = '';
+/** Step-level gate for the scroll pass; see the scroll memo in syncSheetMusicPlaybackVisuals. */
+let lastPlaybackScrollKey: string | null = null;
 
 /** Clears play-mode visual dedupe state (seek, stop, score change). */
 export function resetSheetMusicPlaybackVisualCache(): void {
   lastPlaybackVisualKey = '';
+  lastPlaybackScrollKey = null;
 }
 
+/**
+ * Memo key for the play-mode visual pass. It must capture exactly what the
+ * pass reads and nothing more, or the memo misses on state this function
+ * cannot see the difference from.
+ *
+ * The highlight loop resolves graphical notes by `stepIndex` and matches them
+ * on `midi` + `hand`; the cursor move reads `cursorOffset`. `pressId` is never
+ * read, so it keyed the memo on press IDENTITY rather than on sounding
+ * CONTENT: two live presses of one pitch light exactly one graphical note, yet
+ * each got its own key. Collapsing duplicate triples is what "the highlight
+ * stays lit until the LAST press of that pitch releases" looks like as a key.
+ * PlayingMidiPressTracker still keeps those presses independent - that
+ * bookkeeping belongs in the tracker, not in a paint memo.
+ *
+ * This is a correctness/clarity fix, not the throughput one. Duplicate triples
+ * are rare here (measured: memo hits 28 -> 90 of ~2000 calls), because the
+ * sounding set genuinely does change on nearly every note-on and note-off, so
+ * the key SHOULD change that often. The pass is meant to re-run then. What must
+ * not re-run that often is the scroll - see the step-level gate in
+ * syncSheetMusicPlaybackVisuals.
+ *
+ * A same-pitch re-strike across steps still changes the key through stepIndex,
+ * so the key-lift still paints. activeNotes() already sorts by
+ * (stepIndex, midi, hand), so duplicates are adjacent and the key is
+ * order-stable without re-sorting.
+ */
 function playbackVisualKey(
   scrollStepIndex: number,
   cursorOffset: number,
@@ -1716,9 +1750,17 @@ function playbackVisualKey(
     return `${scrollStepIndex}:${cursorOffset}:`;
   }
 
-  const notesKey = activeNotes
-    .map((note) => `${note.stepIndex}:${note.hand}:${note.midi}:${note.pressId}`)
-    .join('|');
+  let notesKey = '';
+  let previous = '';
+  for (const note of activeNotes) {
+    const triple = `${note.stepIndex}:${note.hand}:${note.midi}`;
+    if (triple === previous) {
+      continue;
+    }
+    notesKey = notesKey === '' ? triple : `${notesKey}|${triple}`;
+    previous = triple;
+  }
+
   return `${scrollStepIndex}:${cursorOffset}:${notesKey}`;
 }
 
@@ -1850,14 +1892,26 @@ export function syncSheetMusicPlaybackVisuals(
     // notes only when the step has no matched graphics.
     const scrollStepNotes = visualIndex.stepGraphicalNotes[scrollStepIndex] ?? [];
     const scrollNotes = scrollStepNotes.length > 0 ? scrollStepNotes : toHighlight;
+    // Which system to scroll to is decided by the CURRENT STEP's engraved
+    // notes, never by which presses are sounding, so this is gated per step
+    // rather than on the content key above. The content key legitimately
+    // changes on every note-on and note-off (the lit set really did change);
+    // re-entering the scroll on that traffic only re-paid its forced layout
+    // read (~2.4 scroll calls per step, all but ~1% landing on the same-line
+    // no-op). Falling back to the sounding notes (step has no engraved notes
+    // of its own) is left ungated - it is rare and depends on toHighlight.
     if (scrollNotes.length > 0 && scrollVisualIndex) {
-      scrollContainerForPlayback(
-        container,
-        scrollNotes,
-        scrollStateRef,
-        scrollMode,
-        scrollVisualIndex,
-      );
+      const scrollKey = scrollStepNotes.length > 0 ? `s${scrollStepIndex}` : null;
+      if (scrollKey === null || scrollKey !== lastPlaybackScrollKey) {
+        lastPlaybackScrollKey = scrollKey;
+        scrollContainerForPlayback(
+          container,
+          scrollNotes,
+          scrollStateRef,
+          scrollMode,
+          scrollVisualIndex,
+        );
+      }
     }
 
     return toHighlight;

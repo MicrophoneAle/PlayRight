@@ -9,7 +9,10 @@ import {
   measureListIndexForStep,
   measureNumberMatchesStep,
   practiceNotesFullyMatched,
+  resetSheetMusicPlaybackVisualCache,
+  syncSheetMusicPlaybackVisuals,
   type CursorKeySnapshot,
+  type PracticeVisualIndex,
 } from './sheetMusicPracticeSync.ts';
 import type { PlaybackScript, ScriptNote, StepOrder } from '../types/index.ts';
 import type { GraphicalNote, Note, OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
@@ -476,5 +479,208 @@ describe('partial highlight selection', () => {
     expect(countMatchedPracticeNotes([c4, e4], collected)).toBe(1);
     expect(collected.length).toBeGreaterThan(0);
     expect(practiceNotesFullyMatched([c4, e4], collected)).toBe(false);
+  });
+});
+
+/**
+ * Play-mode visual memo. Two separate gates share one pass:
+ *   - the CONTENT key (playbackVisualKey) guards the highlight diff and must
+ *     re-run whenever the sounding set changes, but not merely because a press
+ *     was reallocated a new pressId;
+ *   - the STEP key guards the scroll, whose anchor check reads
+ *     container.scrollTop (a forced layout flush) and depends only on which
+ *     step is current.
+ * Measured on unwelcome-school, the step gate cut scroll entries from 1809 to
+ * 822 (one per playback-order entry) over a full playthrough.
+ */
+describe('play-mode visual memo', () => {
+  const SYSTEM = { Id: 7, Parent: { PageNumber: 1 } };
+
+  function litNote(midi: number, staffId: number): GraphicalNote {
+    const gNote = mockGraphicalNote(midi, staffId) as unknown as {
+      parentVoiceEntry: unknown;
+      color?: string;
+      setColor: (color: string) => void;
+    };
+    gNote.parentVoiceEntry = {
+      parentStaffEntry: { parentMeasure: { ParentMusicSystem: SYSTEM } },
+    };
+    gNote.setColor = (color) => {
+      gNote.color = color;
+    };
+    return gNote as unknown as GraphicalNote;
+  }
+
+  /** Container whose scrollTop reads are counted — these are the forced layout flushes. */
+  function countingContainer(): { el: HTMLElement; reads: () => number } {
+    let reads = 0;
+    const el = {
+      get scrollTop() {
+        reads += 1;
+        return 0;
+      },
+      set scrollTop(_v: number) {},
+      clientHeight: 400,
+      scrollHeight: 4000,
+      getBoundingClientRect: () => ({ top: 0, height: 400 }),
+      querySelectorAll: () => [],
+    } as unknown as HTMLElement;
+    return { el, reads: () => reads };
+  }
+
+  interface Press {
+    pressId: number;
+    stepIndex: number;
+    midi: number;
+    hand: 'L' | 'R';
+  }
+
+  function harness() {
+    const noteC = litNote(60, 1);
+    const noteE = litNote(64, 1);
+    const index = {
+      stepGraphicalNotes: [[noteC], [noteC], [noteE]],
+      stepCursorOffsets: [0, 1, 2],
+      orderCursorOffsets: [],
+      playbackOrder: [],
+    } as unknown as PracticeVisualIndex;
+
+    const osmd = {
+      cursor: {
+        hide: () => {},
+        reset: () => {},
+        next: () => {},
+        update: () => {},
+        // Empty is grace-free, so advanceCursorSkippingGrace steps exactly once.
+        GNotesUnderCursor: () => [],
+        Iterator: { EndReached: false },
+      },
+    } as unknown as OpenSheetMusicDisplay;
+
+    const container = countingContainer();
+    const cursorOffsetRef = { current: 0 };
+    const scrollStateRef = {
+      current: {
+        systemKey: 'sys-p1-id7',
+        lineScrollTop: 0,
+        previousSystemKey: null,
+        switchedAt: undefined,
+      },
+    };
+    let highlighted: GraphicalNote[] = [];
+
+    const sync = (scrollStepIndex: number, activeNotes: Press[]) => {
+      highlighted = syncSheetMusicPlaybackVisuals(osmd, {
+        visualIndex: index,
+        scrollStepIndex,
+        scrollPlaybackOrderIndex: -1,
+        activeNotes,
+        container: container.el,
+        highlightedNotes: highlighted,
+        cursorOffsetRef,
+        scrollStateRef: scrollStateRef as never,
+        scrollMode: 'instant',
+        scrollVisualIndex: index,
+        activeHand: 'R',
+        engineMode: 'two-hand',
+      });
+      return highlighted;
+    };
+
+    return { sync, container, noteC, noteE, lit: () => highlighted };
+  }
+
+  it('ignores pressId churn: the same sounding pitches keep one highlight', () => {
+    resetSheetMusicPlaybackVisualCache();
+    const h = harness();
+
+    const first = h.sync(0, [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }]);
+    expect(first).toEqual([h.noteC]);
+
+    // Same pitch, same step, a different press identity (overlapping hold).
+    // The memo must HIT: it returns the previous array by reference rather
+    // than rebuilding an equal one, which is how we tell a hit from a miss.
+    const second = h.sync(0, [{ pressId: 99, stepIndex: 0, midi: 60, hand: 'R' }]);
+    expect(second).toBe(first);
+  });
+
+  it('collapses duplicate triples so two presses of one pitch are one key', () => {
+    resetSheetMusicPlaybackVisualCache();
+    const h = harness();
+
+    const one = h.sync(0, [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }]);
+    // Adding a second press of the SAME pitch changes nothing that is painted.
+    const two = h.sync(0, [
+      { pressId: 1, stepIndex: 0, midi: 60, hand: 'R' },
+      { pressId: 2, stepIndex: 0, midi: 60, hand: 'R' },
+    ]);
+    expect(two).toBe(one);
+  });
+
+  it('keeps an overlapping same-pitch hold lit until the LAST press releases', () => {
+    resetSheetMusicPlaybackVisualCache();
+    const h = harness();
+
+    // Two independent presses of one pitch (the case pressIds exist for).
+    h.sync(0, [
+      { pressId: 1, stepIndex: 0, midi: 60, hand: 'R' },
+      { pressId: 2, stepIndex: 0, midi: 60, hand: 'R' },
+    ]);
+    expect(h.lit()).toEqual([h.noteC]);
+
+    // First release: the other press still sounds, so the note stays lit.
+    h.sync(0, [{ pressId: 2, stepIndex: 0, midi: 60, hand: 'R' }]);
+    expect(h.lit()).toEqual([h.noteC]);
+
+    // Last release: the highlight clears.
+    h.sync(0, []);
+    expect(h.lit()).toEqual([]);
+  });
+
+  it('still paints the key lift on a same-pitch re-strike at the next step', () => {
+    resetSheetMusicPlaybackVisualCache();
+    const h = harness();
+
+    h.sync(0, [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }]);
+    expect(h.lit()).toEqual([h.noteC]);
+
+    // Release paints the lift...
+    h.sync(0, []);
+    expect(h.lit()).toEqual([]);
+
+    // ...then the re-strike of the SAME pitch at the next step re-lights it.
+    h.sync(1, [{ pressId: 2, stepIndex: 1, midi: 60, hand: 'R' }]);
+    expect(h.lit()).toEqual([h.noteC]);
+  });
+
+  it('enters the scroll once per step, not once per press', () => {
+    resetSheetMusicPlaybackVisualCache();
+    const h = harness();
+
+    h.sync(0, [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }]);
+    const afterFirstStep = h.container.reads();
+    expect(afterFirstStep).toBeGreaterThan(0);
+
+    // Press traffic within the same step must not re-enter the scroll.
+    h.sync(0, []);
+    h.sync(0, [{ pressId: 2, stepIndex: 0, midi: 60, hand: 'R' }]);
+    h.sync(0, []);
+    expect(h.container.reads()).toBe(afterFirstStep);
+
+    // A new step re-enters it exactly once.
+    h.sync(2, [{ pressId: 3, stepIndex: 2, midi: 64, hand: 'R' }]);
+    expect(h.container.reads()).toBe(afterFirstStep + 1);
+  });
+
+  it('re-enters the scroll after the cache is reset (seek / stop / score change)', () => {
+    resetSheetMusicPlaybackVisualCache();
+    const h = harness();
+
+    h.sync(0, [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }]);
+    const before = h.container.reads();
+
+    resetSheetMusicPlaybackVisualCache();
+    h.sync(0, [{ pressId: 1, stepIndex: 0, midi: 60, hand: 'R' }]);
+    expect(h.container.reads()).toBe(before + 1);
   });
 });
