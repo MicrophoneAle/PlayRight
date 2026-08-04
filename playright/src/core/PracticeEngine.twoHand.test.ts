@@ -60,7 +60,9 @@ describe('PracticeEngine two-hand finger press', () => {
     rafCallback = null;
   };
 
-  it('unrequested finger produces no preview, hit, or advance', () => {
+  // Wrong presses are no longer silent (SC0): they sound a deliberate 1-2
+  // semitone clash. They still contribute no hit and no advance.
+  it('unrequested finger sounds wrong-note feedback without a hit or advance', () => {
     makeScript([
       {
         order: 0,
@@ -73,8 +75,11 @@ describe('PracticeEngine two-hand finger press', () => {
 
     engine.handleFingerPress({ hand: 'R', finger: 5 });
 
-    expect(audio.noteOn).not.toHaveBeenCalled();
-    expect(audio.noteOff).not.toHaveBeenCalled();
+    expect(audio.noteOn).toHaveBeenCalledTimes(1);
+    expect(audio.noteOn).toHaveBeenCalledWith(62);
+    expect(audio.noteOff).toHaveBeenCalledWith(62);
+    // The required C4 never sounded, so nothing counted toward the step.
+    expect(audio.noteOn).not.toHaveBeenCalledWith(60);
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
   });
 
@@ -387,15 +392,17 @@ describe('PracticeEngine two-hand finger press', () => {
     engine.handleFingerRelease({ hand: 'L', finger: 1 });
     expect(audio.noteOn).toHaveBeenCalledTimes(1);
 
-    // A wrong finger stays silent, with no advance and no completion reset.
+    // A wrong finger sounds its offset feedback pitch (SC0), with no advance
+    // and no completion reset.
     engine.handleFingerPress({ hand: 'R', finger: 5 });
-    expect(audio.noteOn).toHaveBeenCalledTimes(1);
+    expect(audio.noteOn).toHaveBeenCalledTimes(2);
+    expect(audio.noteOn).toHaveBeenLastCalledWith(62);
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 
     // Re-pressing the already-correct L1 must sound again while the step
     // stays incomplete.
     engine.handleFingerPress({ hand: 'L', finger: 1 });
-    expect(audio.noteOn).toHaveBeenCalledTimes(2);
+    expect(audio.noteOn).toHaveBeenCalledTimes(3);
     expect(audio.noteOn).toHaveBeenLastCalledWith(48);
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
 

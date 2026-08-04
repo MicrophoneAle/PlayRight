@@ -7,6 +7,14 @@ import {
   positionHasRequiredPracticeNotes,
   stepHasAnyPracticeContent,
 } from './practiceSteps.ts';
+import {
+  buildPracticePositionOffsets,
+  countPracticePositions,
+  countScoreablePracticePositions,
+  practicePositionIndexFromCursor,
+  wrongNoteFeedbackMidi,
+  type PracticeAttemptOutcome,
+} from './practiceScoring.ts';
 import { alignScopeToPracticeNotes, centerScopeOnPracticeNotes } from './scopeAlign.ts';
 import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
 import type { Hand, PlaybackScript, PracticePosition, ScriptNote } from '../types/index.ts';
@@ -25,6 +33,8 @@ export class PracticeEngine {
   private pendingPieceCompletion = false;
   /** MIDI pitches from the completed final step still held down. */
   private pendingFinalStepMidis = new Set<number>();
+  /** Index of each step's first walk position, for the scoring session's script. */
+  private scoringPositionOffsets: number[] = [];
 
   /** Subscribe to store changes once. Safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -76,6 +86,7 @@ export class PracticeEngine {
     actions.setPracticeActive(true);
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
+    this.beginScoringSession();
     this.loadCurrentStep({ alignScope: true });
   }
 
@@ -93,6 +104,7 @@ export class PracticeEngine {
     actions.setPracticeActive(true);
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
+    this.beginScoringSession();
     this.loadCurrentStep({ alignScope: true });
   }
 
@@ -112,6 +124,7 @@ export class PracticeEngine {
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
+    this.resetScoringSession();
     const { actions } = useEngineStore.getState();
     actions.setPracticeActive(false);
     actions.setExpectedNotes([]);
@@ -134,6 +147,7 @@ export class PracticeEngine {
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
+    this.resetScoringSession();
     actions.setStepIndex(0);
     actions.setPracticeGraceCursor(null);
     actions.setPracticeActive(false);
@@ -145,6 +159,7 @@ export class PracticeEngine {
     this.hitNoteIndices.clear();
     this.expectedNotes.clear();
     this.practiceNotesForStep = [];
+    this.resetScoringSession();
 
     if (!useEngineStore.getState().script) {
       return;
@@ -198,7 +213,8 @@ export class PracticeEngine {
 
     const position = this.currentPosition(currentStepIndex, practiceGraceCursor);
     // Match any note at this position with this finger, including notes
-    // already marked hit. Wrong fingers return null and stay silent.
+    // already marked hit (a re-press is neutral: it re-articulates but does
+    // not count as progress or as an error).
     const expected = getExpectedNoteForFingerAtPosition(
       script,
       position,
@@ -206,6 +222,13 @@ export class PracticeEngine {
       mapping.finger,
     );
     if (expected === null) {
+      // One of the ten mapped finger keys with no note at this position: a
+      // wrong note. Unmapped keys (space, enter, arrows, any other shortcut)
+      // never reach here at all - InputManager only emits a FingerMapping for
+      // the ten slots in the store's twoHandKeyBindings.
+      if (selectIsPracticeActive(useEngineStore.getState())) {
+        this.handleWrongFingerPress(mapping);
+      }
       return;
     }
 
@@ -269,6 +292,7 @@ export class PracticeEngine {
 
     state.actions.setHasPracticeStarted(true);
     state.actions.setPracticeActive(true);
+    this.beginScoringSession();
     this.loadCurrentStep({ alignScope: false });
     return true;
   }
@@ -305,7 +329,31 @@ export class PracticeEngine {
 
     if (marked) {
       this.checkStepCompletion();
+      return;
     }
+
+    // One-hand (MIDI) mode owns its own wrong-note detection: two-hand presses
+    // arrive as finger mappings through handleFingerPress instead.
+    if (engineMode === 'one-hand') {
+      this.registerOneHandMiss(midi);
+    }
+  }
+
+  /**
+   * A one-hand press that marked nothing. A re-press of a note already hit at
+   * this position is neutral. Everything else - a pitch in no note here, the
+   * other hand's note, or a note expected at a later position - is wrong. The
+   * pressed key already sounded its own (wrong) pitch in attackMidi, which is
+   * the audible feedback for this path.
+   */
+  private registerOneHandMiss(midi: number): void {
+    for (const index of this.hitNoteIndices) {
+      if (this.practiceNotesForStep[index]?.midi === midi) {
+        return;
+      }
+    }
+
+    this.recordScoringAttempt('wrong');
   }
 
   private registerPracticeHitAtIndex(index: number): void {
@@ -335,7 +383,72 @@ export class PracticeEngine {
     }
 
     this.hitNoteIndices.add(index);
+    this.recordScoringAttempt('correct');
     return true;
+  }
+
+  /**
+   * Open a scoring session for the current script/mode/hand. Called from every
+   * point practice actually begins, including the auto-start path in
+   * ensureTwoHandPracticeStarted (a session can start from a finger press with
+   * no explicit Start).
+   */
+  private beginScoringSession(): void {
+    const { script, engineMode, activeHand, actions } = useEngineStore.getState();
+    if (!script) {
+      this.scoringPositionOffsets = [];
+      actions.resetPracticeScoring();
+      return;
+    }
+
+    this.scoringPositionOffsets = buildPracticePositionOffsets(script);
+    actions.startPracticeScoring(
+      countPracticePositions(script),
+      countScoreablePracticePositions(script, engineMode, activeHand),
+    );
+  }
+
+  private resetScoringSession(): void {
+    this.scoringPositionOffsets = [];
+    useEngineStore.getState().actions.resetPracticeScoring();
+  }
+
+  /** Record index for the position the walk is currently on, or null when unscoreable. */
+  private currentScoringPositionIndex(): number | null {
+    const { script, currentStepIndex, practiceGraceCursor } = useEngineStore.getState();
+    if (!script || this.scoringPositionOffsets.length === 0) {
+      return null;
+    }
+
+    return practicePositionIndexFromCursor(
+      this.scoringPositionOffsets,
+      script,
+      currentStepIndex,
+      practiceGraceCursor,
+    );
+  }
+
+  private recordScoringAttempt(outcome: PracticeAttemptOutcome): void {
+    const positionIndex = this.currentScoringPositionIndex();
+    if (positionIndex === null) {
+      return;
+    }
+
+    useEngineStore.getState().actions.recordPracticeAttempt(positionIndex, outcome);
+  }
+
+  /**
+   * Wrong two-hand finger press: sound a deterministic 1-2 semitone clash and
+   * count it. This never touches hitNoteIndices, so it cannot contribute to the
+   * finger total that completes a step.
+   */
+  private handleWrongFingerPress(mapping: FingerMapping): void {
+    this.recordScoringAttempt('wrong');
+
+    const feedbackMidi = wrongNoteFeedbackMidi(mapping, this.practiceNotesForStep);
+    if (feedbackMidi !== null) {
+      this.playNotePreview(feedbackMidi);
+    }
   }
 
   private releaseAllSoundingNotes(): void {
@@ -450,6 +563,7 @@ export class PracticeEngine {
   }
 
   private syncAfterScriptChange(): void {
+    this.resetScoringSession();
     this.loadCurrentStep({
       alignScope: useEngineStore.getState().script !== null,
     });
@@ -462,6 +576,7 @@ export class PracticeEngine {
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
+    this.resetScoringSession();
 
     if (!playMode) {
       this.loadCurrentStep({ alignScope: true });
@@ -586,6 +701,9 @@ export class PracticeEngine {
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
     this.releaseAllSoundingNotes();
+    // A seek keeps the session's records (a revisited position keeps its
+    // accumulated wrongAttempts) and only flags that navigation happened.
+    actions.markPracticeNavigated();
     actions.setStepIndex(stepIndex);
     this.loadCurrentStep({
       alignScope: useEngineStore.getState().isPracticeActive,
@@ -631,6 +749,15 @@ export class PracticeEngine {
 
     if (this.hitNoteIndices.size !== this.practiceNotesForStep.length) {
       return;
+    }
+
+    // Mark the position correct before any advance, while the store still
+    // points at it.
+    const completedPositionIndex = this.currentScoringPositionIndex();
+    if (completedPositionIndex !== null) {
+      useEngineStore
+        .getState()
+        .actions.markPracticePositionCorrect(completedPositionIndex);
     }
 
     const { script, currentStepIndex, practiceGraceCursor, engineMode, activeHand, actions } =
@@ -708,6 +835,9 @@ export class PracticeEngine {
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
     const { script, actions } = useEngineStore.getState();
+    // Finalize here, not on the last correct press: this is the release-gated
+    // point where the piece is actually finished.
+    actions.finalizePracticeScoring();
     if (script) {
       actions.setStepIndex(script.length);
     }

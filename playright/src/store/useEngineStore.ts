@@ -8,6 +8,13 @@ import { shiftScopeStart } from '../core/scopeShift.ts';
 import { fingeringProgramEngine } from '../core/FingeringProgramEngine.ts';
 import { canWriteProgramStepIndex } from '../core/programStepGuard.ts';
 import { practiceEngine } from '../core/PracticeEngine.ts';
+import {
+  createPracticePositionRecords,
+  summarizePracticeScoring,
+  type PracticeAttemptOutcome,
+  type PracticePositionRecord,
+  type PracticeScoringSummary,
+} from '../core/practiceScoring.ts';
 import type {
   EngineMode,
   Finger,
@@ -311,6 +318,20 @@ interface EngineState {
   playingMidiNotes: number[];
   /** Notes currently sounding during play mode (includes step index for sheet sync). */
   playingPlaybackNotes: PlayingPlaybackNote[];
+  /**
+   * Per-position scoring records for the active practice session, indexed
+   * identically to buildPracticePositions(script). Empty when no session.
+   */
+  practicePositionRecords: PracticePositionRecord[];
+  /** Running session totals. Raw counts only - SC1 derives the ratio. */
+  practiceCorrectNotes: number;
+  practiceWrongNotes: number;
+  /** Mode/hand-filtered scoreable position count for the active session. */
+  practiceScoreablePositions: number;
+  /** True when the user seeked during the active session. */
+  practiceNavigated: boolean;
+  /** Set once at piece completion (release-gated), and null until then. */
+  practiceSummary: PracticeScoringSummary | null;
   actions: {
     loadScript: (
       script: PlaybackScript,
@@ -380,6 +401,33 @@ interface EngineState {
     setExpectedNotes: (notes: number[]) => void;
     setPlayingMidiNotes: (notes: number[]) => void;
     setPlayingPlaybackNotes: (notes: PlayingPlaybackNote[]) => void;
+    startPracticeScoring: (positionCount: number, scoreablePositions: number) => void;
+    resetPracticeScoring: () => void;
+    recordPracticeAttempt: (
+      positionIndex: number,
+      outcome: PracticeAttemptOutcome,
+    ) => void;
+    markPracticePositionCorrect: (positionIndex: number) => void;
+    markPracticeNavigated: () => void;
+    finalizePracticeScoring: () => void;
+  };
+}
+
+function emptyPracticeScoring(): {
+  practicePositionRecords: PracticePositionRecord[];
+  practiceCorrectNotes: number;
+  practiceWrongNotes: number;
+  practiceScoreablePositions: number;
+  practiceNavigated: boolean;
+  practiceSummary: PracticeScoringSummary | null;
+} {
+  return {
+    practicePositionRecords: [],
+    practiceCorrectNotes: 0,
+    practiceWrongNotes: 0,
+    practiceScoreablePositions: 0,
+    practiceNavigated: false,
+    practiceSummary: null,
   };
 }
 
@@ -426,6 +474,7 @@ export const useEngineStore = create<EngineState>((set) => {
   expectedMidiNotes: [],
   playingMidiNotes: [],
   playingPlaybackNotes: [],
+  ...emptyPracticeScoring(),
   actions: {
     loadScript: (script, rawXml, title, library, scoreTiming, playbackOrder) => {
       stopPlaybackSession();
@@ -454,6 +503,7 @@ export const useEngineStore = create<EngineState>((set) => {
         playingMidiNotes: [],
         playingPlaybackNotes: [],
         parseWarnings: [],
+        ...emptyPracticeScoring(),
       });
     },
     clearScript: () => {
@@ -476,6 +526,7 @@ export const useEngineStore = create<EngineState>((set) => {
         playingMidiNotes: [],
         playingPlaybackNotes: [],
         parseWarnings: [],
+        ...emptyPracticeScoring(),
       });
     },
     setManualFinger: (onset, hand, midi, finger, userId) => {
@@ -983,6 +1034,84 @@ export const useEngineStore = create<EngineState>((set) => {
         state.playingPlaybackNotes.every((note, index) => note === notes[index])
           ? state
           : { playingPlaybackNotes: notes },
+      );
+    },
+    startPracticeScoring: (positionCount, scoreablePositions) => {
+      set({
+        ...emptyPracticeScoring(),
+        practicePositionRecords: createPracticePositionRecords(positionCount),
+        practiceScoreablePositions: scoreablePositions,
+      });
+    },
+    resetPracticeScoring: () => {
+      set((state) =>
+        state.practicePositionRecords.length === 0 &&
+        state.practiceCorrectNotes === 0 &&
+        state.practiceWrongNotes === 0 &&
+        state.practiceSummary === null &&
+        !state.practiceNavigated
+          ? state
+          : emptyPracticeScoring(),
+      );
+    },
+    recordPracticeAttempt: (positionIndex, outcome) => {
+      set((state) => {
+        const existing = state.practicePositionRecords[positionIndex];
+        if (!existing) {
+          return state;
+        }
+
+        const records = [...state.practicePositionRecords];
+        records[positionIndex] = {
+          ...existing,
+          attempted: true,
+          wrongAttempts:
+            outcome === 'wrong' ? existing.wrongAttempts + 1 : existing.wrongAttempts,
+        };
+
+        return outcome === 'wrong'
+          ? {
+              practicePositionRecords: records,
+              practiceWrongNotes: state.practiceWrongNotes + 1,
+            }
+          : {
+              practicePositionRecords: records,
+              practiceCorrectNotes: state.practiceCorrectNotes + 1,
+            };
+      });
+    },
+    markPracticePositionCorrect: (positionIndex) => {
+      set((state) => {
+        const existing = state.practicePositionRecords[positionIndex];
+        if (!existing || existing.correct) {
+          return state;
+        }
+
+        const records = [...state.practicePositionRecords];
+        records[positionIndex] = { ...existing, attempted: true, correct: true };
+        return { practicePositionRecords: records };
+      });
+    },
+    markPracticeNavigated: () => {
+      set((state) =>
+        state.practicePositionRecords.length === 0 || state.practiceNavigated
+          ? state
+          : { practiceNavigated: true },
+      );
+    },
+    finalizePracticeScoring: () => {
+      set((state) =>
+        state.practicePositionRecords.length === 0
+          ? state
+          : {
+              practiceSummary: summarizePracticeScoring(
+                state.practicePositionRecords,
+                state.practiceCorrectNotes,
+                state.practiceWrongNotes,
+                state.practiceScoreablePositions,
+                state.practiceNavigated,
+              ),
+            },
       );
     },
   },
