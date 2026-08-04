@@ -1,6 +1,7 @@
 import { lazy, Suspense, useLayoutEffect } from 'react';
 import { Lid } from './Lid.tsx';
 import { PianoKeyboard } from './PianoKeyboard.tsx';
+import { PracticeScoreStatus } from './PracticeScoreStatus.tsx';
 import {
   countCompletedPracticeSteps,
   countPracticeSteps,
@@ -79,7 +80,10 @@ export function Dashboard() {
             <div className="shrink-0 py-0.5 text-center">
               {script ? (
                 <>
-                  <p className="text-xs font-medium leading-tight text-zinc-300 sm:text-sm">
+                  <p
+                    data-testid="practice-status-line"
+                    className="text-xs font-medium leading-tight text-zinc-300 sm:text-sm"
+                  >
                     {isComplete
                       ? 'Piece complete'
                       : `Step ${practiceStepNumber} of ${practiceStepTotal}${
@@ -87,6 +91,7 @@ export function Dashboard() {
                             ? ` · ${formatHandLabel(activeHand)}`
                             : ''
                         }`}
+                    {playMode ? null : <PracticeScoreStatus />}
                   </p>
                 </>
               ) : null}

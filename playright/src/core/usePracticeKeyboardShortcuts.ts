@@ -25,7 +25,7 @@ export function usePracticeKeyboardShortcuts(): void {
 
       const state = useEngineStore.getState();
 
-      if (state.tutorialOpen || state.keyBindingEditorOpen) {
+      if (state.tutorialOpen || state.keyBindingEditorOpen || state.scoreSummaryOpen) {
         return;
       }
 

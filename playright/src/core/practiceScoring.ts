@@ -25,14 +25,76 @@ export interface PracticePositionRecord {
   correct: boolean;
 }
 
-/** Raw counts only. The right-to-wrong ratio is SC1's to compute and display. */
+/** Raw counts only - never a precomputed percentage or rank. */
 export interface PracticeScoringSummary {
   correctNotes: number;
   wrongNotes: number;
   /** Mode/hand-filtered scoreable positions in the piece. */
   scoreablePositions: number;
   completedPositions: number;
+  /** Longest run of consecutive correct notes with no wrong note between them. */
+  longestStreak: number;
   navigated: boolean;
+}
+
+/**
+ * Rank tiers by accuracy percentage, highest first. The single source of truth
+ * for the thresholds - retune here and both the modal and every test follow.
+ */
+export const PRACTICE_RANK_TIERS = [
+  { rank: 'SS', minAccuracy: 100 },
+  { rank: 'S', minAccuracy: 95 },
+  { rank: 'A', minAccuracy: 90 },
+  { rank: 'B', minAccuracy: 80 },
+  { rank: 'C', minAccuracy: 70 },
+  { rank: 'D', minAccuracy: 60 },
+  { rank: 'F', minAccuracy: 0 },
+] as const;
+
+export type PracticeRank = (typeof PRACTICE_RANK_TIERS)[number]['rank'];
+
+/**
+ * Whole-percent accuracy, FLOORED, or null when nothing was attempted.
+ *
+ * Flooring (rather than rounding) is what keeps the displayed number and the
+ * rank from ever disagreeing: they are both read off this one value. It also
+ * makes SS mean exactly flawless for free - only wrongNotes === 0 can floor to
+ * 100, so 99.6% shows as 99% and ranks S rather than being promoted to a
+ * perfect run it was not.
+ */
+export function practiceAccuracyPercent(
+  correctNotes: number,
+  wrongNotes: number,
+): number | null {
+  const attempted = correctNotes + wrongNotes;
+  if (attempted <= 0) {
+    return null;
+  }
+
+  return Math.floor((correctNotes / attempted) * 100);
+}
+
+/** Tier for an already-floored accuracy percentage. */
+export function practiceRankForAccuracy(accuracyPercent: number): PracticeRank {
+  for (const tier of PRACTICE_RANK_TIERS) {
+    if (accuracyPercent >= tier.minAccuracy) {
+      return tier.rank;
+    }
+  }
+
+  return 'F';
+}
+
+/**
+ * Rank from raw counts, computed fresh at display time. Null when nothing was
+ * attempted - the caller decides what an empty run reads as.
+ */
+export function practiceRank(
+  correctNotes: number,
+  wrongNotes: number,
+): PracticeRank | null {
+  const accuracy = practiceAccuracyPercent(correctNotes, wrongNotes);
+  return accuracy === null ? null : practiceRankForAccuracy(accuracy);
 }
 
 export type PracticeAttemptOutcome = 'correct' | 'wrong';
@@ -116,6 +178,7 @@ export function summarizePracticeScoring(
   correctNotes: number,
   wrongNotes: number,
   scoreablePositions: number,
+  longestStreak: number,
   navigated: boolean,
 ): PracticeScoringSummary {
   return {
@@ -123,6 +186,7 @@ export function summarizePracticeScoring(
     wrongNotes,
     scoreablePositions,
     completedPositions: records.filter((record) => record.correct).length,
+    longestStreak,
     navigated,
   };
 }

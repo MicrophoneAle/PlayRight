@@ -587,7 +587,12 @@ export class InputManager {
 
   private isScopeShiftKey(event: KeyboardEvent): boolean {
     const state = useEngineStore.getState();
-    if (state.scoreLibraryOpen || state.tutorialOpen || state.keyBindingEditorOpen) {
+    if (
+      state.scoreLibraryOpen ||
+      state.tutorialOpen ||
+      state.keyBindingEditorOpen ||
+      state.scoreSummaryOpen
+    ) {
       return true;
     }
 
@@ -603,9 +608,9 @@ export class InputManager {
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     const state = useEngineStore.getState();
-    // Tutorial / key-binding editor own the keyboard while open; keyup still
-    // runs so any key held when they opened is released cleanly.
-    if (state.tutorialOpen || state.keyBindingEditorOpen) {
+    // Tutorial / key-binding editor / run summary own the keyboard while open;
+    // keyup still runs so any key held when they opened is released cleanly.
+    if (state.tutorialOpen || state.keyBindingEditorOpen || state.scoreSummaryOpen) {
       return;
     }
 

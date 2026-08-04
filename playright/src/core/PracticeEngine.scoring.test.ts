@@ -235,6 +235,8 @@ describe('PracticeEngine scoring - two-hand finger input', () => {
       wrongNotes: 2,
       scoreablePositions: 2,
       completedPositions: 2,
+      // L1 then R1 before the step-2 wrong press is the longest clean run.
+      longestStreak: 2,
       navigated: false,
     });
   });

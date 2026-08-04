@@ -14,6 +14,7 @@ import { usePracticeKeyboardShortcuts } from './core/usePracticeKeyboardShortcut
 import { Dashboard } from './components/Dashboard.tsx';
 import { OnboardingTutorial } from './components/OnboardingTutorial.tsx';
 import { KeyBindingsEditor } from './components/KeyBindingsEditor.tsx';
+import { ScoreSummaryModal } from './components/ScoreSummaryModal.tsx';
 import { SupabaseClerkBridge } from './components/SupabaseClerkBridge.tsx';
 import { useEngineStore } from './store/useEngineStore.ts';
 
@@ -125,6 +126,7 @@ function App() {
       <Dashboard />
       <OnboardingTutorial />
       <KeyBindingsEditor />
+      <ScoreSummaryModal />
     </>
   );
 }

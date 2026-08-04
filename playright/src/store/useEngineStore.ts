@@ -328,10 +328,18 @@ interface EngineState {
   practiceWrongNotes: number;
   /** Mode/hand-filtered scoreable position count for the active session. */
   practiceScoreablePositions: number;
+  /**
+   * Running streak counters, maintained at press time rather than derived by
+   * scanning practicePositionRecords, so nothing on the render path iterates.
+   */
+  practiceCurrentStreak: number;
+  practiceLongestStreak: number;
   /** True when the user seeked during the active session. */
   practiceNavigated: boolean;
   /** Set once at piece completion (release-gated), and null until then. */
   practiceSummary: PracticeScoringSummary | null;
+  /** True while the run-summary modal is open; suppresses global keys. */
+  scoreSummaryOpen: boolean;
   actions: {
     loadScript: (
       script: PlaybackScript,
@@ -410,6 +418,7 @@ interface EngineState {
     markPracticePositionCorrect: (positionIndex: number) => void;
     markPracticeNavigated: () => void;
     finalizePracticeScoring: () => void;
+    setScoreSummaryOpen: (open: boolean) => void;
   };
 }
 
@@ -418,16 +427,22 @@ function emptyPracticeScoring(): {
   practiceCorrectNotes: number;
   practiceWrongNotes: number;
   practiceScoreablePositions: number;
+  practiceCurrentStreak: number;
+  practiceLongestStreak: number;
   practiceNavigated: boolean;
   practiceSummary: PracticeScoringSummary | null;
+  scoreSummaryOpen: boolean;
 } {
   return {
     practicePositionRecords: [],
     practiceCorrectNotes: 0,
     practiceWrongNotes: 0,
     practiceScoreablePositions: 0,
+    practiceCurrentStreak: 0,
+    practiceLongestStreak: 0,
     practiceNavigated: false,
     practiceSummary: null,
+    scoreSummaryOpen: false,
   };
 }
 
@@ -1048,8 +1063,10 @@ export const useEngineStore = create<EngineState>((set) => {
         state.practicePositionRecords.length === 0 &&
         state.practiceCorrectNotes === 0 &&
         state.practiceWrongNotes === 0 &&
+        state.practiceLongestStreak === 0 &&
         state.practiceSummary === null &&
-        !state.practiceNavigated
+        !state.practiceNavigated &&
+        !state.scoreSummaryOpen
           ? state
           : emptyPracticeScoring(),
       );
@@ -1069,15 +1086,26 @@ export const useEngineStore = create<EngineState>((set) => {
             outcome === 'wrong' ? existing.wrongAttempts + 1 : existing.wrongAttempts,
         };
 
-        return outcome === 'wrong'
-          ? {
-              practicePositionRecords: records,
-              practiceWrongNotes: state.practiceWrongNotes + 1,
-            }
-          : {
-              practicePositionRecords: records,
-              practiceCorrectNotes: state.practiceCorrectNotes + 1,
-            };
+        // Streaks are maintained here, at press time, so no render-path
+        // consumer ever has to scan the record array to show one.
+        if (outcome === 'wrong') {
+          return {
+            practicePositionRecords: records,
+            practiceWrongNotes: state.practiceWrongNotes + 1,
+            practiceCurrentStreak: 0,
+          };
+        }
+
+        const practiceCurrentStreak = state.practiceCurrentStreak + 1;
+        return {
+          practicePositionRecords: records,
+          practiceCorrectNotes: state.practiceCorrectNotes + 1,
+          practiceCurrentStreak,
+          practiceLongestStreak: Math.max(
+            state.practiceLongestStreak,
+            practiceCurrentStreak,
+          ),
+        };
       });
     },
     markPracticePositionCorrect: (positionIndex) => {
@@ -1109,10 +1137,15 @@ export const useEngineStore = create<EngineState>((set) => {
                 state.practiceCorrectNotes,
                 state.practiceWrongNotes,
                 state.practiceScoreablePositions,
+                state.practiceLongestStreak,
                 state.practiceNavigated,
               ),
+              scoreSummaryOpen: true,
             },
       );
+    },
+    setScoreSummaryOpen: (open) => {
+      set({ scoreSummaryOpen: open });
     },
   },
 };

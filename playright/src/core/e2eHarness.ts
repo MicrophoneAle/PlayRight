@@ -6,6 +6,7 @@ import { parseMusicXmlToScript } from './parser/index.ts';
 import { prepareScriptWithFingering } from './fingeringPredictor.ts';
 import { practiceEngine } from './PracticeEngine.ts';
 import { playbackEngine } from './PlaybackEngine.ts';
+import { getScopeKeyMap } from './InputManager.ts';
 import {
   playbackDurationQuarterNotes,
   buildFermataPlaybackContext,
@@ -77,6 +78,14 @@ export interface PlayRightE2EHarness {
   /** Open the scores library dialog via the engine store. */
   openScoreLibrary: () => void;
   closeScoreLibrary: () => void;
+  /** MIDIs required at the current practice position. */
+  getExpectedMidis: () => number[];
+  /**
+   * Physical key code (KeyA, KeyS, …) currently bound to a MIDI in one-hand
+   * mode. Lets an E2E press the REAL key for a note after practice start has
+   * recentered the scope, instead of assuming a fixed scope offset.
+   */
+  getPhysicalKeyForMidi: (midi: number) => string | null;
 }
 
 declare global {
@@ -389,6 +398,21 @@ function installE2EHarness(): void {
 
     closeScoreLibrary() {
       useEngineStore.getState().actions.setScoreLibraryOpen(false);
+    },
+
+    getExpectedMidis() {
+      return [...useEngineStore.getState().expectedMidiNotes];
+    },
+
+    getPhysicalKeyForMidi(midi) {
+      const { scopeStartMidi, scopeTranspose } = useEngineStore.getState();
+      const keyMap = getScopeKeyMap(scopeStartMidi, scopeTranspose);
+      for (const [code, mapped] of Object.entries(keyMap)) {
+        if (mapped === midi) {
+          return code;
+        }
+      }
+      return null;
     },
   };
 
