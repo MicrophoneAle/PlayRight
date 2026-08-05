@@ -17,7 +17,13 @@ import {
 } from './practiceScoring.ts';
 import { alignScopeToPracticeNotes, centerScopeOnPracticeNotes } from './scopeAlign.ts';
 import { selectIsPracticeActive, useEngineStore } from '../store/useEngineStore.ts';
-import type { Hand, PlaybackScript, PracticePosition, ScriptNote } from '../types/index.ts';
+import type {
+  EngineMode,
+  Hand,
+  PlaybackScript,
+  PracticePosition,
+  ScriptNote,
+} from '../types/index.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 
 export class PracticeEngine {
@@ -35,6 +41,17 @@ export class PracticeEngine {
   private pendingFinalStepMidis = new Set<number>();
   /** Index of each step's first walk position, for the scoring session's script. */
   private scoringPositionOffsets: number[] = [];
+  /**
+   * What the open scoring session was started for. A session may only be
+   * RESUMED (rather than restarted) while all three still match, so a stale
+   * session can never bleed into a different piece, mode, or hand - the
+   * scoreable-position total is derived from exactly these three.
+   */
+  private scoringSessionKey: {
+    script: PlaybackScript;
+    engineMode: EngineMode;
+    activeHand: Hand;
+  } | null = null;
 
   /** Subscribe to store changes once. Safe to call repeatedly (StrictMode, HMR). */
   ensureStoreSubscription(): void {
@@ -61,6 +78,9 @@ export class PracticeEngine {
 
       if (state.engineMode !== prevState.engineMode && state.script) {
         this.hitNoteIndices.clear();
+        // One-hand and two-hand score different position sets, so a mode
+        // switch ends the run rather than carrying its totals over.
+        this.resetScoringSession();
         this.loadCurrentStep({
           alignScope: state.engineMode === 'one-hand',
         });
@@ -86,7 +106,8 @@ export class PracticeEngine {
     actions.setPracticeActive(true);
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
-    this.beginScoringSession();
+    // Start doubles as resume-from-pause, which must keep the run's score.
+    this.beginOrResumeScoringSession();
     this.loadCurrentStep({ alignScope: true });
   }
 
@@ -292,7 +313,9 @@ export class PracticeEngine {
 
     state.actions.setHasPracticeStarted(true);
     state.actions.setPracticeActive(true);
-    this.beginScoringSession();
+    // A finger press is also how a PAUSED two-hand run resumes, so this must
+    // not discard the score either.
+    this.beginOrResumeScoringSession();
     this.loadCurrentStep({ alignScope: false });
     return true;
   }
@@ -393,15 +416,53 @@ export class PracticeEngine {
    * ensureTwoHandPracticeStarted (a session can start from a finger press with
    * no explicit Start).
    */
+  /**
+   * True when a scoring session is open and merely PAUSED - not stopped, not
+   * finalized, and still for the current script/mode/hand.
+   *
+   * pause() deliberately leaves the score alone, but every resume path runs
+   * through start() (Start button, space toggle) or the two-hand auto-start,
+   * both of which used to open a brand-new session and silently discard the
+   * run. hasPracticeStarted is the discriminator: pause() leaves it true,
+   * while stop() and the piece-end path clear it or publish a summary.
+   */
+  private canResumeScoringSession(): boolean {
+    const { script, engineMode, activeHand, hasPracticeStarted, practiceSummary, practicePositionRecords } =
+      useEngineStore.getState();
+    const key = this.scoringSessionKey;
+
+    return (
+      key !== null &&
+      key.script === script &&
+      key.engineMode === engineMode &&
+      key.activeHand === activeHand &&
+      hasPracticeStarted &&
+      practiceSummary === null &&
+      practicePositionRecords.length > 0 &&
+      this.scoringPositionOffsets.length > 0
+    );
+  }
+
+  /** Resume the paused session when there is one, otherwise open a fresh one. */
+  private beginOrResumeScoringSession(): void {
+    if (this.canResumeScoringSession()) {
+      return;
+    }
+
+    this.beginScoringSession();
+  }
+
   private beginScoringSession(): void {
     const { script, engineMode, activeHand, actions } = useEngineStore.getState();
     if (!script) {
+      this.scoringSessionKey = null;
       this.scoringPositionOffsets = [];
       actions.resetPracticeScoring();
       return;
     }
 
     this.scoringPositionOffsets = buildPracticePositionOffsets(script);
+    this.scoringSessionKey = { script, engineMode, activeHand };
     actions.startPracticeScoring(
       countPracticePositions(script),
       countScoreablePracticePositions(script, engineMode, activeHand),
@@ -410,6 +471,7 @@ export class PracticeEngine {
 
   private resetScoringSession(): void {
     this.scoringPositionOffsets = [];
+    this.scoringSessionKey = null;
     useEngineStore.getState().actions.resetPracticeScoring();
   }
 
@@ -441,14 +503,29 @@ export class PracticeEngine {
    * Wrong two-hand finger press: sound a deterministic 1-2 semitone clash and
    * count it. This never touches hitNoteIndices, so it cannot contribute to the
    * finger total that completes a step.
+   *
+   * The clash sounds for exactly as long as a CORRECT press at this position
+   * would, mirroring handleFingerPress's own branch: two-hand sustains under
+   * the held finger until its key comes up (sustainNote registers the
+   * hand:finger slot, so handleFingerRelease releases it like any other note),
+   * and one-hand plays the same short preview. A wrong note that died
+   * instantly while a right one rang on made the mistake easier to miss and
+   * gave no feel for how long the key was actually held.
    */
   private handleWrongFingerPress(mapping: FingerMapping): void {
     this.recordScoringAttempt('wrong');
 
     const feedbackMidi = wrongNoteFeedbackMidi(mapping, this.practiceNotesForStep);
-    if (feedbackMidi !== null) {
-      this.playNotePreview(feedbackMidi);
+    if (feedbackMidi === null) {
+      return;
     }
+
+    if (useEngineStore.getState().engineMode === 'two-hand') {
+      this.sustainNote(feedbackMidi, mapping);
+      return;
+    }
+
+    this.playNotePreview(feedbackMidi);
   }
 
   private releaseAllSoundingNotes(): void {

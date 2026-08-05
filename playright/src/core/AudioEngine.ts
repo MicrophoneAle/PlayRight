@@ -2,6 +2,37 @@ import * as Tone from 'tone';
 import { PIANO_SAMPLE_BASE_URL, PIANO_SAMPLE_URLS } from './pianoSamples.ts';
 
 const MASTER_VOLUME_DB = -14;
+
+/**
+ * Damper-like decay applied when a sampled voice is released, in seconds.
+ *
+ * This is the voice's fadeOut, NOT part of its sounded duration: playbackTiming
+ * decides how long a note is held, and this is the tail after that. Tone ramps
+ * it with exponential-approach + a linear finish, so a voice is fully silent
+ * exactly this many seconds after its stop, with time constant
+ * ln(t+1)/ln(200) ≈ 70ms here (~-12 dB at 97ms, ~-20 dB at 161ms).
+ *
+ * 0.25s (e74f3aa, down from 0.8s) reads as abruptly damped. 0.45s sits inside
+ * the 100-250ms a real damper takes to stop a string, and was chosen at the
+ * low end of the 0.4-0.6 band because three things scale directly with it:
+ *  - Staccato is a duration RATIO, not an absolute: a staccato eighth sounds
+ *    for only ~0.105 quarters (~53ms at 120 BPM, ~35ms at 180). Past ~0.5s the
+ *    tail dominates the note and staccato stops reading as detached.
+ *  - Grace notes are scheduled back-to-back at 1/8 quarter (~62ms at 120 BPM),
+ *    so each grace's tail overlaps the next and the main attack. 0.45 leaves
+ *    the preceding grace at ~0.41 amplitude, 0.6 at ~0.49.
+ *  - Tone keeps a stopped voice's nodes alive for fadeOut + 2x fadeOut before
+ *    disposal, so voice lifetime is 3x this value: 1.35s versus 0.75s today
+ *    (+80%), where 0.6 would be +140% - a real cost on the dense 180 BPM
+ *    scores whose audio budget is already tight.
+ * The same-pitch re-strike gap is unaffected in kind: it is at most ~0.07
+ * quarters (~35ms at 120 BPM), already far shorter than even the old 0.25s
+ * tail, so repeated notes were never separated by silence. Their separation is
+ * the new attack transient, and this only moves the old voice's residual under
+ * it from about -6 dB to -3.4 dB. Slurred notes suppress the gap entirely, so
+ * the tail is not what joins them either.
+ */
+const SAMPLE_RELEASE_SECONDS = 0.45;
 const PREVIEW_VOLUME_DB = -12;
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
@@ -97,7 +128,7 @@ export class AudioEngine {
       urls: PIANO_SAMPLE_URLS,
       baseUrl: PIANO_SAMPLE_BASE_URL,
       attack: 0,
-      release: 0.25,
+      release: SAMPLE_RELEASE_SECONDS,
       volume: MASTER_VOLUME_DB,
       onerror: (error) => {
         console.error('[AudioEngine] sample load error:', error);

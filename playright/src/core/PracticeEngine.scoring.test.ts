@@ -84,12 +84,96 @@ describe('PracticeEngine scoring - two-hand finger input', () => {
     engine.handleFingerPress({ hand: 'R', finger: 5 });
 
     // R5 is two-or-more fingers above the required R1, so the feedback pitch
-    // is a whole tone above C4 (R fingers ascend), attacked and released as a
-    // short blip.
+    // is a whole tone above C4 (R fingers ascend). In two-hand mode it sustains
+    // under the held finger exactly as a correct note would - no instant blip.
     expect(audio.noteOn).toHaveBeenCalledWith(62);
-    expect(audio.noteOff).toHaveBeenCalledWith(62);
+    expect(audio.noteOff).not.toHaveBeenCalled();
     expect(records()[0]).toEqual({ attempted: true, wrongAttempts: 1, correct: false });
     expect(totals()).toEqual({ correct: 0, wrong: 1 });
+
+    // ...and it stops when that finger's key comes up, like any other note.
+    engine.handleFingerRelease({ hand: 'R', finger: 5 });
+    expect(audio.noteOff).toHaveBeenCalledWith(62);
+  });
+
+  it('carries the score across a pause, whichever way the run is resumed', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+
+    // One right, one wrong.
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    engine.handleFingerPress({ hand: 'R', finger: 4 });
+    engine.handleFingerRelease({ hand: 'R', finger: 4 });
+    expect(totals()).toEqual({ correct: 1, wrong: 1 });
+
+    // Resume via the Start button / space toggle.
+    engine.pause();
+    expect(totals()).toEqual({ correct: 1, wrong: 1 });
+    engine.start();
+    expect(totals()).toEqual({ correct: 1, wrong: 1 });
+    expect(useEngineStore.getState().practiceSummary).toBeNull();
+
+    // Resume via a bare finger press (the two-hand auto-start path).
+    engine.pause();
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    engine.handleFingerRelease({ hand: 'L', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 1 });
+
+    // Three cycles must not erode it either.
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      engine.pause();
+      engine.start();
+    }
+    expect(totals()).toEqual({ correct: 2, wrong: 1 });
+  });
+
+  it('still resets the score for restart, stop, mode switch, hand switch and script change', () => {
+    const scoreSomething = () => {
+      engine.handleFingerPress({ hand: 'R', finger: 1 });
+      engine.handleFingerRelease({ hand: 'R', finger: 1 });
+      expect(totals().correct).toBe(1);
+    };
+
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+    scoreSomething();
+    engine.restart();
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
+
+    scoreSomething();
+    engine.stop();
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
+
+    engine.start();
+    scoreSomething();
+    useEngineStore.getState().actions.setEngineMode('one-hand');
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
+
+    useEngineStore.getState().actions.setEngineMode('two-hand');
+    engine.start();
+    scoreSomething();
+    engine.switchHand(false);
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
+
+    engine.start();
+    scoreSomething();
+    makeScript(TWO_STEP_SCRIPT);
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
+  });
+
+  it('does not resume a stale session into a different piece after a pause', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(totals().correct).toBe(1);
+
+    engine.pause();
+    makeScript(TWO_STEP_SCRIPT.slice(0, 1));
+    engine.start();
+
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
   });
 
   it('picks the feedback pitch deterministically by finger distance and hand direction', () => {

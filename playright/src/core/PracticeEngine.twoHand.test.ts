@@ -77,9 +77,14 @@ describe('PracticeEngine two-hand finger press', () => {
 
     expect(audio.noteOn).toHaveBeenCalledTimes(1);
     expect(audio.noteOn).toHaveBeenCalledWith(62);
-    expect(audio.noteOff).toHaveBeenCalledWith(62);
+    // Sustains under the held finger for as long as a correct note would.
+    expect(audio.noteOff).not.toHaveBeenCalled();
     // The required C4 never sounded, so nothing counted toward the step.
     expect(audio.noteOn).not.toHaveBeenCalledWith(60);
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleFingerRelease({ hand: 'R', finger: 5 });
+    expect(audio.noteOff).toHaveBeenCalledWith(62);
     expect(useEngineStore.getState().currentStepIndex).toBe(0);
   });
 
