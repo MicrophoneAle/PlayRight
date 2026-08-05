@@ -283,6 +283,11 @@ export class PlaybackEngine {
     getTransport().pause();
     this.isPaused = true;
     this.clearPlayingNotes();
+    // Transport.pause() only stops the tick clock. Voices already handed to
+    // WebAudio keep sounding on the audio clock until their own scheduled
+    // stop, so without this a pause left notes ringing while clearPlayingNotes
+    // had already told the keyboard nothing was held.
+    this.audioEngine?.releaseAll();
     useEngineStore.getState().actions.setPlaybackPaused(true);
   }
 
@@ -841,15 +846,16 @@ export class PlaybackEngine {
     // Commit any pending release (same transport tick) before the delay so the
     // lift cannot be overwritten by a coalesced re-press flush.
     this.flushVisualStoreSyncImmediate();
+    // Open the release-tombstone window before anything can release this id.
+    this.playingPressTracker.beginDeferredPress(pressId);
     const timeoutId = setTimeout(() => {
       this.pendingPressTimeouts.delete(timeoutId);
-      if (!this.isPlaying || this.isPaused) {
-        return;
-      }
       // The note's release can beat this deferred press (fast re-strike under
       // jank, or a short played duration). Pressing after release would light
       // a highlight with no release event left to ever turn it back off.
-      if (this.playingPressTracker.wasReleased(pressId)) {
+      const wasReleased = this.playingPressTracker.wasReleased(pressId);
+      this.playingPressTracker.endDeferredPress(pressId);
+      if (!this.isPlaying || this.isPaused || wasReleased) {
         return;
       }
       this.pressPlayingNote(stepIndex, midi, hand, pressId);

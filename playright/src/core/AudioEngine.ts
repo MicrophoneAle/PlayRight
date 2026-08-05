@@ -31,6 +31,12 @@ export class AudioEngine {
   private initPromise: Promise<void> | null = null;
   private warmPromise: Promise<void> | null = null;
   private loaded = false;
+  /**
+   * Scheduled play-mode voices that are still sounding (or still pending). See
+   * trackScheduledVoice() for why the Sampler's own bookkeeping cannot serve.
+   * Bounded by concurrent polyphony: each voice removes itself on `onended`.
+   */
+  private readonly scheduledVoices = new Set<Tone.ToneBufferSource>();
 
   constructor() {
     this.previewSynth = new Tone.PolySynth(Tone.Synth, {
@@ -101,173 +107,45 @@ export class AudioEngine {
     await Tone.loaded();
     this.loaded = true;
     this.previewSynth.releaseAll();
-    this.installTempProbe();
   }
 
   /**
-   * TEMP DIAGNOSTIC - remove before commit.
+   * Register the voice `Sampler.triggerAttack` just created so `releaseAll()`
+   * can actually stop it.
    *
-   * Per-block RMS measured ON THE AUDIO THREAD, so the trace is immune to
-   * main-thread stalls / CPU throttling (unlike an Analyser polled from JS).
-   * Each entry is [audioContextTime, rms] for one ~93ms bucket.
+   * Tone's Sampler drops a voice from its own `_activeSources` map the instant
+   * `triggerRelease` is called - and for a scheduled play-mode note that is
+   * synchronous with the attack, since the release time is merely a future
+   * `ToneBufferSource.stop(time)`. The map is therefore empty for the entire
+   * life of every play-mode voice (measured: 0 active sources at every probe
+   * during playback), which made `Sampler.releaseAll()` - and so our own
+   * releaseAll() - a no-op for exactly the notes seeks and jumps need to cut.
+   *
+   * Holding our own reference is the only way to reach those voices without
+   * either deferring the release to a main-thread timer (note-offs would then
+   * ride the same jank that already troubles dense scores) or adding graph ops
+   * per note. Reading `_activeSources` is a private-API dependency, deliberately
+   * confined to this one guarded read: if a Tone upgrade renames it, tracking
+   * degrades to today's behaviour rather than throwing.
    */
-  private async installTempAudioThreadTrace(): Promise<void> {
-    const trace: Array<[number, number]> = [];
-    (window as unknown as { __audioTrace?: unknown }).__audioTrace = trace;
-    (window as unknown as { __attackTrace?: unknown }).__attackTrace = [];
-
-    const workletSource = `
-      class RmsTap extends AudioWorkletProcessor {
-        constructor() {
-          super();
-          this.sum = 0;
-          this.count = 0;
-        }
-        process(inputs) {
-          const ch = inputs[0] && inputs[0][0];
-          if (ch) {
-            for (let i = 0; i < ch.length; i += 1) {
-              this.sum += ch[i] * ch[i];
-            }
-            this.count += ch.length;
-          } else {
-            this.count += 128;
-          }
-          if (this.count >= 4096) {
-            this.port.postMessage([currentTime, Math.sqrt(this.sum / this.count)]);
-            this.sum = 0;
-            this.count = 0;
-          }
-          return true;
-        }
-      }
-      registerProcessor('rms-tap', RmsTap);
-    `;
-
-    try {
-      const context = Tone.getContext();
-      const url = URL.createObjectURL(
-        new Blob([workletSource], { type: 'application/javascript' }),
-      );
-      await context.addAudioWorkletModule(url);
-      URL.revokeObjectURL(url);
-
-      const node = context.createAudioWorkletNode('rms-tap');
-      node.port.onmessage = (event: MessageEvent<[number, number]>) => {
-        const counters = (
-          window as unknown as {
-            __voiceCounters?: { started: number; disposed: number };
-          }
-        ).__voiceCounters;
-        const ctx = Tone.getContext() as unknown as {
-          _timeouts?: { length: number };
-        };
-        trace.push([
-          event.data[0],
-          event.data[1],
-          counters ? counters.started - counters.disposed : -1,
-          ctx._timeouts?.length ?? -1,
-          counters?.started ?? -1,
-        ] as unknown as [number, number]);
-      };
-      // Tap the sampler output. The worklet must still be pulled by the graph,
-      // so route it to the destination through a silent gain.
-      const silent = new Tone.Gain(0);
-      node.connect(silent.input as unknown as AudioNode);
-      silent.toDestination();
-      this.sampler?.connect(node as unknown as AudioNode);
-    } catch (err) {
-      console.error('[AudioEngine] TEMP worklet trace failed:', err);
-    }
-  }
-
-  // TEMP DIAGNOSTIC - remove before commit.
-  private installTempProbe(): void {
-    if (typeof window === 'undefined') {
+  private trackScheduledVoice(midi: number): void {
+    const sources = (
+      this.sampler as unknown as {
+        _activeSources?: Map<number, Tone.ToneBufferSource[]>;
+      } | null
+    )?._activeSources?.get(midi);
+    const source = sources?.[sources.length - 1];
+    if (!source) {
       return;
     }
-    const sampler = this.sampler as unknown as {
-      _activeSources: Map<number, unknown[]>;
-    } | null;
-    const analyser = new Tone.Analyser({ type: 'waveform', size: 1024 });
-    this.sampler?.connect(analyser);
-    void this.installTempAudioThreadTrace();
 
-    // TEMP: count voice lifecycle. Sampler voices are ToneBufferSources; a
-    // leak shows up as (started - disposed) growing without bound.
-    const counters = { started: 0, disposed: 0, onended: 0 };
-    (window as unknown as { __voiceCounters?: unknown }).__voiceCounters = counters;
-    const proto = Tone.ToneBufferSource.prototype as unknown as {
-      start: (...args: unknown[]) => unknown;
-      dispose: (...args: unknown[]) => unknown;
-      _onended: (...args: unknown[]) => unknown;
-      __patched?: boolean;
-    };
-    if (!proto.__patched) {
-      proto.__patched = true;
-      const origStart = proto.start;
-      const origDispose = proto.dispose;
-      const origOnended = proto._onended;
-      proto.start = function patchedStart(...args: unknown[]) {
-        counters.started += 1;
-        return origStart.apply(this, args);
-      };
-      proto.dispose = function patchedDispose(...args: unknown[]) {
-        counters.disposed += 1;
-        return origDispose.apply(this, args);
-      };
-      proto._onended = function patchedOnended(...args: unknown[]) {
-        counters.onended += 1;
-        return origOnended.apply(this, args);
-      };
-    }
-    (window as unknown as { __audioProbe?: unknown }).__audioProbe = () => {
-      const map = sampler?._activeSources;
-      let total = 0;
-      let keys = 0;
-      let maxPerKey = 0;
-      if (map) {
-        map.forEach((sources) => {
-          keys += 1;
-          total += sources.length;
-          maxPerKey = Math.max(maxPerKey, sources.length);
-        });
-      }
-      const ctx = Tone.getContext();
-      const rawCtx = ctx.rawContext as unknown as {
-        currentTime: number;
-        state: string;
-        baseLatency?: number;
-      };
-      const transport = Tone.getTransport();
-      const anyCtx = ctx as unknown as { _timeouts?: { length: number } };
-      const wave = analyser.getValue() as Float32Array;
-      let sumSquares = 0;
-      for (let i = 0; i < wave.length; i += 1) {
-        sumSquares += wave[i] * wave[i];
-      }
-      const rms = Math.sqrt(sumSquares / wave.length);
-
-      return {
-        rms,
-        attacks: AudioEngine.tempScheduledAttacks,
-        samplerLoaded: this.isReady,
-        activeSources: total,
-        activeKeys: keys,
-        maxPerKey,
-        ctxState: rawCtx.state,
-        ctxTime: rawCtx.currentTime,
-        ctxTimeouts: anyCtx._timeouts?.length ?? -1,
-        transportTicks: transport.ticks,
-        transportState: transport.state,
-        transportTimeline:
-          (transport as unknown as { _timeline?: { length: number } })._timeline
-            ?.length ?? -1,
-        transportScheduled: Object.keys(
-          (transport as unknown as { _scheduledEvents: Record<string, unknown> })
-            ._scheduledEvents,
-        ).length,
-      };
+    this.scheduledVoices.add(source);
+    // Sampler installs its own onended (splices the voice out of
+    // _activeSources). Chain, never replace.
+    const samplerOnended = source.onended;
+    source.onended = (endedSource) => {
+      this.scheduledVoices.delete(source);
+      samplerOnended.call(source, endedSource);
     };
   }
 
@@ -354,31 +232,48 @@ export class AudioEngine {
     // shortened playSeconds (articulation trim in PlaybackEngine), not an
     // extra pre-attack triggerRelease — that tripled WebAudio graph ops per
     // note and starved the transport on dense 180 BPM textures.
-    // TEMP DIAGNOSTIC - remove before commit. Records the SCHEDULED attack
-    // time on the audio clock, plus how far in the past/future it was.
-    AudioEngine.tempScheduledAttacks += 1;
-    const attackTrace = (
-      window as unknown as { __attackTrace?: Array<[number, number, number]> }
-    ).__attackTrace;
-    if (attackTrace) {
-      attackTrace.push([
-        time,
-        midi,
-        time - Tone.getContext().rawContext.currentTime,
-      ]);
-    }
-    this.sampler!.triggerAttackRelease(note, playSeconds, time, velocity);
+    //
+    // This is Sampler.triggerAttackRelease inlined verbatim for a single note
+    // (it does exactly these two calls with `time` already in seconds), split
+    // only so the voice can be registered in between - triggerRelease drops it
+    // from the Sampler's map, so afterwards there is nothing left to grab.
+    // Identical WebAudio work either way.
+    const sampler = this.sampler!;
+    sampler.triggerAttack(note, time, velocity);
+    this.trackScheduledVoice(midi);
+    sampler.triggerRelease(note, time + playSeconds);
   }
 
-  /** TEMP DIAGNOSTIC - remove before commit. */
-  static tempScheduledAttacks = 0;
-
+  /**
+   * Stop every sounding voice now (seek, jump boundary, stall resync, pause,
+   * stop, restart). Scheduled voices are stopped through our own registry
+   * because the Sampler no longer knows about them; live noteOn voices are
+   * still in the Sampler's map, so its releaseAll covers those.
+   *
+   * `stop(time)` re-targets a voice's already-scheduled stop earlier (Tone's
+   * OneShotSource cancels the pending stop first), and the voice's normal
+   * fadeOut (= the sampler's 0.25s release) still applies, so this releases
+   * notes rather than clicking them off.
+   */
   releaseAll(): void {
-    this.sampler?.releaseAll();
-    this.previewSynth.releaseAll();
+    const time = this.immediateTime();
+
+    for (const source of this.scheduledVoices) {
+      try {
+        source.stop(time);
+      } catch (err) {
+        // A voice disposed between onended and this sweep. Nothing to stop.
+        console.debug('[AudioEngine] scheduled voice stop skipped:', err);
+      }
+    }
+    this.scheduledVoices.clear();
+
+    this.sampler?.releaseAll(time);
+    this.previewSynth.releaseAll(time);
   }
 
   destroy(): void {
+    this.scheduledVoices.clear();
     this.previewSynth.dispose();
     this.sampler?.dispose();
     this.sampler = null;

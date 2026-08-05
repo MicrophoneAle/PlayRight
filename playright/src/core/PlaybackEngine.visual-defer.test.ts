@@ -175,6 +175,75 @@ describe('PlaybackEngine visual-defer gate (fix #1 + #2)', () => {
     vi.useRealTimers();
   });
 
+  it('keeps deferred presses working across three pause/resume cycles', () => {
+    vi.useFakeTimers();
+
+    useEngineStore.setState({
+      playingMidiNotes: [],
+      playingPlaybackNotes: [],
+    });
+
+    const releaseAll = vi.fn();
+    const engine = new PlaybackEngine();
+    engine.attachAudioEngine({
+      warm: async () => {},
+      init: async () => {},
+      scheduleAttackRelease: vi.fn(),
+      noteOff: vi.fn(),
+      releaseAll,
+    } as never);
+
+    type EngineInternals = {
+      isPlaying: boolean;
+      isPaused: boolean;
+      pause: () => void;
+      deferRepeatedPress: (
+        stepIndex: number,
+        midi: number,
+        hand: 'R' | 'L',
+        pressId: number,
+      ) => void;
+      releasePlayingNote: (pressId: number) => void;
+      playingPressTracker: { allocatePressId: () => number };
+    };
+    const internals = engine as unknown as EngineInternals;
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      internals.isPlaying = true;
+      internals.isPaused = false;
+
+      // A note is sounding with its release event still pending on the
+      // Transport when the user pauses.
+      const prePausePressId = internals.playingPressTracker.allocatePressId();
+
+      engine.pause();
+      expect(internals.isPaused).toBe(true);
+      // Pause must silence what is still sounding, not just clear highlights.
+      expect(releaseAll).toHaveBeenCalledTimes(cycle + 1);
+
+      // Resume in place: pause deliberately keeps the scheduled events, so the
+      // pre-pause release callback is still going to fire.
+      internals.isPlaying = true;
+      internals.isPaused = false;
+
+      const postResumePressId = internals.playingPressTracker.allocatePressId();
+      expect(postResumePressId).not.toBe(prePausePressId);
+
+      internals.deferRepeatedPress(1, 60 + cycle, 'R', postResumePressId);
+      // The stale pre-pause release lands during the deferral window. It must
+      // not be mistaken for a release of the freshly allocated press.
+      internals.releasePlayingNote(prePausePressId);
+
+      vi.advanceTimersByTime(50);
+      expect(useEngineStore.getState().playingMidiNotes).toEqual([60 + cycle]);
+
+      internals.releasePlayingNote(postResumePressId);
+      expect(useEngineStore.getState().playingMidiNotes).toEqual([]);
+    }
+
+    vi.useRealTimers();
+  });
+
   it('paints the key-up from a release even while visual store sync is coalesced', () => {
     vi.useFakeTimers();
     vi.stubGlobal(
