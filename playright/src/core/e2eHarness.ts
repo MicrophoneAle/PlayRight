@@ -28,6 +28,7 @@ export interface PlayRightE2EHarness {
   startPlayback: () => Promise<void>;
   stopPlayback: () => void;
   pausePlayback: () => void;
+  resumePlayback: () => void;
   isPlaybackFinished: () => boolean;
   isPlaybackActive: () => boolean;
   isPlaybackPaused: () => boolean;
@@ -189,6 +190,10 @@ function installE2EHarness(): void {
 
     pausePlayback() {
       playbackEngine.pause();
+    },
+
+    resumePlayback() {
+      playbackEngine.resume();
     },
 
     isPlaybackFinished() {
