@@ -53,6 +53,7 @@ export function Lid() {
   const sheetScrollMode = useEngineStore((state) => state.sheetScrollMode);
   const autoFingering = useEngineStore((state) => state.autoFingering);
   const overrideScoreFingerings = useEngineStore((state) => state.overrideScoreFingerings);
+  const scoringEnabled = useEngineStore((state) => state.scoringEnabled);
   const handSpan = useEngineStore((state) => state.handSpan);
   const engineMode = useEngineStore((state) => state.engineMode);
   const activeHand = useEngineStore((state) => state.activeHand);
@@ -64,6 +65,7 @@ export function Lid() {
   const setOverrideScoreFingerings = useEngineStore(
     (state) => state.actions.setOverrideScoreFingerings,
   );
+  const setScoringEnabled = useEngineStore((state) => state.actions.setScoringEnabled);
   const setHandSpan = useEngineStore((state) => state.actions.setHandSpan);
   const setEngineMode = useEngineStore((state) => state.actions.setEngineMode);
   const setPlayMode = useEngineStore((state) => state.actions.setPlayMode);
@@ -334,6 +336,22 @@ export function Lid() {
               Two Hands
             </button>
           </div>
+        </div>
+        <div className={settingsRowClass}>
+          <label
+            htmlFor="scoring-toggle"
+            className={settingsLabelClass}
+            title="Score accuracy, rank, and wrong-note feedback"
+          >
+            Scoring
+          </label>
+          <input
+            id="scoring-toggle"
+            type="checkbox"
+            checked={scoringEnabled}
+            onChange={(event) => setScoringEnabled(event.target.checked)}
+            className={settingsCheckboxClass}
+          />
         </div>
         <div className={settingsRowClass}>
           <label

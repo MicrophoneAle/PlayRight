@@ -4,9 +4,9 @@ import { X } from 'lucide-react';
 import {
   practiceAccuracyPercent,
   practiceRank,
-  type PracticeRank,
   type PracticeScoringSummary,
 } from '../core/practiceScoring.ts';
+import { RANK_COLORS, RANK_RULES } from './practiceRankStyles.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
 
 /**
@@ -18,31 +18,6 @@ export function ScoreSummaryModal() {
   const summary = useEngineStore((state) => state.practiceSummary);
   return isOpen && summary ? <ScoreSummaryPanel summary={summary} /> : null;
 }
-
-/**
- * Tier colors run warm-to-cool-to-alarm so the rank reads before the letter
- * does. Ranks are looked up here only; the thresholds themselves live in
- * PRACTICE_RANK_TIERS.
- */
-const RANK_COLORS: Record<PracticeRank, string> = {
-  SS: 'text-amber-300',
-  S: 'text-violet-300',
-  A: 'text-emerald-300',
-  B: 'text-sky-300',
-  C: 'text-zinc-100',
-  D: 'text-zinc-400',
-  F: 'text-rose-400',
-};
-
-const RANK_RULES: Record<PracticeRank, string> = {
-  SS: 'bg-amber-300/50',
-  S: 'bg-violet-300/50',
-  A: 'bg-emerald-300/50',
-  B: 'bg-sky-300/50',
-  C: 'bg-zinc-100/40',
-  D: 'bg-zinc-400/40',
-  F: 'bg-rose-400/50',
-};
 
 function ScoreSummaryPanel({ summary }: { summary: PracticeScoringSummary }) {
   const setScoreSummaryOpen = useEngineStore(
@@ -142,8 +117,8 @@ function ScoreSummaryPanel({ summary }: { summary: PracticeScoringSummary }) {
 
           {summary.navigated ? (
             <p className="mt-2 max-w-[16rem] text-center text-xs leading-snug text-zinc-500">
-              Ranking is off for runs where you seeked. Play the piece straight
-              through to earn a rank.
+              Ranking is off for runs where you navigated. Play the piece
+              straight through to earn a rank.
             </p>
           ) : null}
         </div>

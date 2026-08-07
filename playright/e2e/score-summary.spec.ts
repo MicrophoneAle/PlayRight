@@ -51,10 +51,14 @@ test.describe('practice run summary', () => {
     await loadAndStart(page);
 
     const accuracy = page.getByTestId('practice-accuracy');
+    const rank = page.getByTestId('practice-rank');
+    // 0/0 is not an accuracy, so neither figure exists before the first note.
     await expect(accuracy).toHaveCount(0);
+    await expect(rank).toHaveCount(0);
 
     await playExpectedNote(page);
     await expect(accuracy).toHaveText('100% accurate');
+    await expect(rank).toHaveText('SS');
     await expect(page.getByTestId('practice-wrong-count')).toHaveCount(0);
   });
 
@@ -95,18 +99,46 @@ test.describe('practice run summary', () => {
     await expect(dialog(page)).toBeHidden();
   });
 
-  test('withholds the rank when the run was seeked', async ({ page }) => {
+  test('withholds the rank when the run was navigated', async ({ page }) => {
     await loadAndStart(page);
 
     await page.evaluate(() => window.__playrightE2E!.seekPractice(1));
     await playExpectedNote(page);
+    // The live line drops the rank for a navigated run too, not just the modal.
+    await expect(page.getByTestId('practice-rank')).toHaveText('Unranked');
 
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByTestId('score-summary-rank')).toHaveText('Unranked');
-    await expect(page.getByText(/Ranking is off for runs where you seeked/)).toBeVisible();
+    await expect(
+      page.getByText(/Ranking is off for runs where you navigated/),
+    ).toBeVisible();
     // Counts and accuracy are still reported.
     await expect(page.getByTestId('score-summary-accuracy')).toHaveText('100%');
     await expect(page.getByTestId('score-summary-correct')).toHaveText('1');
+  });
+
+  test('scoring off persists, hides the live figures, and suppresses the modal', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => window.localStorage.setItem('playright-scoring', 'false'));
+    await loadAndStart(page);
+
+    await playExpectedNote(page);
+    await expect(page.getByTestId('practice-accuracy')).toHaveCount(0);
+    await expect(page.getByTestId('practice-rank')).toHaveCount(0);
+
+    await playExpectedNote(page);
+    await expect(page.getByTestId('practice-status-line')).toContainText('Piece complete');
+    await expect(dialog(page)).toBeHidden();
+
+    // The stored value survives the reload and drives the settings checkbox.
+    await page.reload();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await expect(page.getByLabel('Scoring')).not.toBeChecked();
+
+    // Turning it back on mid-run cannot resurrect the discarded counts.
+    await page.getByLabel('Scoring').check();
+    await expect(page.getByTestId('practice-accuracy')).toHaveCount(0);
   });
 
   test('captures practice keys while open and releases them once closed', async ({

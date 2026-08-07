@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AudioEngine } from './AudioEngine.ts';
 import { PracticeEngine } from './PracticeEngine.ts';
 import { practiceAccuracyPercent, practiceRank } from './practiceScoring.ts';
@@ -123,7 +123,7 @@ describe('PracticeEngine run summary (SC1)', () => {
     expect(state().scoreSummaryOpen).toBe(true);
   });
 
-  it('marks a seeked run navigated so no rank is awarded', () => {
+  it('marks a navigated run so no rank is awarded', () => {
     makeScript(CHORD_SCRIPT);
     engine.start();
 
@@ -184,6 +184,70 @@ describe('PracticeEngine run summary (SC1)', () => {
     expect(state().practiceWrongNotes).toBe(0);
     expect(state().practiceLongestStreak).toBe(0);
     expect(practiceAccuracyPercent(0, 0)).toBeNull();
+  });
+
+  describe('scoring disabled', () => {
+    afterEach(() => {
+      useEngineStore.setState({ scoringEnabled: true });
+    });
+
+    it('counts nothing, sounds no clash, and opens no modal', () => {
+      useEngineStore.setState({ scoringEnabled: false });
+      makeScript(CHORD_SCRIPT);
+      engine.start();
+
+      // A wrong finger and every correct one: neither is counted.
+      engine.handleFingerPress({ hand: 'R', finger: 2 });
+      engine.handleFingerPress({ hand: 'R', finger: 1 });
+      engine.handleFingerPress({ hand: 'R', finger: 3 });
+      engine.handleFingerPress({ hand: 'R', finger: 5 });
+      engine.handleFingerPress({ hand: 'R', finger: 5 });
+      engine.handleFingerRelease({ hand: 'R', finger: 5 });
+
+      expect(state().practiceCorrectNotes).toBe(0);
+      expect(state().practiceWrongNotes).toBe(0);
+      expect(state().practicePositionRecords).toHaveLength(0);
+      expect(state().practiceSummary).toBeNull();
+      expect(state().scoreSummaryOpen).toBe(false);
+      // The run itself still progressed to the end.
+      expect(state().currentStepIndex).toBe(CHORD_SCRIPT.length);
+    });
+
+    it('discards an in-progress session when scoring is turned off mid-run', () => {
+      makeScript(CHORD_SCRIPT);
+      engine.start();
+      engine.handleFingerPress({ hand: 'R', finger: 1 });
+      expect(state().practiceCorrectNotes).toBe(1);
+
+      useEngineStore.setState({ scoringEnabled: false });
+      engine.handleScoringEnabledChange(false);
+
+      expect(state().practiceCorrectNotes).toBe(0);
+      expect(state().practicePositionRecords).toHaveLength(0);
+    });
+
+    it('restarts unranked when scoring is turned back on mid-run', () => {
+      makeScript(CHORD_SCRIPT);
+      engine.start();
+      engine.handleFingerPress({ hand: 'R', finger: 1 });
+
+      useEngineStore.setState({ scoringEnabled: false });
+      engine.handleScoringEnabledChange(false);
+      useEngineStore.setState({ scoringEnabled: true });
+      engine.handleScoringEnabledChange(true);
+
+      // Fresh counters, and the partial run can never earn a rank.
+      expect(state().practiceCorrectNotes).toBe(0);
+      expect(state().practiceNavigated).toBe(true);
+
+      engine.handleFingerPress({ hand: 'R', finger: 3 });
+      engine.handleFingerPress({ hand: 'R', finger: 5 });
+      engine.handleFingerPress({ hand: 'R', finger: 5 });
+      engine.handleFingerRelease({ hand: 'R', finger: 5 });
+
+      expect(state().practiceSummary?.navigated).toBe(true);
+      expect(state().practiceSummary?.correctNotes).toBe(3);
+    });
   });
 
   it('updates live accuracy on every press mid-session', () => {

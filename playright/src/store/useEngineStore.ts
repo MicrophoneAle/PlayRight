@@ -46,6 +46,7 @@ const OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY = 'playright-override-score-fingerin
 const FINGERING_MODE_STORAGE_KEY = 'playright-fingering-mode';
 const PLAY_MODE_STORAGE_KEY = 'playright-play-mode';
 const TEMPO_FACTOR_STORAGE_KEY = 'playright-tempo-factor';
+const SCORING_STORAGE_KEY = 'playright-scoring';
 
 export const TEMPO_FACTOR_MIN = 0.5;
 export const TEMPO_FACTOR_MAX = 1.5;
@@ -92,6 +93,15 @@ function readStoredOverrideScoreFingerings(): boolean {
   }
 
   return window.localStorage.getItem(OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY) === 'true';
+}
+
+/** Scoring is opt-out: an existing user with no stored value keeps it on. */
+function readStoredScoringEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+
+  return window.localStorage.getItem(SCORING_STORAGE_KEY) !== 'false';
 }
 
 function readStoredPlayMode(): boolean {
@@ -319,6 +329,12 @@ interface EngineState {
   /** Notes currently sounding during play mode (includes step index for sheet sync). */
   playingPlaybackNotes: PlayingPlaybackNote[];
   /**
+   * Master switch for the whole scoring feature (persisted): counters, the
+   * live status figures, the completion modal, and the wrong-note clash
+   * feedback. Off means no judgment at all, not just hidden numbers.
+   */
+  scoringEnabled: boolean;
+  /**
    * Per-position scoring records for the active practice session, indexed
    * identically to buildPracticePositions(script). Empty when no session.
    */
@@ -383,6 +399,7 @@ interface EngineState {
     setAutoFingering: (enabled: boolean) => void;
     setHandSpan: (span: HandSpanPreset) => void;
     setOverrideScoreFingerings: (enabled: boolean) => void;
+    setScoringEnabled: (enabled: boolean) => void;
     cycleShiftMode: (direction: 'up' | 'down') => void;
     setEngineMode: (mode: EngineMode) => void;
     setActiveHand: (hand: Hand) => void;
@@ -466,6 +483,7 @@ export const useEngineStore = create<EngineState>((set) => {
   autoFingering: readStoredAutoFingering(),
   handSpan: readStoredHandSpan(),
   overrideScoreFingerings: readStoredOverrideScoreFingerings(),
+  scoringEnabled: readStoredScoringEnabled(),
   engineMode: 'one-hand',
   activeHand: 'R',
   isPracticeActive: false,
@@ -824,6 +842,15 @@ export const useEngineStore = create<EngineState>((set) => {
         set({ script });
       })();
     },
+    setScoringEnabled: (enabled) => {
+      window.localStorage.setItem(SCORING_STORAGE_KEY, enabled ? 'true' : 'false');
+      // Close an open summary on the way out: it is a scoring surface.
+      set(enabled ? { scoringEnabled: true } : { scoringEnabled: false, scoreSummaryOpen: false });
+      // The engine owns session lifecycle, so it decides what happens to an
+      // in-progress run (discarded when disabling, restarted-and-unranked when
+      // enabling). Nothing partially counted may survive this toggle.
+      practiceEngine.handleScoringEnabledChange(enabled);
+    },
     setOverrideScoreFingerings: (enabled) => {
       window.localStorage.setItem(
         OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY,
@@ -1129,7 +1156,7 @@ export const useEngineStore = create<EngineState>((set) => {
     },
     finalizePracticeScoring: () => {
       set((state) =>
-        state.practicePositionRecords.length === 0
+        state.practicePositionRecords.length === 0 || !state.scoringEnabled
           ? state
           : {
               practiceSummary: summarizePracticeScoring(

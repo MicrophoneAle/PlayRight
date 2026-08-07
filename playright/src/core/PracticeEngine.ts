@@ -452,9 +452,27 @@ export class PracticeEngine {
     this.beginScoringSession();
   }
 
+  /**
+   * Scoring was toggled mid-run. Disabling discards the in-progress session
+   * outright, so no partially counted run can survive to produce a misleading
+   * rank later. Enabling while practice is running opens a fresh session that
+   * covers only the remainder of the piece - the same shape as a run started
+   * mid-score - so it is flagged navigated and cannot earn a rank.
+   */
+  handleScoringEnabledChange(enabled: boolean): void {
+    if (!enabled || !selectIsPracticeActive(useEngineStore.getState())) {
+      this.resetScoringSession();
+      return;
+    }
+
+    this.beginScoringSession();
+    useEngineStore.getState().actions.markPracticeNavigated();
+  }
+
   private beginScoringSession(): void {
-    const { script, engineMode, activeHand, actions } = useEngineStore.getState();
-    if (!script) {
+    const { script, engineMode, activeHand, actions, scoringEnabled } =
+      useEngineStore.getState();
+    if (!script || !scoringEnabled) {
       this.scoringSessionKey = null;
       this.scoringPositionOffsets = [];
       actions.resetPracticeScoring();
@@ -491,6 +509,10 @@ export class PracticeEngine {
   }
 
   private recordScoringAttempt(outcome: PracticeAttemptOutcome): void {
+    if (!useEngineStore.getState().scoringEnabled) {
+      return;
+    }
+
     const positionIndex = this.currentScoringPositionIndex();
     if (positionIndex === null) {
       return;
@@ -513,6 +535,13 @@ export class PracticeEngine {
    * gave no feel for how long the key was actually held.
    */
   private handleWrongFingerPress(mapping: FingerMapping): void {
+    // The clash is scoring feedback, so the scoring toggle governs it too:
+    // with scoring off a wrong finger key is simply silent, as it was before
+    // the scoring feature existed.
+    if (!useEngineStore.getState().scoringEnabled) {
+      return;
+    }
+
     this.recordScoringAttempt('wrong');
 
     const feedbackMidi = wrongNoteFeedbackMidi(mapping, this.practiceNotesForStep);

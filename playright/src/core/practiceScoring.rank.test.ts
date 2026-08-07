@@ -53,6 +53,26 @@ describe('practice rank tiers', () => {
     expect(practiceRank(0, 0)).toBeNull();
   });
 
+  it('gives the live status line and the modal the same rank for the same counts', () => {
+    // The live line ranks the already-floored accuracy; the modal ranks the raw
+    // counts. Both must land on the same tier for every count pair, including
+    // the volatile handful at the start of a run.
+    for (let correct = 0; correct <= 40; correct += 1) {
+      for (let wrong = 0; wrong <= 40; wrong += 1) {
+        const accuracy = practiceAccuracyPercent(correct, wrong);
+        const live = accuracy === null ? null : practiceRankForAccuracy(accuracy);
+        expect(live).toBe(practiceRank(correct, wrong));
+      }
+    }
+  });
+
+  it('ranks from the very first note, with no minimum note count', () => {
+    expect(practiceRank(1, 0)).toBe('SS');
+    expect(practiceRank(0, 1)).toBe('F');
+    // 3/4 = 75% ranks C. Deliberately unsmoothed: the live rank swings early.
+    expect(practiceRank(3, 1)).toBe('C');
+  });
+
   it('covers every percentage with a descending, gapless tier table', () => {
     const mins = PRACTICE_RANK_TIERS.map((tier) => tier.minAccuracy);
     expect(mins).toEqual([...mins].sort((a, b) => b - a));
