@@ -560,6 +560,89 @@ describe('parseMusicXmlToScript', () => {
     }
   });
 
+  it('collapses a visible short note with a hidden same-pitch sustain at the same onset', () => {
+    const HIDDEN_SUSTAIN = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>480</divisions>
+        <time>
+          <beats>9</beats>
+          <beat-type>8</beat-type>
+        </time>
+        <staves>2</staves>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <note>
+        <rest/>
+        <duration>240</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <staff>1</staff>
+      </note>
+      <note>
+        <pitch><step>F</step><octave>4</octave></pitch>
+        <duration>240</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <staff>2</staff>
+      </note>
+      <note>
+        <chord/>
+        <pitch>
+          <step>A</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>240</duration>
+        <voice>1</voice>
+        <type>eighth</type>
+        <staff>2</staff>
+      </note>
+      <backup>
+        <duration>480</duration>
+      </backup>
+      <note>
+        <rest/>
+        <duration>240</duration>
+        <voice>5</voice>
+        <type>eighth</type>
+        <staff>2</staff>
+      </note>
+      <note print-object="no">
+        <pitch><step>F</step><octave>4</octave></pitch>
+        <duration>1920</duration>
+        <voice>5</voice>
+        <staff>2</staff>
+      </note>
+      <note print-object="no">
+        <chord/>
+        <pitch>
+          <step>A</step>
+          <alter>-1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>1920</duration>
+        <voice>5</voice>
+        <staff>2</staff>
+      </note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+    const { script } = parseMusicXmlToScript(HIDDEN_SUSTAIN);
+
+    expect(script).toHaveLength(1);
+    expect(script[0]?.onset).toBe(240);
+    expect(script[0]?.notes).toHaveLength(2);
+    expect(script[0]?.notes.map((note) => note.pitch).sort()).toEqual(['Ab4', 'F4']);
+    expect(script[0]?.notes.every((note) => note.durationDivisions === 1920)).toBe(
+      true,
+    );
+  });
+
   it('places chord members at the base note onset after a merged tie continuation', () => {
     const TIE_INTO_CHORD = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">

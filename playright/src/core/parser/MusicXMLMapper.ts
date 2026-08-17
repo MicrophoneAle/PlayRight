@@ -300,6 +300,69 @@ function controlTimeAdvance(
   );
 }
 
+/**
+ * Piano cannot strike the same key twice at one onset. Piano scores often
+ * encode that pitch twice anyway: a visible short value plus a hidden
+ * (`print-object="no"`) sustain voice after `<backup>`. Keeping both makes
+ * play mode triggerAttack/triggerRelease the same Sampler pitch at the same
+ * audio time, which can swallow the rest of that step's attacks.
+ *
+ * Collapse to one ScriptNote per (hand, midi), keeping the longest written
+ * duration so the hidden sustain still holds.
+ */
+function mergeUnisonNotes(existing: ScriptNote, incoming: ScriptNote): ScriptNote {
+  const existingDuration = existing.durationDivisions ?? 0;
+  const incomingDuration = incoming.durationDivisions ?? 0;
+  const longer = incomingDuration > existingDuration ? incoming : existing;
+  const merged: ScriptNote = { ...longer };
+
+  merged.finger = existing.finger ?? incoming.finger;
+  if (existing.fingerSource !== undefined) {
+    merged.fingerSource = existing.fingerSource;
+  } else if (incoming.fingerSource !== undefined) {
+    merged.fingerSource = incoming.fingerSource;
+  }
+  if (existing.playingHand !== undefined) {
+    merged.playingHand = existing.playingHand;
+  } else if (incoming.playingHand !== undefined) {
+    merged.playingHand = incoming.playingHand;
+  }
+
+  if (existing.tiedToNext || incoming.tiedToNext) {
+    merged.tiedToNext = true;
+  }
+  if (existing.hasFermata || incoming.hasFermata) {
+    merged.hasFermata = true;
+  }
+  if (existing.slurLegatoNext || incoming.slurLegatoNext) {
+    merged.slurLegatoNext = true;
+  }
+  if (existing.hasAccent || incoming.hasAccent) {
+    merged.hasAccent = true;
+  }
+
+  return merged;
+}
+
+function collapseSimultaneousUnisonNotes(notes: ScriptNote[]): ScriptNote[] {
+  const merged: ScriptNote[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const note of notes) {
+    const key = `${note.hand}:${note.midi}`;
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      indexByKey.set(key, merged.length);
+      merged.push({ ...note });
+      continue;
+    }
+
+    merged[existingIndex] = mergeUnisonNotes(merged[existingIndex], note);
+  }
+
+  return merged;
+}
+
 function groupByOnset(
   absoluteNotes: Array<{
     note: ScriptNote;
@@ -331,7 +394,7 @@ function groupByOnset(
       order,
       onset,
       measureNumber,
-      notes,
+      notes: collapseSimultaneousUnisonNotes(notes),
       ...(graceBefore ? { graceBefore } : {}),
     };
     script.push(step);
@@ -439,7 +502,7 @@ function mergePlaybackScripts(scripts: PlaybackScript[]): PlaybackScript {
       order,
       onset,
       measureNumber: entry.measureNumber,
-      notes: entry.notes,
+      notes: collapseSimultaneousUnisonNotes(entry.notes),
       ...(entry.graceBefore ? { graceBefore: entry.graceBefore } : {}),
     };
   });
