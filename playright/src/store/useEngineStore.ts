@@ -484,7 +484,7 @@ export const useEngineStore = create<EngineState>((set) => {
   handSpan: readStoredHandSpan(),
   overrideScoreFingerings: readStoredOverrideScoreFingerings(),
   scoringEnabled: readStoredScoringEnabled(),
-  engineMode: 'one-hand',
+  engineMode: 'two-hand',
   activeHand: 'R',
   isPracticeActive: false,
   practiceGraceCursor: null,

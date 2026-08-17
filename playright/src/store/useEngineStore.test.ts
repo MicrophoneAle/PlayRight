@@ -73,7 +73,7 @@ function resetStore(): void {
     scopeStartMidi: 60,
     scopeTranspose: 0,
     shiftMode: 'semitone',
-    engineMode: 'one-hand',
+    engineMode: 'two-hand',
     activeHand: 'R',
     isPracticeActive: false,
     hasPracticeStarted: false,
@@ -139,14 +139,14 @@ describe('useEngineStore settings and mode', () => {
     vi.unstubAllGlobals();
   });
 
-  it('accepts one-hand and two-hand engine modes while defaulting to one-hand', () => {
-    expect(useEngineStore.getState().engineMode).toBe('one-hand');
-
-    useEngineStore.getState().actions.setEngineMode('two-hand');
+  it('accepts one-hand and two-hand engine modes while defaulting to two-hand', () => {
     expect(useEngineStore.getState().engineMode).toBe('two-hand');
 
     useEngineStore.getState().actions.setEngineMode('one-hand');
     expect(useEngineStore.getState().engineMode).toBe('one-hand');
+
+    useEngineStore.getState().actions.setEngineMode('two-hand');
+    expect(useEngineStore.getState().engineMode).toBe('two-hand');
   });
 
   it('bails on identical setExpectedNotes arrays', () => {

@@ -51,6 +51,8 @@ async function e2e(page: Page): Promise<E2EApi> {
       ),
     setPlayMode: (enabled) =>
       page.evaluate((on) => window.__playrightE2E!.setPlayMode(on), enabled),
+    setEngineMode: (mode) =>
+      page.evaluate((on) => window.__playrightE2E!.setEngineMode(on), mode),
     seekPlayback: (stepIndex) =>
       page.evaluate(
         (index) => window.__playrightE2E!.seekPlayback(index),
@@ -161,6 +163,9 @@ test.describe('sheet sync (OSMD browser)', () => {
         timeout: 30_000,
       })
       .toBe(true);
+    // Practice highlights need expectedMidiNotes from unfingered fixtures,
+    // which two-hand (the app default) filters out.
+    await page.evaluate(() => window.__playrightE2E!.setEngineMode('one-hand'));
   });
 
   test('loads a piece and renders sheet SVG', async ({ page }) => {

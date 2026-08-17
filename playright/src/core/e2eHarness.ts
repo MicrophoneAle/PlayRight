@@ -22,6 +22,7 @@ export interface PlayRightE2EHarness {
   getTotalSteps: () => number;
   seekPractice: (stepIndex: number) => void;
   setPlayMode: (enabled: boolean) => void;
+  setEngineMode: (mode: 'one-hand' | 'two-hand') => void;
   seekPlayback: (stepIndex: number) => void;
   /** Seek to an exact unrolled PlaybackOrder entry (incl. second+ passes). */
   seekPlaybackOrderIndex: (entryIndex: number) => void;
@@ -142,6 +143,10 @@ function installE2EHarness(): void {
 
     setPlayMode(enabled) {
       useEngineStore.getState().actions.setPlayMode(enabled);
+    },
+
+    setEngineMode(mode) {
+      useEngineStore.getState().actions.setEngineMode(mode);
     },
 
     seekPlayback(stepIndex) {

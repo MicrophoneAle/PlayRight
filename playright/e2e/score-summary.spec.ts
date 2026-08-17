@@ -27,6 +27,8 @@ async function loadAndStart(page: Page): Promise<void> {
     async (xml) => window.__playrightE2E!.loadXml(xml, 'summary-piece'),
     E2E_SUMMARY_MUSICXML,
   );
+  // Summary E2E presses one-hand piano keys; two-hand is the app default.
+  await page.evaluate(() => window.__playrightE2E!.setEngineMode('one-hand'));
   await page.evaluate(() => window.__playrightE2E!.startPractice());
 }
 
