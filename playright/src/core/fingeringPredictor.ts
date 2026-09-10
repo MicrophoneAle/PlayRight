@@ -859,6 +859,151 @@ function copyFirstFingerMap(source: Map<number, Finger>): Map<number, Finger> {
   return new Map(source);
 }
 
+/**
+ * Hybrid phrase solver modes.
+ *
+ * Collapsed Viterbi (state = noteIndex × finger) is NOT a valid DP for
+ * RETURNING_PITCH_FINGER_MISMATCH: firstFingerByMidi is copied from a single
+ * winning predecessor, so two paths to the same (i, f) with different pitch
+ * histories are treated as interchangeable. The cheaper-so-far survivor can
+ * later pay more returning-pitch penalties than a discarded path — optimal
+ * substructure fails.
+ *
+ * Exact expanded-history DP restores substructure by keying on
+ * (finger, firstFingerByMidi for recurring pitches). Beam search approximates
+ * when the expanded state would exceed ~15k cells/layer (R≥6 or long phrases).
+ */
+export type PhraseSolveMode = 'collapsed' | 'exact' | 'beam';
+
+/**
+ * Exact history when R is small enough that 5 * 5^R * len stays tractable.
+ * Threshold sweep (R<=5..2): R<=5 exact dominated tetoris (~5–8s); R<=3 alone
+ * still ~370–525ms on large fixtures. R<=3 with len<=10 keeps both canonical
+ * fixes on exact, gets if-i-can-stop under ~100ms, and tetoris to ~230ms —
+ * still above the ~100ms/piece target because beam on long high-R phrases
+ * floors large scores near ~200ms. Cost constants unchanged.
+ */
+export const PHRASE_EXACT_HISTORY_MAX_R = 3;
+/** Cap exact expansion: medium-R mid-length phrases were the hot path, not beam. */
+export const PHRASE_EXACT_HISTORY_MAX_LEN = 10;
+/** Beam width per ending finger (nested: larger k is a superset per finger). */
+export const PHRASE_BEAM_WIDTH_PER_FINGER = 8;
+
+export function countRecurringPitches(notes: NoteEvent[]): number {
+  const counts = new Map<number, number>();
+  for (const note of notes) {
+    counts.set(note.midi, (counts.get(note.midi) ?? 0) + 1);
+  }
+  let recurring = 0;
+  for (const count of counts.values()) {
+    if (count > 1) {
+      recurring += 1;
+    }
+  }
+  return recurring;
+}
+
+export function choosePhraseSolveMode(notes: NoteEvent[]): PhraseSolveMode {
+  const r = countRecurringPitches(notes);
+  if (r === 0) {
+    return 'collapsed';
+  }
+  if (r <= PHRASE_EXACT_HISTORY_MAX_R && notes.length <= PHRASE_EXACT_HISTORY_MAX_LEN) {
+    return 'exact';
+  }
+  return 'beam';
+}
+
+function recurringMidiList(notes: NoteEvent[]): number[] {
+  const counts = new Map<number, number>();
+  for (const note of notes) {
+    counts.set(note.midi, (counts.get(note.midi) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([midi]) => midi)
+    .sort((a, b) => a - b);
+}
+
+function histKeyFromMap(
+  hist: Map<number, Finger>,
+  recurring: number[],
+): string {
+  return recurring.map((m) => `${m}:${hist.get(m) ?? 0}`).join('|');
+}
+
+function exactCellKey(finger: Finger, hist: Map<number, Finger>, recurring: number[]): string {
+  return `${finger}#${histKeyFromMap(hist, recurring)}`;
+}
+
+interface ExactDpCell {
+  cost: number;
+  backKey: string | null;
+  hist: Map<number, Finger>;
+}
+
+function fingerAtAnchorByKey(
+  layers: Map<string, ExactDpCell>[],
+  anchorIndex: number,
+  fromIndex: number,
+  fromKey: string,
+): Finger | null {
+  let key = fromKey;
+
+  for (let i = fromIndex; i > anchorIndex; i -= 1) {
+    const cell = layers[i].get(key);
+    if (!cell?.backKey) {
+      return null;
+    }
+    key = cell.backKey;
+  }
+
+  const fingerPart = Number(key.split('#')[0]);
+  return Number.isFinite(fingerPart) ? (fingerPart as Finger) : null;
+}
+
+interface BeamPathCell {
+  cost: number;
+  finger: Finger;
+  /** Prior cell on the path (avoid O(n) array copies per expansion). */
+  prev: BeamPathCell | null;
+  firstFingerByMidi: Map<number, Finger>;
+}
+
+function materializeBeamPath(cell: BeamPathCell): Finger[] {
+  const path: Finger[] = [];
+  let cursor: BeamPathCell | null = cell;
+  while (cursor !== null) {
+    path.push(cursor.finger);
+    cursor = cursor.prev;
+  }
+  path.reverse();
+  return path;
+}
+
+function beamFingerAtIndex(cell: BeamPathCell, index: number): Finger {
+  // Walk to depth, then step back to the requested index.
+  const stack: Finger[] = [];
+  let cursor: BeamPathCell | null = cell;
+  while (cursor !== null) {
+    stack.push(cursor.finger);
+    cursor = cursor.prev;
+  }
+  stack.reverse();
+  return stack[index] ?? 1;
+}
+
+interface PhraseSolveArgs {
+  notes: NoteEvent[];
+  hand: Hand;
+  startHome?: Record<Finger, number>;
+  repeatFinger?: Finger;
+  repeatGapDivisions: number;
+  mlCosts: number[][];
+  mlCostWeight: number;
+  prevContext?: PhraseSeedContext;
+}
+
 function shortSamePitchFollow(
   notes: NoteEvent[],
   index: number,
@@ -1080,34 +1225,80 @@ function runRootAuthoredAnchor(
   }
 }
 
-export async function fingerPhrase(
-  notes: NoteEvent[],
-  hand: Hand,
-  /**
-   * Dead parameter kept only for positional compatibility (many callers pass
-   * later arguments). The hand-span preset never fed any cost term. See
-   * PredictFingeringOptions.spanScale for the retained public routing.
-   */
-  _spanScale?: number,
-  startHome?: Record<Finger, number>,
-  repeatFinger?: Finger,
-  divisionsPerQuarter?: number,
-  mlCostWeight = ML_COST_WEIGHT,
-  prevContext?: PhraseSeedContext,
-): Promise<Finger[]> {
-  if (notes.length === 0) {
-    return [];
+function seedIndex0Cost(
+  args: PhraseSolveArgs,
+  note: NoteEvent,
+  finger: Finger,
+  inMlRepeatContext: boolean,
+): number {
+  const {
+    notes,
+    hand,
+    startHome,
+    repeatFinger,
+    mlCosts,
+    mlCostWeight,
+    prevContext,
+  } = args;
+
+  const aiCost =
+    mlCosts.length > 0 && inMlRepeatContext
+      ? mlCosts[0][finger - 1] * mlCostWeight
+      : 0;
+  const local = aiCost + noteFingerCost(hand, finger, note.midi);
+  let cost = local + phraseStartCost(hand, finger, note, notes);
+  if (prevContext !== undefined && prevContext.applyFullTransition !== false) {
+    cost += transitionCost(
+      hand,
+      prevContext.finger,
+      prevContext.midi,
+      finger,
+      note.midi,
+    );
   }
+  if (startHome !== undefined) {
+    cost += HOME_START_WEIGHT * Math.abs(startHome[finger] - notes[0].midi);
+  }
+  if (
+    repeatFinger !== undefined &&
+    note.authoredFinger === null &&
+    finger !== repeatFinger
+  ) {
+    cost += RETURNING_PITCH_FINGER_MISMATCH;
+  }
+  return cost;
+}
 
-  // Same legacy fallback as segmentIntoPhrases, where no divisions info means
-  // the historical 480-division window.
-  const repeatGapDivisions =
-    divisionsPerQuarter !== undefined
-      ? REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS * divisionsPerQuarter
-      : REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS;
+function noteLocalAiCost(
+  args: PhraseSolveArgs,
+  index: number,
+  finger: Finger,
+  inMlRepeatContext: boolean,
+): number {
+  const { notes, hand, mlCosts, mlCostWeight } = args;
+  const aiCost =
+    mlCosts.length > 0 && inMlRepeatContext
+      ? mlCosts[index][finger - 1] * mlCostWeight
+      : 0;
+  return aiCost + noteFingerCost(hand, finger, notes[index].midi);
+}
 
-  const mlCosts =
-    mlCostWeight > 0 ? await getMLFingerCosts(notes, hand) : [];
+/**
+ * Legacy collapsed Viterbi (state = noteIndex × finger). Used only when R=0
+ * so RETURNING_PITCH_FINGER_MISMATCH never fires and history collapse is
+ * harmless — bit-identical to the pre-hybrid solver body.
+ */
+function solvePhraseCollapsedDp(args: PhraseSolveArgs): Finger[] {
+  const {
+    notes,
+    hand,
+    startHome,
+    repeatFinger,
+    repeatGapDivisions,
+    mlCosts,
+    mlCostWeight,
+    prevContext,
+  } = args;
 
   const dp: Partial<Record<Finger, DpCell>>[] = [];
 
@@ -1393,6 +1584,561 @@ export async function fingerPhrase(
   }
 
   return out;
+}
+
+/**
+ * Exact expanded-history DP: state = (finger, firstFingerByMidi for recurring
+ * pitches only). Restores optimal substructure for RETURNING_PITCH_FINGER_MISMATCH.
+ */
+function solvePhraseExactHistoryDp(args: PhraseSolveArgs): Finger[] {
+  const { notes, hand, repeatGapDivisions, prevContext } = args;
+  const recurring = recurringMidiList(notes);
+  const recurringSet = new Set(recurring);
+  const layers: Map<string, ExactDpCell>[] = [];
+
+  for (let index = 0; index < notes.length; index += 1) {
+    const note = notes[index];
+    const allowed = allowedFingers(note);
+    const row = new Map<string, ExactDpCell>();
+
+    const repeatFollow = shortSamePitchFollow(notes, index, repeatGapDivisions);
+    const inShortRepeatRun =
+      repeatFollow.active &&
+      repeatFollow.anchorIndex !== null &&
+      note.authoredFinger === null &&
+      samePitchRunLength(notes, index, repeatGapDivisions) <=
+        REPEAT_PITCH_RUN_MAX_LENGTH;
+    const anchorNote =
+      repeatFollow.anchorIndex !== null
+        ? notes[repeatFollow.anchorIndex]
+        : null;
+    const inMlRepeatContext = isInShortRepeatRunContext(
+      notes,
+      index,
+      repeatGapDivisions,
+    );
+
+    const considerCell = (
+      finger: Finger,
+      cost: number,
+      backKey: string | null,
+      hist: Map<number, Finger>,
+      fPrevForTie: Finger | null,
+    ): void => {
+      const key = exactCellKey(finger, hist, recurring);
+      const existing = row.get(key);
+      if (
+        existing === undefined ||
+        cost < existing.cost ||
+        (cost === existing.cost &&
+          fPrevForTie !== null &&
+          (existing.backKey === null ||
+            fPrevForTie < Number(existing.backKey.split('#')[0])))
+      ) {
+        row.set(key, { cost, backKey, hist });
+      }
+    };
+
+    if (index === 0) {
+      for (const finger of allowed) {
+        const bannedBySeed =
+          prevContext !== undefined &&
+          isBannedSameFingerMove(
+            prevContext.finger,
+            prevContext.midi,
+            finger,
+            note.midi,
+            null,
+            note.authoredFinger,
+          );
+        if (bannedBySeed) {
+          continue;
+        }
+
+        const cost = seedIndex0Cost(args, note, finger, inMlRepeatContext);
+        const hist = new Map<number, Finger>();
+        if (recurringSet.has(note.midi)) {
+          hist.set(note.midi, finger);
+        }
+        considerCell(finger, cost, null, hist, null);
+      }
+
+      if (row.size === 0 && prevContext !== undefined) {
+        for (const finger of allowed) {
+          const cost = seedIndex0Cost(args, note, finger, inMlRepeatContext);
+          const hist = new Map<number, Finger>();
+          if (recurringSet.has(note.midi)) {
+            hist.set(note.midi, finger);
+          }
+          considerCell(finger, cost, null, hist, null);
+        }
+      }
+
+      layers.push(row);
+      continue;
+    }
+
+    const prevRow = layers[index - 1];
+
+    // Cache repeat-run anchors once per predecessor — walking back per
+    // (finger × prev) was O(runLen·|prev|·5) and dominated tetoris runtime.
+    const runRootAuthored = inShortRepeatRun
+      ? runRootAuthoredAnchor(notes, index, repeatGapDivisions)
+      : null;
+    const anchorByPrevKey = new Map<string, Finger | null>();
+    if (inShortRepeatRun && anchorNote !== null) {
+      for (const prevKey of prevRow.keys()) {
+        anchorByPrevKey.set(
+          prevKey,
+          runRootAuthored ??
+            anchorNote.authoredFinger ??
+            fingerAtAnchorByKey(
+              layers,
+              repeatFollow.anchorIndex!,
+              index - 1,
+              prevKey,
+            ),
+        );
+      }
+    }
+    const hardLockRepeat =
+      runRootAuthored !== null &&
+      inShortRepeatRun &&
+      allowsRunRootHardLock(hand, notes, index);
+
+    for (const finger of allowed) {
+      const local = noteLocalAiCost(args, index, finger, inMlRepeatContext);
+      let wroteForFinger = false;
+
+      const evaluateFromPrev = (allowSameFinger: boolean): void => {
+        for (const [prevKey, prevCell] of prevRow) {
+          const fPrev = Number(prevKey.split('#')[0]) as Finger;
+
+          if (
+            !allowSameFinger &&
+            isBannedSameFingerMove(
+              fPrev,
+              notes[index - 1].midi,
+              finger,
+              note.midi,
+              notes[index - 1].authoredFinger,
+              note.authoredFinger,
+            )
+          ) {
+            continue;
+          }
+
+          const anchorFinger = anchorByPrevKey.get(prevKey) ?? null;
+          let repeatPitchPenalty = 0;
+          if (inShortRepeatRun && anchorFinger !== null && finger !== anchorFinger) {
+            if (hardLockRepeat) {
+              continue;
+            }
+            repeatPitchPenalty = REPEAT_PITCH_FINGER_MISMATCH;
+          }
+
+          const transition = transitionCost(
+            hand,
+            fPrev,
+            notes[index - 1].midi,
+            finger,
+            note.midi,
+          );
+
+          let returningPenalty = 0;
+          if (
+            note.authoredFinger === null &&
+            prevCell.hist.has(note.midi) &&
+            prevCell.hist.get(note.midi) !== finger &&
+            !repeatFollow.active
+          ) {
+            returningPenalty = RETURNING_PITCH_FINGER_MISMATCH;
+          }
+
+          const total =
+            prevCell.cost +
+            transition +
+            local +
+            returningPenalty +
+            repeatPitchPenalty;
+
+          const nextHist = copyFirstFingerMap(prevCell.hist);
+          if (recurringSet.has(note.midi) && !nextHist.has(note.midi)) {
+            nextHist.set(note.midi, finger);
+          }
+
+          considerCell(finger, total, prevKey, nextHist, fPrev);
+          wroteForFinger = true;
+        }
+      };
+
+      evaluateFromPrev(false);
+      if (!wroteForFinger) {
+        evaluateFromPrev(true);
+      }
+    }
+
+    layers.push(row);
+  }
+
+  const lastRow = layers[notes.length - 1];
+  let bestKey: string | null = null;
+  let bestCost = Infinity;
+  for (const [key, cell] of lastRow) {
+    const finger = Number(key.split('#')[0]) as Finger;
+    if (
+      cell.cost < bestCost ||
+      (cell.cost === bestCost &&
+        bestKey !== null &&
+        finger < Number(bestKey.split('#')[0])) ||
+      (cell.cost === bestCost && bestKey === null)
+    ) {
+      bestCost = cell.cost;
+      bestKey = key;
+    }
+  }
+
+  if (bestKey === null) {
+    return allowedFingers(notes[0]).slice(0, notes.length).map(() => 1 as Finger);
+  }
+
+  const out: Finger[] = new Array(notes.length);
+  let key: string | null = bestKey;
+  for (let index = notes.length - 1; index >= 0; index -= 1) {
+    if (key === null) {
+      out[index] = 1;
+      continue;
+    }
+    out[index] = Number(key.split('#')[0]) as Finger;
+    key = layers[index].get(key)?.backKey ?? null;
+  }
+
+  return out;
+}
+
+/**
+ * Beam search over full first-finger history when exact expansion is too large.
+ * Keeps the top {@link PHRASE_BEAM_WIDTH_PER_FINGER} paths per ending finger
+ * at each layer (nested: larger k is a superset of smaller-k survivors).
+ */
+function solvePhraseBeamSearch(
+  args: PhraseSolveArgs,
+  beamWidthPerFinger = PHRASE_BEAM_WIDTH_PER_FINGER,
+): Finger[] {
+  const { notes, hand, repeatGapDivisions, prevContext } = args;
+  const recurringSet = new Set(recurringMidiList(notes));
+
+  let beam: BeamPathCell[] = [];
+
+  const pruneByFinger = (candidates: BeamPathCell[]): BeamPathCell[] => {
+    const byFinger = new Map<Finger, BeamPathCell[]>();
+    for (const cell of candidates) {
+      const bucket = byFinger.get(cell.finger);
+      if (bucket === undefined) {
+        byFinger.set(cell.finger, [cell]);
+      } else {
+        bucket.push(cell);
+      }
+    }
+
+    const kept: BeamPathCell[] = [];
+    for (const bucket of byFinger.values()) {
+      bucket.sort((a, b) => {
+        if (a.cost !== b.cost) {
+          return a.cost - b.cost;
+        }
+        if (a.finger !== b.finger) {
+          return a.finger - b.finger;
+        }
+        const aPrev = a.prev?.finger ?? 0;
+        const bPrev = b.prev?.finger ?? 0;
+        return aPrev - bPrev;
+      });
+      kept.push(...bucket.slice(0, beamWidthPerFinger));
+    }
+    return kept;
+  };
+
+  for (let index = 0; index < notes.length; index += 1) {
+    const note = notes[index];
+    const allowed = allowedFingers(note);
+
+    const repeatFollow = shortSamePitchFollow(notes, index, repeatGapDivisions);
+    const inShortRepeatRun =
+      repeatFollow.active &&
+      repeatFollow.anchorIndex !== null &&
+      note.authoredFinger === null &&
+      samePitchRunLength(notes, index, repeatGapDivisions) <=
+        REPEAT_PITCH_RUN_MAX_LENGTH;
+    const anchorNote =
+      repeatFollow.anchorIndex !== null
+        ? notes[repeatFollow.anchorIndex]
+        : null;
+    const inMlRepeatContext = isInShortRepeatRunContext(
+      notes,
+      index,
+      repeatGapDivisions,
+    );
+
+    if (index === 0) {
+      const seeds: BeamPathCell[] = [];
+      for (const finger of allowed) {
+        const bannedBySeed =
+          prevContext !== undefined &&
+          isBannedSameFingerMove(
+            prevContext.finger,
+            prevContext.midi,
+            finger,
+            note.midi,
+            null,
+            note.authoredFinger,
+          );
+        if (bannedBySeed) {
+          continue;
+        }
+
+        const cost = seedIndex0Cost(args, note, finger, inMlRepeatContext);
+        const hist = new Map<number, Finger>();
+        if (recurringSet.has(note.midi)) {
+          hist.set(note.midi, finger);
+        }
+        seeds.push({
+          cost,
+          finger,
+          prev: null,
+          firstFingerByMidi: hist,
+        });
+      }
+
+      if (seeds.length === 0 && prevContext !== undefined) {
+        for (const finger of allowed) {
+          const cost = seedIndex0Cost(args, note, finger, inMlRepeatContext);
+          const hist = new Map<number, Finger>();
+          if (recurringSet.has(note.midi)) {
+            hist.set(note.midi, finger);
+          }
+          seeds.push({
+            cost,
+            finger,
+            prev: null,
+            firstFingerByMidi: hist,
+          });
+        }
+      }
+
+      beam = pruneByFinger(seeds);
+      continue;
+    }
+
+    const expandFinger = (
+      finger: Finger,
+      allowSameFinger: boolean,
+      anchorByPrev: Map<BeamPathCell, Finger | null>,
+      hardLockRepeat: boolean,
+    ): BeamPathCell[] => {
+      const next: BeamPathCell[] = [];
+      const local = noteLocalAiCost(args, index, finger, inMlRepeatContext);
+
+      for (const prev of beam) {
+        const fPrev = prev.finger;
+
+        if (
+          !allowSameFinger &&
+          isBannedSameFingerMove(
+            fPrev,
+            notes[index - 1].midi,
+            finger,
+            note.midi,
+            notes[index - 1].authoredFinger,
+            note.authoredFinger,
+          )
+        ) {
+          continue;
+        }
+
+        const anchorFinger = anchorByPrev.get(prev) ?? null;
+        let repeatPitchPenalty = 0;
+        if (inShortRepeatRun && anchorFinger !== null && finger !== anchorFinger) {
+          if (hardLockRepeat) {
+            continue;
+          }
+          repeatPitchPenalty = REPEAT_PITCH_FINGER_MISMATCH;
+        }
+
+        const transition = transitionCost(
+          hand,
+          fPrev,
+          notes[index - 1].midi,
+          finger,
+          note.midi,
+        );
+
+        let returningPenalty = 0;
+        if (
+          note.authoredFinger === null &&
+          prev.firstFingerByMidi.has(note.midi) &&
+          prev.firstFingerByMidi.get(note.midi) !== finger &&
+          !repeatFollow.active
+        ) {
+          returningPenalty = RETURNING_PITCH_FINGER_MISMATCH;
+        }
+
+        const total =
+          prev.cost +
+          transition +
+          local +
+          returningPenalty +
+          repeatPitchPenalty;
+
+        const nextHist = copyFirstFingerMap(prev.firstFingerByMidi);
+        if (recurringSet.has(note.midi) && !nextHist.has(note.midi)) {
+          nextHist.set(note.midi, finger);
+        }
+
+        next.push({
+          cost: total,
+          finger,
+          prev,
+          firstFingerByMidi: nextHist,
+        });
+      }
+
+      return next;
+    };
+
+    const runRootAuthored = inShortRepeatRun
+      ? runRootAuthoredAnchor(notes, index, repeatGapDivisions)
+      : null;
+    const anchorByPrev = new Map<BeamPathCell, Finger | null>();
+    if (inShortRepeatRun && anchorNote !== null) {
+      for (const prev of beam) {
+        anchorByPrev.set(
+          prev,
+          runRootAuthored ??
+            anchorNote.authoredFinger ??
+            beamFingerAtIndex(prev, repeatFollow.anchorIndex!),
+        );
+      }
+    }
+    const hardLockRepeat =
+      runRootAuthored !== null &&
+      inShortRepeatRun &&
+      allowsRunRootHardLock(hand, notes, index);
+
+    const candidates: BeamPathCell[] = [];
+    for (const finger of allowed) {
+      let fingerCandidates = expandFinger(finger, false, anchorByPrev, hardLockRepeat);
+      if (fingerCandidates.length === 0) {
+        fingerCandidates = expandFinger(finger, true, anchorByPrev, hardLockRepeat);
+      }
+      candidates.push(...fingerCandidates);
+    }
+    beam = pruneByFinger(candidates);
+  }
+
+  if (beam.length === 0) {
+    return allowedFingers(notes[0]).slice(0, notes.length).map(() => 1 as Finger);
+  }
+
+  beam.sort((a, b) => {
+    if (a.cost !== b.cost) {
+      return a.cost - b.cost;
+    }
+    if (a.finger !== b.finger) {
+      return a.finger - b.finger;
+    }
+    return (a.prev?.finger ?? 0) - (b.prev?.finger ?? 0);
+  });
+
+  return materializeBeamPath(beam[0]);
+}
+
+/** Test hook: run a specific phrase solve mode with the shared cost model. */
+export function solvePhraseWithMode(
+  mode: PhraseSolveMode,
+  notes: NoteEvent[],
+  hand: Hand,
+  divisionsPerQuarter?: number,
+  mlCostWeight = 0,
+  prevContext?: PhraseSeedContext,
+  startHome?: Record<Finger, number>,
+  repeatFinger?: Finger,
+): Finger[] {
+  const repeatGapDivisions =
+    divisionsPerQuarter !== undefined
+      ? REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS * divisionsPerQuarter
+      : REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS;
+
+  const args: PhraseSolveArgs = {
+    notes,
+    hand,
+    startHome,
+    repeatFinger,
+    repeatGapDivisions,
+    mlCosts: [],
+    mlCostWeight,
+    prevContext,
+  };
+
+  switch (mode) {
+    case 'collapsed':
+      return solvePhraseCollapsedDp(args);
+    case 'exact':
+      return solvePhraseExactHistoryDp(args);
+    case 'beam':
+      return solvePhraseBeamSearch(args);
+  }
+}
+
+export async function fingerPhrase(
+  notes: NoteEvent[],
+  hand: Hand,
+  /**
+   * Dead parameter kept only for positional compatibility (many callers pass
+   * later arguments). The hand-span preset never fed any cost term. See
+   * PredictFingeringOptions.spanScale for the retained public routing.
+   */
+  _spanScale?: number,
+  startHome?: Record<Finger, number>,
+  repeatFinger?: Finger,
+  divisionsPerQuarter?: number,
+  mlCostWeight = ML_COST_WEIGHT,
+  prevContext?: PhraseSeedContext,
+): Promise<Finger[]> {
+  if (notes.length === 0) {
+    return [];
+  }
+
+  // Same legacy fallback as segmentIntoPhrases, where no divisions info means
+  // the historical 480-division window.
+  const repeatGapDivisions =
+    divisionsPerQuarter !== undefined
+      ? REPEAT_PITCH_MAX_ONSET_GAP_QUARTERS * divisionsPerQuarter
+      : REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS;
+
+  const mlCosts =
+    mlCostWeight > 0 ? await getMLFingerCosts(notes, hand) : [];
+
+  const args: PhraseSolveArgs = {
+    notes,
+    hand,
+    startHome,
+    repeatFinger,
+    repeatGapDivisions,
+    mlCosts,
+    mlCostWeight,
+    prevContext,
+  };
+
+  const mode = choosePhraseSolveMode(notes);
+  switch (mode) {
+    case 'collapsed':
+      return solvePhraseCollapsedDp(args);
+    case 'exact':
+      return solvePhraseExactHistoryDp(args);
+    case 'beam':
+      return solvePhraseBeamSearch(args);
+  }
 }
 
 function chordIdealFingerGap(midiSpan: number): number {
