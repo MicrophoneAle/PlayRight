@@ -340,9 +340,11 @@ export async function fetchPublicScoreLibrary(
     return null;
   }
 
+  // List UI only needs identity + XML metrics. Omit user_id (Clerk ids are not
+  // shown) and manual_fingerings (applied later via fetchScoreById on open).
   const { data, error } = await supabase
     .from('scores')
-    .select('id, title, created_at, raw_xml, user_id, is_public')
+    .select('id, title, created_at, raw_xml, is_public')
     .eq('is_public', true)
     .order('title', { ascending: true });
 

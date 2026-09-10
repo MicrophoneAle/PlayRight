@@ -156,7 +156,7 @@ Clerk and Supabase are optional for local practice. You can import a file and pr
 
 1. Create a `scores` table with `id`, `title`, `raw_xml`, `user_id`, and `created_at`.
 2. Enable [Clerk third-party auth](https://supabase.com/docs/guides/auth/third-party/clerk) in the Supabase dashboard.
-3. Run `supabase/scores_rls.sql` in the SQL editor to apply row-level security (includes public-score SELECT).
+3. Run `supabase/scores_rls.sql` in the SQL editor to apply row-level security (includes public-score SELECT). Clients cannot set or change `is_public`; curate the public library with SQL Editor / service_role (`update scores set is_public = true where id = '...'`).
 4. Run `supabase/manual_fingerings.sql` to persist per-score manual fingering overrides.
 5. Optionally run `supabase/public_scores.sql` for the public-score index (column is also added by `scores_rls.sql`).
 

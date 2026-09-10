@@ -1,8 +1,12 @@
--- Public curated scores (readable by anyone, writable only by the owner).
+-- Public curated scores (readable by anyone; is_public is not client-writable).
 -- Run in Supabase SQL Editor after scores_rls.sql and manual_fingerings.sql.
 --
 -- is_public: when true, SELECT is allowed for anon + authenticated via
--- scores_select_public. INSERT/UPDATE/DELETE remain owner-only.
+-- scores_select_public. Clients cannot set/change is_public (see
+-- scores_preserve_is_public in scores_rls.sql). Publish/unpublish out-of-band:
+--   update public.scores set is_public = true where id = '...';
+-- Owner UPDATE of other columns (e.g. manual_fingerings) remains allowed;
+-- owner DELETE of public rows is blocked (private deletes only).
 
 alter table public.scores
   add column if not exists is_public boolean not null default false;
