@@ -134,6 +134,9 @@ test.describe('onboarding tutorial', () => {
   }) => {
     await page.goto('/');
     await expect(dialog(page)).toBeVisible();
+    // scopeAnchorX reads one-hand letter labels; two-hand is the app default.
+    await page.waitForFunction(() => Boolean(window.__playrightE2E));
+    await page.evaluate(() => window.__playrightE2E!.setEngineMode('one-hand'));
 
     const anchorBefore = await scopeAnchorX(page);
 
