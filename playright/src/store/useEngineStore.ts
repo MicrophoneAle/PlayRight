@@ -162,6 +162,64 @@ function stopFingeringProgramSession(): void {
 }
 
 /**
+ * Bumped on every {@link loadScript} / {@link clearScript}. Async re-parse and
+ * re-finger paths capture this before awaiting and refuse to write if it
+ * changed, so a slow ONNX pass cannot overwrite a newly loaded score (or graft
+ * its fingerings onto another scoreId).
+ *
+ * Why a generation counter rather than rawXml / script / scoreId alone:
+ * - `scoreId` is null for unsaved imports, so two local loads are indistinguishable.
+ * - `rawXml` compares by value: identical MusicXML under two scoreIds would
+ *   look "current" and still corrupt.
+ * - `script` reference works for applyFingeringSettings callers but
+ *   reprocessScriptFromRaw builds a fresh script from rawXml and never holds
+ *   the post-load script ref.
+ * A monotonic generation covers all three cases. In-flight ONNX work is not
+ * cancelled (ORT has no AbortSignal here); its result is discarded. Settings
+ * that the UI already applied synchronously (autoFingering, handSpan,
+ * overrideScoreFingerings) stay as the user left them — only the computed
+ * script/timing patch is skipped, so there is no stuck spinner (none of these
+ * paths show one) and no pending persist from the discarded result (persists
+ * fire at call time with the then-current scoreId).
+ */
+let scriptGeneration = 0;
+
+function bumpScriptGeneration(): void {
+  scriptGeneration += 1;
+}
+
+function captureScriptGeneration(): number {
+  return scriptGeneration;
+}
+
+function isScriptGenerationCurrent(generation: number): boolean {
+  return generation === scriptGeneration;
+}
+
+/**
+ * Run an async script recompute and apply its result only if the loaded score
+ * has not changed since `generation` was captured. Future async paths should
+ * go through this helper rather than ad-hoc `.then` guards.
+ */
+function commitScriptAsyncResult<T>(
+  generation: number,
+  work: Promise<T>,
+  apply: (result: T) => void,
+): void {
+  void work.then((result) => {
+    if (!isScriptGenerationCurrent(generation)) {
+      return;
+    }
+    apply(result);
+  });
+}
+
+/** Test-only: reset the generation counter between suites. */
+export function resetScriptGenerationForTests(): void {
+  scriptGeneration = 0;
+}
+
+/**
  * Precedence between "preserve the reading position" and
  * "skip forward to the first incomplete step".
  *
@@ -510,6 +568,7 @@ export const useEngineStore = create<EngineState>((set) => {
   ...emptyPracticeScoring(),
   actions: {
     loadScript: (script, rawXml, title, library, scoreTiming, playbackOrder) => {
+      bumpScriptGeneration();
       stopPlaybackSession();
       if (useEngineStore.getState().fingeringMode === 'program') {
         stopFingeringProgramSession();
@@ -540,6 +599,7 @@ export const useEngineStore = create<EngineState>((set) => {
       });
     },
     clearScript: () => {
+      bumpScriptGeneration();
       set({
         script: null,
         rawXml: null,
@@ -569,28 +629,35 @@ export const useEngineStore = create<EngineState>((set) => {
         [fingeringKey(onset, hand, midi)]: finger,
       };
 
+      // Persist against the score that is current NOW. A later loadScript must
+      // not receive this map via a stale reprocess commit.
       persistManualFingerings(state.scoreId, manualFingerings, userId);
 
-      void reprocessScriptFromRaw(
-        state.rawXml,
-        manualFingerings,
-        state.autoFingering,
-        state.handSpan,
-        state.overrideScoreFingerings,
-      ).then((reprocessed) => {
-        if (!reprocessed) {
-          set({ manualFingerings });
-          return;
-        }
-
-        set({
+      const generation = captureScriptGeneration();
+      commitScriptAsyncResult(
+        generation,
+        reprocessScriptFromRaw(
+          state.rawXml,
           manualFingerings,
-          script: reprocessed.script,
-          scoreTiming: reprocessed.scoreTiming,
-          playbackOrder: reprocessed.playbackOrder,
-          totalSteps: reprocessed.script.length,
-        });
-      });
+          state.autoFingering,
+          state.handSpan,
+          state.overrideScoreFingerings,
+        ),
+        (reprocessed) => {
+          if (!reprocessed) {
+            set({ manualFingerings });
+            return;
+          }
+
+          set({
+            manualFingerings,
+            script: reprocessed.script,
+            scoreTiming: reprocessed.scoreTiming,
+            playbackOrder: reprocessed.playbackOrder,
+            totalSteps: reprocessed.script.length,
+          });
+        },
+      );
     },
     setManualFingerInProgram: (onset, hand, midi, finger, physicalHand, userId, graceIndex) => {
       set((state) => {
@@ -664,26 +731,31 @@ export const useEngineStore = create<EngineState>((set) => {
 
       persistManualFingerings(state.scoreId, manualFingerings, userId);
 
-      void reprocessScriptFromRaw(
-        state.rawXml,
-        manualFingerings,
-        state.autoFingering,
-        state.handSpan,
-        state.overrideScoreFingerings,
-      ).then((reprocessed) => {
-        if (!reprocessed) {
-          set({ manualFingerings });
-          return;
-        }
-
-        set({
+      const generation = captureScriptGeneration();
+      commitScriptAsyncResult(
+        generation,
+        reprocessScriptFromRaw(
+          state.rawXml,
           manualFingerings,
-          script: reprocessed.script,
-          scoreTiming: reprocessed.scoreTiming,
-          playbackOrder: reprocessed.playbackOrder,
-          totalSteps: reprocessed.script.length,
-        });
-      });
+          state.autoFingering,
+          state.handSpan,
+          state.overrideScoreFingerings,
+        ),
+        (reprocessed) => {
+          if (!reprocessed) {
+            set({ manualFingerings });
+            return;
+          }
+
+          set({
+            manualFingerings,
+            script: reprocessed.script,
+            scoreTiming: reprocessed.scoreTiming,
+            playbackOrder: reprocessed.playbackOrder,
+            totalSteps: reprocessed.script.length,
+          });
+        },
+      );
     },
     setFingeringMode: (mode) => {
       const prevMode = useEngineStore.getState().fingeringMode;
@@ -793,27 +865,31 @@ export const useEngineStore = create<EngineState>((set) => {
       // Apply the setting immediately so UI/tests do not wait on ML recompute.
       set({ autoFingering: enabled });
       const state = useEngineStore.getState();
-      void (async () => {
-        const script = state.script
-          ? await applyFingeringSettings(
-              state.script,
-              enabled,
-              state.handSpan,
-              state.overrideScoreFingerings,
-              state.scoreTiming?.divisionsPerQuarter,
-            )
-          : null;
-        surfaceMlFingeringFallbackWarning(enabled);
-
-        if (!script) {
-          return;
-        }
-        // Drop stale recomputes if the user toggled again while ML was busy.
-        if (useEngineStore.getState().autoFingering !== enabled) {
-          return;
-        }
-        set({ script });
-      })();
+      if (!state.script) {
+        return;
+      }
+      const generation = captureScriptGeneration();
+      const scriptRef = state.script;
+      commitScriptAsyncResult(
+        generation,
+        applyFingeringSettings(
+          scriptRef,
+          enabled,
+          state.handSpan,
+          state.overrideScoreFingerings,
+          state.scoreTiming?.divisionsPerQuarter,
+        ).then((script) => {
+          surfaceMlFingeringFallbackWarning(enabled);
+          return script;
+        }),
+        (script) => {
+          // Drop stale recomputes if the user toggled again while ML was busy.
+          if (useEngineStore.getState().autoFingering !== enabled) {
+            return;
+          }
+          set({ script });
+        },
+      );
     },
     setHandSpan: (span) => {
       window.localStorage.setItem(HAND_SPAN_STORAGE_KEY, String(span));
@@ -821,26 +897,30 @@ export const useEngineStore = create<EngineState>((set) => {
       // and used to leave handSpan stuck at the previous preset until the await finished.
       set({ handSpan: span });
       const state = useEngineStore.getState();
-      void (async () => {
-        const script = state.script
-          ? await applyFingeringSettings(
-              state.script,
-              state.autoFingering,
-              span,
-              state.overrideScoreFingerings,
-              state.scoreTiming?.divisionsPerQuarter,
-            )
-          : null;
-        surfaceMlFingeringFallbackWarning(state.autoFingering);
-
-        if (!script) {
-          return;
-        }
-        if (useEngineStore.getState().handSpan !== span) {
-          return;
-        }
-        set({ script });
-      })();
+      if (!state.script) {
+        return;
+      }
+      const generation = captureScriptGeneration();
+      const scriptRef = state.script;
+      commitScriptAsyncResult(
+        generation,
+        applyFingeringSettings(
+          scriptRef,
+          state.autoFingering,
+          span,
+          state.overrideScoreFingerings,
+          state.scoreTiming?.divisionsPerQuarter,
+        ).then((script) => {
+          surfaceMlFingeringFallbackWarning(state.autoFingering);
+          return script;
+        }),
+        (script) => {
+          if (useEngineStore.getState().handSpan !== span) {
+            return;
+          }
+          set({ script });
+        },
+      );
     },
     setScoringEnabled: (enabled) => {
       window.localStorage.setItem(SCORING_STORAGE_KEY, enabled ? 'true' : 'false');
@@ -856,46 +936,56 @@ export const useEngineStore = create<EngineState>((set) => {
         OVERRIDE_SCORE_FINGERINGS_STORAGE_KEY,
         enabled ? 'true' : 'false',
       );
+      // Apply immediately (same pattern as autoFingering / handSpan) so a
+      // discarded stale reprocess cannot leave the toggle half-applied.
+      set({ overrideScoreFingerings: enabled });
       const state = useEngineStore.getState();
-      const overrideScoreFingerings = enabled;
+      const generation = captureScriptGeneration();
 
-      void reprocessScriptFromRaw(
-        state.rawXml,
-        state.manualFingerings,
-        state.autoFingering,
-        state.handSpan,
-        overrideScoreFingerings,
-      ).then((reprocessed) => {
-        if (reprocessed) {
-          set({
-            overrideScoreFingerings,
-            script: reprocessed.script,
-            scoreTiming: reprocessed.scoreTiming,
-            playbackOrder: reprocessed.playbackOrder,
-            totalSteps: reprocessed.script.length,
-          });
-          return;
-        }
+      commitScriptAsyncResult(
+        generation,
+        reprocessScriptFromRaw(
+          state.rawXml,
+          state.manualFingerings,
+          state.autoFingering,
+          state.handSpan,
+          enabled,
+        ),
+        (reprocessed) => {
+          if (reprocessed) {
+            set({
+              script: reprocessed.script,
+              scoreTiming: reprocessed.scoreTiming,
+              playbackOrder: reprocessed.playbackOrder,
+              totalSteps: reprocessed.script.length,
+            });
+            return;
+          }
 
-        void (async () => {
-          const script = state.script
-            ? await applyFingeringSettings(
-                state.script,
-                state.autoFingering,
-                state.handSpan,
-                overrideScoreFingerings,
-                state.scoreTiming?.divisionsPerQuarter,
-              )
-            : null;
-          surfaceMlFingeringFallbackWarning(state.autoFingering);
-
-          set(
-            script
-              ? { overrideScoreFingerings, script }
-              : { overrideScoreFingerings },
+          if (!state.script) {
+            return;
+          }
+          const scriptRef = state.script;
+          // Nested await: re-capture is unnecessary — commitScriptAsyncResult
+          // already confirmed `generation` is current; check again after this await.
+          commitScriptAsyncResult(
+            generation,
+            applyFingeringSettings(
+              scriptRef,
+              state.autoFingering,
+              state.handSpan,
+              enabled,
+              state.scoreTiming?.divisionsPerQuarter,
+            ).then((script) => {
+              surfaceMlFingeringFallbackWarning(state.autoFingering);
+              return script;
+            }),
+            (script) => {
+              set({ script });
+            },
           );
-        })();
-      });
+        },
+      );
     },
     cycleShiftMode: (direction) => {
       set((state) => ({
