@@ -136,7 +136,25 @@ vi.mock('tone', () => {
     Sampler: H.FakeSampler,
     PolySynth: FakePolySynth,
     Synth: class {},
-    Time: (v: unknown) => ({ toSeconds: () => (typeof v === 'number' ? v : 0.5) }),
+    Time: (v: unknown) => ({
+      toSeconds: () => {
+        // Mirror Tone TimeBase: /^(\d+)i$/ → ticks; anything else with a
+        // trailing "i" falls through to parseFloat (SECONDS). A constant
+        // 0.5 mock hid the fractional-duration bug entirely.
+        if (typeof v === 'number') {
+          return v;
+        }
+        const raw = String(v).trim();
+        const tickMatch = /^(\d+)i$/i.exec(raw);
+        if (tickMatch) {
+          const ticks = Number.parseInt(tickMatch[1]!, 10);
+          const ppq = 192;
+          const bpm = 120;
+          return ticks / ppq / (bpm / 60);
+        }
+        return Number.parseFloat(raw);
+      },
+    }),
     getTransport: () => ({ PPQ: 480, bpm: { value: 120 } }),
     getDraw: () => ({ schedule: vi.fn() }),
   };
@@ -202,6 +220,19 @@ describe('AudioEngine.releaseAll on scheduled play-mode voices', () => {
     engine.releaseAll();
     expect(sampler.releaseAllCalls).toEqual([H.ctx.currentTime]);
     expect(stoppedAt(sampler.allSources, H.ctx.currentTime)).toBe(1);
+  });
+
+  it('parses integer tick durations as musical seconds, not raw parseFloat seconds', () => {
+    const { engine, sampler } = makeEngine();
+    const attack = 101;
+
+    // Production path after the round/clamp fix.
+    engine.schedulePlayedNote(60, '185i', attack);
+    expect(sampler.allSources[0].stops[0]).toBeCloseTo(attack + 185 / 192 / 2, 5);
+
+    // The unrounded emission Tone mis-reads as 185.28 seconds.
+    engine.schedulePlayedNote(64, '185.28i', attack);
+    expect(sampler.allSources[1].stops[0]).toBeCloseTo(attack + 185.28, 5);
   });
 
   it('does not accumulate voice references across a long run', () => {

@@ -130,6 +130,28 @@ describe('playbackTiming', () => {
     expect(quarterNotesToTickDuration(tripletEighth, ppq)).toBe('64i');
   });
 
+  // Tone's tick regexp is /^(\d+)i$/ — fractional strings fall through to
+  // parseFloat and are read as SECONDS (TimeBase.valueOf). A gapped quarter
+  // at PPQ 192 is 0.965*192 = 185.28; the unrounded emitter produced
+  // "185.28i" → 185.28s release → voices never damped. These assertions fail
+  // against that unrounded form (Number(slice) tests cannot catch it).
+  it('emits integer-only tick durations for gapped notes (Tone /^(\\d+)i$/)', () => {
+    const ppq = 192;
+    const gappedQuarter = 1 - articulationGapQuarterNotes(1);
+    expect(gappedQuarter).toBeCloseTo(0.965, 5);
+    expect(quartersToTicks(gappedQuarter, ppq)).toBeCloseTo(185.28, 5);
+
+    const duration = quarterNotesToTickDuration(gappedQuarter, ppq);
+    expect(duration).toMatch(/^(\d+)i$/);
+    expect(duration).toBe('185i');
+    expect(duration).not.toContain('.');
+  });
+
+  it('clamps near-zero positive durations to one tick', () => {
+    expect(quarterNotesToTickDuration(1 / 1e9, 192)).toBe('1i');
+    expect(quarterNotesToTickDuration(0, 192)).toBe('0i');
+  });
+
   it('scales articulation gaps by note length with min and max clamps', () => {
     expect(articulationGapQuarterNotes(0.25)).toBe(
       PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,

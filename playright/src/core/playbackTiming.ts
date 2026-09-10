@@ -661,7 +661,13 @@ export function quarterNotesToTickDuration(
     return '0i';
   }
 
-  return `${quartersToTicks(quarterNotes, ppq)}i`;
+  // Tone's tick expression is /^(\d+)i$/ (integer only). A fractional string
+  // like "185.28i" fails that match and falls through to parseFloat → SECONDS
+  // (TimeBase.valueOf), so the note is never released for ~185s and voices
+  // pile up until pause/releaseAll. Round and keep at least one tick so a
+  // near-zero positive duration still schedules a real release.
+  const ticks = Math.max(1, Math.round(quartersToTicks(quarterNotes, ppq)));
+  return `${ticks}i`;
 }
 
 function playbackNoteKey(stepIndex: number, hand: Hand, midi: number): string {
