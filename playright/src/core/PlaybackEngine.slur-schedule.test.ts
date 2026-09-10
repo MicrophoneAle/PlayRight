@@ -45,6 +45,26 @@ import type { ParseMusicXmlResult, PlaybackScript } from '../types/index.ts';
 const PPQ = 480;
 const GRACE_NOTE_DURATION_QUARTERS = 1 / 8;
 
+/**
+ * Matches `quarterNotesToTickDuration`: Tone only accepts integer `"Ni"`, so
+ * fractional quarters are rounded (and clamped to ≥1 tick). Comparing
+ * `durationTicks / PPQ` with `toBeCloseTo(..., 6)` fails on values like
+ * 0.98 → 470 ticks → 0.979166… after the round.
+ */
+function expectedDurationTicks(quarters: number): number {
+  if (quarters <= 0) {
+    return 0;
+  }
+  return Math.max(1, Math.round(quarters * PPQ));
+}
+
+function expectDurationMatchesQuarters(
+  durationTicks: number,
+  expectedQuarters: number,
+): void {
+  expect(durationTicks).toBe(expectedDurationTicks(expectedQuarters));
+}
+
 interface AudioRecord {
   tick: number;
   midi: number;
@@ -273,7 +293,7 @@ describe('S1 slur schedule integration', () => {
           (candidate) => candidate.tick === attackTick && candidate.midi === note.midi,
         );
         expect(record).toBeDefined();
-        expect(record!.durationTicks / PPQ).toBeCloseTo(expectedQuarters, 6);
+        expectDurationMatchesQuarters(record!.durationTicks, expectedQuarters);
       }
     }
 
@@ -366,7 +386,7 @@ describe('S1 slur schedule integration', () => {
           (candidate) => candidate.tick === attackTick && candidate.midi === note.midi,
         );
         expect(record).toBeDefined();
-        expect(record!.durationTicks / PPQ).toBeCloseTo(expectedQuarters, 6);
+        expectDurationMatchesQuarters(record!.durationTicks, expectedQuarters);
         stopNotesChecked += 1;
         stopNoteDurations.push({
           measure: step.measureNumber,
@@ -552,16 +572,16 @@ describe('S1 slur schedule integration', () => {
     // would read 480 ticks and FAIL. If slur suppression did not fire at
     // all, it would read 463.2 and FAIL.
     expect(c5Records[0].tick).toBe(7 * PPQ);
-    expect(c5Records[0].durationTicks / PPQ).toBeCloseTo(
+    expectDurationMatchesQuarters(
+      c5Records[0].durationTicks,
       1 - PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
-      6,
     );
 
     // On pass 2 (tick 15q) no boundary follows, so the slur connects into m3
     // at the FULL written length. The pre-S1 value was 0.965q (gap), which
     // must FAIL if seen.
     expect(c5Records[1].tick).toBe(15 * PPQ);
-    expect(c5Records[1].durationTicks / PPQ).toBeCloseTo(1, 6);
+    expectDurationMatchesQuarters(c5Records[1].durationTicks, 1);
 
     // The boundary release-all fired exactly once, at the jump target attack.
     expect(boundaries).toHaveLength(1);
@@ -570,7 +590,7 @@ describe('S1 slur schedule integration', () => {
     // The slur's stop note (m3 first, D4=62) resumes its own gap of 0.965q.
     const d4M3 = audio.find((record) => record.tick === 16 * PPQ && record.midi === 62);
     expect(d4M3).toBeDefined();
-    expect(d4M3!.durationTicks / PPQ).toBeCloseTo(0.965, 6);
+    expectDurationMatchesQuarters(d4M3!.durationTicks, 0.965);
   });
 
   it('river-flows-in-you: grace-window trim yields identical durations whether or not the pre-grace note is slurred (real grace data)', async () => {
@@ -680,9 +700,9 @@ describe('S1 slur schedule integration', () => {
       // full written duration and this equality FAILS.
       const expectedTrimmedQuarters =
         candidate.graceWindowStartQuarters - candidate.attackQuarters;
-      expect(baselineRecord!.durationTicks / PPQ).toBeCloseTo(expectedTrimmedQuarters, 6);
-      expect(flaggedRecord!.durationTicks / PPQ).toBeCloseTo(expectedTrimmedQuarters, 6);
-      expect(flaggedRecord!.durationTicks).toBeCloseTo(baselineRecord!.durationTicks, 6);
+      expectDurationMatchesQuarters(baselineRecord!.durationTicks, expectedTrimmedQuarters);
+      expectDurationMatchesQuarters(flaggedRecord!.durationTicks, expectedTrimmedQuarters);
+      expect(flaggedRecord!.durationTicks).toBe(baselineRecord!.durationTicks);
       trimmedComparisons += 1;
     }
     expect(trimmedComparisons).toBe(candidates.length);

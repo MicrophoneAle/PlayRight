@@ -33,7 +33,13 @@ const GraceNoteInfoSchema = z.object({
 const StepOrderSchema = z.object({
   order: z.number().int().min(0),
   onset: z.number().int().min(0),
-  measureNumber: z.number().int().min(1),
+  // 0 is the standard MusicXML anacrusis / pickup encoding
+  // (`<measure number="0" implicit="yes">`, MuseScore/Finale). Downstream
+  // consumers treat measureNumber as an opaque label (sheet sync already
+  // matches 0; repeat resolution keys by number and walks by document index),
+  // so allowing 0 is safe. Non-numeric numbers like "12a" are coerced by the
+  // normalizer before this schema runs and are out of scope here.
+  measureNumber: z.number().int().min(0),
   notes: z.array(ScriptNoteSchema),
   graceBefore: z.array(GraceNoteInfoSchema).optional(),
 });
