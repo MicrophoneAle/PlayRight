@@ -2090,6 +2090,118 @@ export function solvePhraseWithMode(
   }
 }
 
+/**
+ * Beam can miss the collapsed path's optimum (non-nested prune). When that
+ * happens the legacy collapsed DP — still fast — is often cheaper under the
+ * same cost model. Take the cheaper of the two.
+ */
+function solvePhraseBeamWithCollapsedGuard(args: PhraseSolveArgs): Finger[] {
+  const beam = solvePhraseBeamSearch(args);
+  const collapsed = solvePhraseCollapsedDp(args);
+  const beamCost = scorePhraseFingers(args, beam);
+  const collapsedCost = scorePhraseFingers(args, collapsed);
+  if (collapsedCost < beamCost - 1e-9) {
+    return collapsed;
+  }
+  return beam;
+}
+
+/** Path cost under the same terms the hybrid solvers accumulate. */
+function scorePhraseFingers(args: PhraseSolveArgs, fingers: Finger[]): number {
+  const {
+    notes,
+    hand,
+    startHome,
+    repeatFinger,
+    repeatGapDivisions,
+    mlCosts,
+    mlCostWeight,
+    prevContext,
+  } = args;
+
+  if (fingers.length !== notes.length || notes.length === 0) {
+    return Infinity;
+  }
+
+  let cost = 0;
+  const firstFingerByMidi = new Map<number, Finger>();
+
+  for (let index = 0; index < notes.length; index += 1) {
+    const note = notes[index];
+    const finger = fingers[index];
+    const repeatFollow = shortSamePitchFollow(notes, index, repeatGapDivisions);
+    const inShortRepeatRun =
+      repeatFollow.active &&
+      repeatFollow.anchorIndex !== null &&
+      note.authoredFinger === null &&
+      samePitchRunLength(notes, index, repeatGapDivisions) <=
+        REPEAT_PITCH_RUN_MAX_LENGTH;
+    const inMlRepeatContext = isInShortRepeatRunContext(
+      notes,
+      index,
+      repeatGapDivisions,
+    );
+    const aiCost =
+      mlCosts.length > 0 && inMlRepeatContext
+        ? mlCosts[index][finger - 1] * mlCostWeight
+        : 0;
+    const local = aiCost + noteFingerCost(hand, finger, note.midi);
+
+    if (index === 0) {
+      cost += local + phraseStartCost(hand, finger, note, notes);
+      if (prevContext !== undefined && prevContext.applyFullTransition !== false) {
+        cost += transitionCost(
+          hand,
+          prevContext.finger,
+          prevContext.midi,
+          finger,
+          note.midi,
+        );
+      }
+      if (startHome !== undefined) {
+        cost += HOME_START_WEIGHT * Math.abs(startHome[finger] - notes[0].midi);
+      }
+      if (
+        repeatFinger !== undefined &&
+        note.authoredFinger === null &&
+        finger !== repeatFinger
+      ) {
+        cost += RETURNING_PITCH_FINGER_MISMATCH;
+      }
+    } else {
+      cost +=
+        local +
+        transitionCost(
+          hand,
+          fingers[index - 1],
+          notes[index - 1].midi,
+          finger,
+          note.midi,
+        );
+      if (
+        inShortRepeatRun &&
+        fingers[repeatFollow.anchorIndex!] !== finger
+      ) {
+        cost += REPEAT_PITCH_FINGER_MISMATCH;
+      }
+      if (
+        note.authoredFinger === null &&
+        firstFingerByMidi.has(note.midi) &&
+        firstFingerByMidi.get(note.midi) !== finger &&
+        !repeatFollow.active
+      ) {
+        cost += RETURNING_PITCH_FINGER_MISMATCH;
+      }
+    }
+
+    if (!firstFingerByMidi.has(note.midi)) {
+      firstFingerByMidi.set(note.midi, finger);
+    }
+  }
+
+  return cost;
+}
+
 export async function fingerPhrase(
   notes: NoteEvent[],
   hand: Hand,
@@ -2137,7 +2249,7 @@ export async function fingerPhrase(
     case 'exact':
       return solvePhraseExactHistoryDp(args);
     case 'beam':
-      return solvePhraseBeamSearch(args);
+      return solvePhraseBeamWithCollapsedGuard(args);
   }
 }
 

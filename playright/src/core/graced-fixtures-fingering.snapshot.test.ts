@@ -60,6 +60,15 @@ async function loadMxl(name: string): Promise<string> {
  * does not currently model - interval width alone does not separate an
  * arpeggio from a leap. Noted as a possible future feature, not a pending bug.
  *
+ * Re-pinned after the hybrid solver fix: expanded-history exact DP for
+ * phrases with recurring pitches (R≤3, len≤10), beam search fallback for
+ * larger phrases, and a collapsed-DP cost guard on beam-routed phrases
+ * (take the cheaper of beam vs collapsed under the same full cost model).
+ * Cost constants were not retuned. Chase RH gold held at 45/59 DP-only and
+ * ML; OOS scan remained zero across all 10 fixtures; canonicals still resolve
+ * exactly. Guard moved 50 river-flows lines vs the pre-guard hybrid pass
+ * (RH m20-m30 / m36-m42), clearing the two beam-worse-than-collapsed phrases.
+ *
  * Runs pure DP (mlCostWeight: 0) for determinism, with no ONNX model dependency.
  */
 describe('graced fixtures gold fingering snapshot', () => {

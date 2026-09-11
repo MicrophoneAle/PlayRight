@@ -6,6 +6,7 @@ import {
   fingerPhrase,
   noteFingerCost,
   phraseStartCost,
+  PHRASE_EXACT_HISTORY_MAX_R,
   REPEAT_PITCH_FINGER_MISMATCH,
   REPEAT_PITCH_MAX_ONSET_GAP_DIVISIONS,
   REPEAT_PITCH_RUN_MAX_LENGTH,
@@ -219,5 +220,34 @@ describe('hybrid Viterbi fingering solver', () => {
     }
 
     expect(matched).toBe(phrases.length);
+  });
+
+  it('beam-routed fingerPhrase takes the cheaper of beam and collapsed', async () => {
+    // Long high-R phrase forces beam (R>3 or len>10).
+    const midis = [
+      60, 62, 64, 65, 67, 69, 71, 72, 71, 69, 67, 65, 64, 62, 60, 62, 64, 65, 67,
+      69, 60, 64, 67, 72, 67, 64, 60, 62, 65, 69, 65, 62,
+    ];
+    const notes = events(midis);
+    expect(countRecurringPitches(notes)).toBeGreaterThan(PHRASE_EXACT_HISTORY_MAX_R);
+    expect(choosePhraseSolveMode(notes)).toBe('beam');
+
+    const routed = await fingerPhrase(
+      notes,
+      'R',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+    );
+    const beam = solvePhraseWithMode('beam', notes, 'R', undefined, 0);
+    const collapsed = solvePhraseWithMode('collapsed', notes, 'R', undefined, 0);
+    const routedCost = pathCost(notes, 'R', routed);
+    const bestSolo = Math.min(
+      pathCost(notes, 'R', beam),
+      pathCost(notes, 'R', collapsed),
+    );
+    expect(routedCost).toBeLessThanOrEqual(bestSolo + 1e-6);
   });
 });
