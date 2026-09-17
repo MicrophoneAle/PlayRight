@@ -1,3 +1,12 @@
+/**
+ * SECONDARY fingering smoke check (RH only, 59 notes).
+ *
+ * High-agreement RH unit check against an external annotator opening.
+ * The PRIMARY both-hands gate is `river-flows-fingering-compare.test.ts`
+ * (840 notes, Michael's river-flows-in-you manuals). Prefer river for
+ * regressions that could be LH-only or cross-hand; keep this file for a
+ * fast RH sanity pin near ~76% agreement.
+ */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +77,7 @@ function countMatches(
   return matches;
 }
 
-describe('chase RH fingering comparison', () => {
+describe('chase RH fingering comparison (SECONDARY smoke)', () => {
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const modelPath = join(__dirname, '../../public/fingering_model.onnx');
 
