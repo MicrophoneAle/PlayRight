@@ -436,7 +436,7 @@ describe('parseMusicXmlToScript', () => {
     });
   });
 
-  it('ignores orphan tie stops instead of creating an extra practice step', () => {
+  it('keeps an orphan tie-stop as a normal note and warns instead of dropping it', () => {
     const ORPHAN_TIE_STOP = `<?xml version="1.0" encoding="UTF-8"?>
 <score-partwise version="3.1">
   <part id="P1">
@@ -460,15 +460,32 @@ describe('parseMusicXmlToScript', () => {
   </part>
 </score-partwise>`;
 
-    const { script } = parseMusicXmlToScript(ORPHAN_TIE_STOP);
+    const { script, warnings } = parseMusicXmlToScript(ORPHAN_TIE_STOP);
 
-    expect(script).toHaveLength(1);
-    expect(script[0].notes).toHaveLength(1);
+    expect(script).toHaveLength(2);
     expect(script[0].notes[0]).toMatchObject({
       pitch: 'C4',
       durationDivisions: 480,
       tiedToNext: false,
     });
+    expect(script[1].notes[0]).toMatchObject({
+      pitch: 'D4',
+      durationDivisions: 480,
+    });
+    expect(script[1].notes[0].tiedToNext).toBeFalsy();
+    expect(
+      warnings.some(
+        (w) => w.includes('Tie stop for D4') && w.includes('no matching start'),
+      ),
+    ).toBe(true);
+    expect(
+      warnings.some(
+        (w) =>
+          w.includes('tie starting') &&
+          w.includes('C4') &&
+          w.includes('no matching stop'),
+      ),
+    ).toBe(true);
   });
 
   it('clears tiedToNext when a tie stop has no matching start', () => {

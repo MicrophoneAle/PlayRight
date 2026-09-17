@@ -31,6 +31,10 @@ function mapScoreFingering(fingering: number): Finger | null {
 }
 
 function voiceStreamKey(element: NormalizedNote): string {
+  // Staff is intentional: MuseScore (and others) reuse the same voice number on
+  // each staff after <backup>, so staff+voice is the stream identity for slurs
+  // and default tie lookup. Cross-staff chords and cross-voice ties are handled
+  // separately — do not drop staff from this key.
   const partPrefix = element.partCount > 1 ? `${element.partIndex}:` : '';
   return `${partPrefix}${element.staff}:${element.voice}`;
 }
@@ -58,19 +62,71 @@ function nextPlayableNote(
   return null;
 }
 
-function canFollowWithChordTone(
-  note: NormalizedNote,
-  nextNote: NormalizedNote | null,
-): boolean {
-  if (nextNote === null || !nextNote.isChord) {
-    return false;
-  }
-
-  return voiceStreamKey(note) === voiceStreamKey(nextNote);
+/**
+ * MusicXML `<chord/>` means "same onset as the immediately preceding note in
+ * document order". That is positional, not voice-scoped — cross-staff chord
+ * tones keep the tag while changing `<staff>`. Do not consult voiceStreamKey.
+ */
+function canFollowWithChordTone(nextNote: NormalizedNote | null): boolean {
+  return nextNote !== null && nextNote.isChord;
 }
 
 function tieKeyForElement(element: NormalizedNote): string {
+  // Pitch identity for ties is step+octave (not alter): MusicXML cross-measure
+  // ties often disagree on written alter after a natural/accidental while still
+  // naming the same tied pitch. Dense same-pitch polyphony is disambiguated by
+  // voiceStreamKey first and by refusing ambiguous pitch-only fallbacks.
   return `${voiceStreamKey(element)}:${element.step}:${element.octave}`;
+}
+
+function tiePitchSuffix(element: NormalizedNote): string {
+  return `${element.step}:${element.octave}`;
+}
+
+function tieKeyPartPrefix(element: NormalizedNote): string {
+  return element.partCount > 1 ? `${element.partIndex}:` : '';
+}
+
+/**
+ * Resolve an open-tie entry for a stop/continue. Strict staff:voice:pitch first;
+ * then a unique same-pitch open tie in the same part (MuseScore often reassigns
+ * voice on export). Ambiguous pitch matches are refused so dense polyphony
+ * cannot graft onto the wrong note — caller must create a normal note instead.
+ */
+function findOpenTieMatch(
+  openTies: Map<string, number>,
+  element: NormalizedNote,
+): { key: string; index: number } | null {
+  const strictKey = tieKeyForElement(element);
+  const strictIndex = openTies.get(strictKey);
+  if (strictIndex !== undefined) {
+    return { key: strictKey, index: strictIndex };
+  }
+
+  const partPrefix = tieKeyPartPrefix(element);
+  const pitchSuffix = tiePitchSuffix(element);
+  const pitchMatches: Array<{ key: string; index: number }> = [];
+
+  for (const [key, index] of openTies) {
+    if (partPrefix && !key.startsWith(partPrefix)) {
+      continue;
+    }
+    if (!key.endsWith(`:${pitchSuffix}`)) {
+      continue;
+    }
+    // Multi-part keys look like "0:1:1:C:4"; single-part like "1:1:C:4".
+    // When this element has no part prefix, skip keys that carry one.
+    if (!partPrefix && /^\d+:\d+:\d+:/.test(key)) {
+      continue;
+    }
+    pitchMatches.push({ key, index });
+  }
+
+  if (pitchMatches.length === 1) {
+    return pitchMatches[0];
+  }
+
+  return null;
 }
 
 function toCanonicalDuration(
@@ -114,10 +170,15 @@ function mergeOpenTie(
 
 function clearDanglingOpenTies(
   openTies: Map<string, number>,
-  absoluteNotes: Array<{ note: ScriptNote; onset: number }>,
+  absoluteNotes: Array<{ note: ScriptNote; onset: number; measureNumber: number }>,
+  warnings: string[],
 ): void {
   for (const tiedNoteIndex of openTies.values()) {
-    absoluteNotes[tiedNoteIndex].note.tiedToNext = false;
+    const entry = absoluteNotes[tiedNoteIndex];
+    entry.note.tiedToNext = false;
+    warnings.push(
+      `A tie starting at onset ${entry.onset} (measure ${entry.measureNumber}, ${entry.note.pitch}) has no matching stop; treating as a non-tied note.`,
+    );
   }
 
   openTies.clear();
@@ -527,7 +588,6 @@ export class MusicXMLMapper {
     let currentTime = 0;
     let chordAnchorEligible = false;
     let chordAnchorOnset = 0;
-    let chordAnchorVoiceKey: string | null = null;
     let pendingTimeAdvance = 0;
     let pendingGraceNotes: GraceNoteInfo[] = [];
     const absoluteNotes: Array<{
@@ -551,7 +611,6 @@ export class MusicXMLMapper {
 
     const invalidateChordAnchor = (): void => {
       chordAnchorEligible = false;
-      chordAnchorVoiceKey = null;
       flushPendingTimeAdvance();
     };
 
@@ -617,10 +676,12 @@ export class MusicXMLMapper {
       }
 
       const voiceKey = voiceStreamKey(element);
+      // Chord stacking is document-order positional (see canFollowWithChordTone).
+      // Do not require a matching voiceStreamKey — cross-staff <chord/> tones
+      // change staff while remaining chord siblings of the prior note.
       const effectiveIsChord =
         element.isChord &&
         chordAnchorEligible &&
-        chordAnchorVoiceKey === voiceKey &&
         (currentTime === chordAnchorOnset ||
           (pendingTimeAdvance > 0 &&
             currentTime === chordAnchorOnset + pendingTimeAdvance));
@@ -633,49 +694,68 @@ export class MusicXMLMapper {
       const tieKey = tieKeyForElement(element);
       const isTieEnd = element.isTieStop && !element.isTieStart;
       const isTieMiddle = element.isTieStop && element.isTieStart;
+      const openTieMatch =
+        element.isTieStop || element.isTieStart
+          ? findOpenTieMatch(openTies, element)
+          : null;
       const isImplicitTieContinue =
-        element.isTieStart && !element.isTieStop && openTies.has(tieKey);
+        element.isTieStart &&
+        !element.isTieStop &&
+        openTieMatch !== null &&
+        openTieMatch.key === tieKey;
 
       if (isTieEnd || isTieMiddle || isImplicitTieContinue) {
-        // Captured BEFORE merging, because mergeOpenTie may delete this tie's
-        // entry when it closes. A tie-stop merges into an earlier ScriptNote
-        // rather than creating a new one, so a slur boundary on this element
-        // must resolve to that MERGED note, never a phantom new entry, and
-        // never at all if the "tie" turns out to have no real predecessor
-        // (mergeOpenTie finds nothing to merge into).
-        const tieMergeTargetIndex = openTies.get(tieKey);
-        mergeOpenTie(openTies, tieKey, absoluteNotes, noteDuration, isTieEnd);
+        if (openTieMatch !== null) {
+          // Captured BEFORE merging, because mergeOpenTie may delete this tie's
+          // entry when it closes. A tie-stop merges into an earlier ScriptNote
+          // rather than creating a new one, so a slur boundary on this element
+          // must resolve to that MERGED note, never a phantom new entry.
+          const tieMergeTargetIndex = openTieMatch.index;
+          mergeOpenTie(
+            openTies,
+            openTieMatch.key,
+            absoluteNotes,
+            noteDuration,
+            isTieEnd,
+          );
 
-        if (tieMergeTargetIndex !== undefined) {
           // No appendToOpenSlurs here. This note isn't a new voice member
-          // but extends the already-accumulated merge target. Appending would
-          // double the merge target into the member list and, when a stop
-          // lands on this same tie-continuation, wrongly mark it legato
-          // instead of leaving it as the correctly-excluded last member.
+          // but extends the already-accumulated merge target.
           for (const slurNumber of element.slurStops) {
             closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, voiceKey, slurNumber);
           }
           for (const slurNumber of element.slurStarts) {
-            openSlur(openSlurs, openSlurNumbersByVoice, voiceKey, slurNumber, tieMergeTargetIndex);
+            openSlur(
+              openSlurs,
+              openSlurNumbersByVoice,
+              voiceKey,
+              slurNumber,
+              tieMergeTargetIndex,
+            );
           }
-        }
 
-        // Chord tie segments share the cursor advance of their anchor note.
-        if (effectiveIsChord) {
+          // Chord tie segments share the cursor advance of their anchor note.
+          if (effectiveIsChord) {
+            continue;
+          }
+
+          invalidateChordAnchor();
+
+          if (canFollowWithChordTone(nextNote)) {
+            chordAnchorEligible = true;
+            chordAnchorOnset = currentTime;
+            pendingTimeAdvance = noteDuration;
+          } else {
+            currentTime += noteDuration;
+          }
           continue;
         }
 
-        invalidateChordAnchor();
-
-        if (canFollowWithChordTone(element, nextNote)) {
-          chordAnchorEligible = true;
-          chordAnchorOnset = currentTime;
-          chordAnchorVoiceKey = voiceKey;
-          pendingTimeAdvance = noteDuration;
-        } else {
-          currentTime += noteDuration;
-        }
-        continue;
+        // Unmatched tie-stop/continue: never drop the note. Warn and fall
+        // through to create it as a normal (or tie-start) note.
+        warnings.push(
+          `Tie stop for ${element.step}${element.octave} at measure ${element.measureNumber} has no matching start; treating as a normal note.`,
+        );
       }
 
       const scriptNote = createScriptNote(
@@ -693,10 +773,6 @@ export class MusicXMLMapper {
         if (element.isTieStart) {
           registerOpenTie(openTies, tieKey, absoluteNotes, absoluteNotes.length - 1);
         }
-        // Chord siblings follow the anchor's slur membership by pure
-        // document-order position, same as ties. There is no chord-wide
-        // propagation, just the same append/stop/start sequence run for
-        // every new note.
         appendToOpenSlurs(openSlurs, openSlurNumbersByVoice, voiceKey, absoluteNotes.length - 1);
         for (const slurNumber of element.slurStops) {
           closeSlur(openSlurs, openSlurNumbersByVoice, absoluteNotes, voiceKey, slurNumber);
@@ -705,7 +781,7 @@ export class MusicXMLMapper {
           openSlur(openSlurs, openSlurNumbersByVoice, voiceKey, slurNumber, absoluteNotes.length - 1);
         }
 
-        if (!canFollowWithChordTone(element, nextNote)) {
+        if (!canFollowWithChordTone(nextNote)) {
           flushPendingTimeAdvance();
         }
       } else {
@@ -729,9 +805,8 @@ export class MusicXMLMapper {
 
         chordAnchorEligible = true;
         chordAnchorOnset = currentTime;
-        chordAnchorVoiceKey = voiceKey;
 
-        if (canFollowWithChordTone(element, nextNote)) {
+        if (canFollowWithChordTone(nextNote)) {
           pendingTimeAdvance = noteDuration;
         } else {
           currentTime += noteDuration;
@@ -740,7 +815,7 @@ export class MusicXMLMapper {
     }
 
     flushPendingTimeAdvance();
-    clearDanglingOpenTies(openTies, absoluteNotes);
+    clearDanglingOpenTies(openTies, absoluteNotes, warnings);
     clearDanglingOpenSlurs(openSlurs, absoluteNotes, warnings);
 
     return {
