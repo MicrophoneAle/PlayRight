@@ -1640,6 +1640,11 @@ function scrollContainerForPlayback(
   // restart an in-flight animation toward the same anchor, so a busy bar of
   // highlight ticks cannot make the viewport wiggle either.
   //
+  // Callers MUST clear scrollState (systemKey + lineScrollTop) when OSMD
+  // re-renders: systemKey is Id-based and can survive reflow while lineScrollTop
+  // is a pixel target from the old layout. SheetMusicDisplay.completeAfterRender
+  // does that invalidation.
+  //
   // The drift check still READS container.scrollTop, which forces a synchronous
   // layout flush of the engraved SVG (~0.75ms on a dense score). That is cheap
   // once per step but not once per press, so the caller gates entry to this

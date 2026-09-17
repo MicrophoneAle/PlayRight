@@ -248,6 +248,49 @@ test.describe('sheet sync (OSMD browser)', () => {
     await waitForHighlights(api);
   });
 
+  test('play-mode highlights survive pause then resize (OSMD re-render)', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const api = await e2e(page);
+    // Fanfare: LH wholes span later RH quarters — held notes across a key change.
+    await api.loadXml(FANFARE_XML, 'fanfare-pause-resize');
+    await waitForSheetReady(page);
+
+    await api.setPlayMode(true);
+    await api.startPlayback();
+    await expect.poll(async () => api.isPlaybackActive(), { timeout: 15_000 }).toBe(true);
+    // Advance past the first attack so a held bass note can still be sounding.
+    await expect
+      .poll(async () => api.getStepIndex(), { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    await waitForHighlights(api);
+    const litBefore = await api.countHighlightedSvgNodes();
+    expect(litBefore).toBeGreaterThan(0);
+
+    await api.pausePlayback();
+    await expect.poll(async () => api.isPlaybackPaused()).toBe(true);
+    await waitForHighlights(api);
+
+    const sizeBefore = await api.getSheetRenderedSize();
+    expect(sizeBefore).not.toBeNull();
+
+    await constrainSheetForScroll(page);
+
+    await expect
+      .poll(async () => {
+        const size = await api.getSheetRenderedSize();
+        return size?.width ?? sizeBefore!.width;
+      }, { timeout: 15_000 })
+      .toBeLessThanOrEqual(280);
+
+    // Incremental play-mode sync must repaint after SVG wipe — not short-circuit
+    // on lastPlaybackVisualKey / previouslyLit holding orphaned GraphicalNotes.
+    await expect
+      .poll(async () => api.countHighlightedSvgNodes(), { timeout: 20_000 })
+      .toBeGreaterThan(0);
+  });
+
   test('defers sheet reflow until playback stops after a mid-play resize', async ({
     page,
   }) => {
@@ -287,8 +330,11 @@ test.describe('sheet sync (OSMD browser)', () => {
       .poll(async () => api.getStepIndex(), { timeout: 20_000 })
       .toBeGreaterThan(stepWhilePending);
 
-    await api.stopPlayback();
-    await expect.poll(async () => api.isPlaybackActive()).toBe(false);
+    // Pause first: deferred reflow runs while the play session is still active
+    // (held/step highlights must be repainted on the new SVG). Stopping alone
+    // clears expectedMidiNotes and would hide the regression.
+    await api.pausePlayback();
+    await expect.poll(async () => api.isPlaybackPaused()).toBe(true);
     await expect
       .poll(async () => api.isPendingPlaybackResize(), { timeout: 15_000 })
       .toBe(false);
@@ -298,6 +344,12 @@ test.describe('sheet sync (OSMD browser)', () => {
         return size?.width ?? -1;
       }, { timeout: 15_000 })
       .toBeLessThanOrEqual(280);
+    await expect
+      .poll(async () => api.countHighlightedSvgNodes(), { timeout: 20_000 })
+      .toBeGreaterThan(0);
+
+    await api.stopPlayback();
+    await expect.poll(async () => api.isPlaybackActive()).toBe(false);
   });
 
   test('play-mode seek to a repeat second pass moves the sheet past the first-pass view', async ({

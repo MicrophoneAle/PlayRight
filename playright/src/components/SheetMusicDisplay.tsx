@@ -732,7 +732,7 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
     osmd.OnXMLRead = (xml) =>
       prepareMusicXmlForDisplay(xml, stripPedalsForDisplayRef.current);
 
-    const completeAfterRender = (rebuildIndex: boolean) => {
+    const completeAfterRender = (_rebuildIndex: boolean) => {
       osmdReadyRef.current = true;
 
       if (!cursorsEnabledRef.current) {
@@ -754,15 +754,26 @@ export function SheetMusicDisplay({ musicXml }: SheetMusicDisplayProps) {
       container.dataset.sheetRenderedWidth = String(container.clientWidth);
       container.dataset.sheetRenderedHeight = String(container.clientHeight);
 
-      const state = useEngineStore.getState();
-      const playbackRunning =
-        state.playMode && state.isPlaybackActive && !state.isPlaybackPaused;
+      // osmd.render() rebuilds the SVG from scratch (setColor is attribute-only),
+      // so every notehead is black again. Invalidate only the state that would
+      // make the next incremental play-mode sync trust pre-render paint:
+      // - highlightedNotesRef: orphaned GraphicalNotes; keeping them makes
+      //   filter(!previouslyLit) skip recoloring held notes that still sound
+      // - lastPlaybackVisualKey / lastPlaybackScrollKey: same content key would
+      //   short-circuit the sync and never repaint
+      // - scrollStateRef.lineScrollTop: pixel anchor from the old layout; systemKey
+      //   can survive reflow (MusicSystem.Id), so same-line scroll would re-use a
+      //   stale target
+      // Do NOT reset-all/recolor-all here — play mode keeps incremental diffing;
+      // we only force the next sync to treat the sheet as unlit.
+      highlightedNotesRef.current = [];
+      resetSheetMusicPlaybackVisualCache();
+      scrollStateRef.current = { systemKey: null, lineScrollTop: null };
 
-      if (rebuildIndex || playbackRunning) {
-        scheduleVisualIndexBuild();
-      } else {
-        syncPracticeVisuals();
-      }
+      // Always rebuild the visual index after render. Prior GraphicalNotes are
+      // orphaned by the new SVG; syncing against them cannot recolor the live DOM
+      // (paused resize used to skip rebuild and left highlights permanently black).
+      scheduleVisualIndexBuild();
     };
 
     const attemptRender = (rebuildIndex: boolean) => {
