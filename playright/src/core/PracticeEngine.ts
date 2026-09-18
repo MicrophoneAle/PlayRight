@@ -106,9 +106,17 @@ export class PracticeEngine {
     actions.setPracticeActive(true);
     this.pendingPieceCompletion = false;
     this.pendingFinalStepMidis.clear();
-    // Start doubles as resume-from-pause, which must keep the run's score.
+    // Start doubles as resume-from-pause, which must keep the run's score AND
+    // mid-step hit progress (hitNoteIndices / practiceGraceCursor). Decide
+    // resume before beginOrResume so a fresh beginScoringSession is not
+    // mistaken for a mid-chord resume.
+    const resumingPausedSession = this.canResumeScoringSession();
     this.beginOrResumeScoringSession();
-    this.loadCurrentStep({ alignScope: true });
+    if (resumingPausedSession) {
+      this.rearmCurrentStepPreservingHits({ alignScope: true });
+    } else {
+      this.loadCurrentStep({ alignScope: true });
+    }
   }
 
   restart(): void {
@@ -314,9 +322,14 @@ export class PracticeEngine {
     state.actions.setHasPracticeStarted(true);
     state.actions.setPracticeActive(true);
     // A finger press is also how a PAUSED two-hand run resumes, so this must
-    // not discard the score either.
+    // not discard the score or mid-step hit progress either.
+    const resumingPausedSession = this.canResumeScoringSession();
     this.beginOrResumeScoringSession();
-    this.loadCurrentStep({ alignScope: false });
+    if (resumingPausedSession) {
+      this.rearmCurrentStepPreservingHits({ alignScope: false });
+    } else {
+      this.loadCurrentStep({ alignScope: false });
+    }
     return true;
   }
 
@@ -421,10 +434,12 @@ export class PracticeEngine {
    * finalized, and still for the current script/mode/hand.
    *
    * pause() deliberately leaves the score alone, but every resume path runs
-   * through start() (Start button, space toggle) or the two-hand auto-start,
-   * both of which used to open a brand-new session and silently discard the
-   * run. hasPracticeStarted is the discriminator: pause() leaves it true,
-   * while stop() and the piece-end path clear it or publish a summary.
+   * through start() (Start button, space toggle) or the two-hand auto-start.
+   * Those paths must resume the session (not open a new one) AND rearm the
+   * current step without wiping hitNoteIndices / practiceGraceCursor - otherwise
+   * re-pressing a pre-pause correct note double-counts. hasPracticeStarted is
+   * the discriminator: pause() leaves it true, while stop() and the piece-end
+   * path clear it or publish a summary.
    */
   private canResumeScoringSession(): boolean {
     const { script, engineMode, activeHand, hasPracticeStarted, practiceSummary, practicePositionRecords } =
@@ -709,11 +724,14 @@ export class PracticeEngine {
     stepIndex: number,
     graceCursor: number | null,
     alignScope: boolean,
+    options: { preserveHits?: boolean } = {},
   ): void {
     const { engineMode, activeHand, actions } = useEngineStore.getState();
     const position = this.currentPosition(stepIndex, graceCursor);
 
-    this.hitNoteIndices.clear();
+    if (!options.preserveHits) {
+      this.hitNoteIndices.clear();
+    }
     this.expectedNotes.clear();
 
     const previousPracticeNotes = this.practiceNotesForStep;
@@ -724,6 +742,15 @@ export class PracticeEngine {
       activeHand,
     );
     this.practiceNotesForStep = playableNotes;
+    // Drop any preserved hit indices that no longer map into this position
+    // (defensive: note list length can change with mode/hand filters).
+    if (options.preserveHits) {
+      for (const index of [...this.hitNoteIndices]) {
+        if (index < 0 || index >= playableNotes.length) {
+          this.hitNoteIndices.delete(index);
+        }
+      }
+    }
     const stepMidis = playableNotes.map((note) => note.midi);
     for (const midi of stepMidis) {
       this.expectedNotes.add(midi);
@@ -740,6 +767,41 @@ export class PracticeEngine {
         alignScopeToPracticeNotes(playableNotes, previousPracticeNotes);
       }
     }
+  }
+
+  /**
+   * Resume after pause without wiping mid-step progress. pause() keeps
+   * hitNoteIndices and the store's practiceGraceCursor; loadCurrentStep used
+   * to clear both, so re-pressing an already-correct note double-counted while
+   * the scoring session (correctly) survived. Only start()/two-hand auto-start
+   * use this path when canResumeScoringSession() was true before beginOrResume.
+   */
+  private rearmCurrentStepPreservingHits(
+    options: { alignScope?: boolean } = {},
+  ): void {
+    const { alignScope = false } = options;
+    const { script, currentStepIndex, practiceGraceCursor, engineMode, activeHand } =
+      useEngineStore.getState();
+
+    if (
+      !script ||
+      currentStepIndex < 0 ||
+      currentStepIndex >= script.length ||
+      !stepHasAnyPracticeContent(script, currentStepIndex, engineMode, activeHand)
+    ) {
+      this.loadCurrentStep({ alignScope });
+      return;
+    }
+
+    // Keep practiceGraceCursor as pause left it — do not reset to
+    // firstPositionWithinStep (that would rewind a mid-grace walk).
+    this.loadPositionNotes(
+      script,
+      currentStepIndex,
+      practiceGraceCursor,
+      alignScope,
+      { preserveHits: true },
+    );
   }
 
   loadCurrentStep(options: { alignScope?: boolean; exactStep?: boolean } = {}): void {

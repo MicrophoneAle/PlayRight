@@ -128,6 +128,209 @@ describe('PracticeEngine scoring - two-hand finger input', () => {
     expect(totals()).toEqual({ correct: 2, wrong: 1 });
   });
 
+  it('does not double-count a pre-pause correct note on resume (re-press)', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(totals()).toEqual({ correct: 1, wrong: 0 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.pause();
+    engine.start();
+
+    // Re-pressing the already-hit R1 must be neutral.
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(totals()).toEqual({ correct: 1, wrong: 0 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    // Completing with the remaining note advances once and counts once.
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+    expect(useEngineStore.getState().practiceScoreablePositions).toBe(2);
+  });
+
+  it('completes a paused mid-chord when only the remaining notes are pressed', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    engine.pause();
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+    expect(records()[0].correct).toBe(true);
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
+
+  it('survives three pause/resume cycles within one incomplete chord', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      engine.pause();
+      engine.start();
+      engine.handleFingerPress({ hand: 'R', finger: 1 });
+      engine.handleFingerRelease({ hand: 'R', finger: 1 });
+      expect(totals()).toEqual({ correct: 1, wrong: 0 });
+      expect(useEngineStore.getState().currentStepIndex).toBe(0);
+    }
+
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(1);
+  });
+
+  it('resets mid-step hits on restart after a pause, while pause alone keeps the session', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(totals()).toEqual({ correct: 1, wrong: 0 });
+
+    engine.pause();
+    expect(useEngineStore.getState().hasPracticeStarted).toBe(true);
+    expect(totals()).toEqual({ correct: 1, wrong: 0 });
+
+    engine.start();
+    expect(totals()).toEqual({ correct: 1, wrong: 0 });
+
+    engine.restart();
+    expect(totals()).toEqual({ correct: 0, wrong: 0 });
+    expect(useEngineStore.getState().currentStepIndex).toBe(0);
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+  });
+
+  it('reports exact totals on a clean run with no pausing', () => {
+    makeScript(TWO_STEP_SCRIPT);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'L', finger: 1 });
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'L', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+    engine.handleFingerRelease({ hand: 'R', finger: 2 });
+
+    expect(totals()).toEqual({ correct: 3, wrong: 0 });
+    expect(useEngineStore.getState().practiceSummary).toEqual({
+      correctNotes: 3,
+      wrongNotes: 0,
+      scoreablePositions: 2,
+      completedPositions: 2,
+      longestStreak: 3,
+      navigated: false,
+    });
+  });
+
+  it('preserves the grace cursor across pause so resume does not rewind the walk', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+        graceBefore: [
+          { midi: 69, pitch: 'A4', hand: 'R', kind: 'appoggiatura', finger: 3 },
+          { midi: 71, pitch: 'B4', hand: 'R', kind: 'appoggiatura', finger: 4 },
+        ],
+      },
+    ]);
+    engine.start();
+    expect(useEngineStore.getState().practiceGraceCursor).toBe(0);
+
+    engine.handleFingerPress({ hand: 'R', finger: 3 });
+    engine.handleFingerRelease({ hand: 'R', finger: 3 });
+    expect(totals()).toEqual({ correct: 1, wrong: 0 });
+    expect(useEngineStore.getState().practiceGraceCursor).toBe(1);
+
+    engine.pause();
+    engine.start();
+    // loadCurrentStep used to call firstPositionWithinStep and rewind to 0.
+    expect(useEngineStore.getState().practiceGraceCursor).toBe(1);
+
+    engine.handleFingerPress({ hand: 'R', finger: 4 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+    expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
+  });
+
+  it('does not double-count a pre-pause main-note hit after a grace walk', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [
+          { pitch: 'C4', midi: 60, hand: 'R', finger: 1 },
+          { pitch: 'E4', midi: 64, hand: 'R', finger: 3 },
+        ],
+        graceBefore: [
+          { midi: 69, pitch: 'A4', hand: 'R', kind: 'appoggiatura', finger: 2 },
+        ],
+      },
+    ]);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 2 });
+    engine.handleFingerRelease({ hand: 'R', finger: 2 });
+    expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+
+    engine.pause();
+    engine.start();
+    expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
+
+    engine.handleFingerPress({ hand: 'R', finger: 1 });
+    engine.handleFingerRelease({ hand: 'R', finger: 1 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+
+    engine.handleFingerPress({ hand: 'R', finger: 3 });
+    expect(totals()).toEqual({ correct: 3, wrong: 0 });
+    expect(records()[1].correct).toBe(true);
+  });
+
+  it('completes a paused grace position when only the remaining grace is pressed', () => {
+    makeScript([
+      {
+        order: 0,
+        onset: 0,
+        measureNumber: 1,
+        notes: [{ pitch: 'C4', midi: 60, hand: 'R', finger: 1 }],
+        graceBefore: [
+          { midi: 69, pitch: 'A4', hand: 'R', kind: 'appoggiatura', finger: 3 },
+          { midi: 71, pitch: 'B4', hand: 'R', kind: 'appoggiatura', finger: 4 },
+        ],
+      },
+    ]);
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 3 });
+    engine.handleFingerRelease({ hand: 'R', finger: 3 });
+    engine.pause();
+    engine.start();
+
+    engine.handleFingerPress({ hand: 'R', finger: 4 });
+    expect(totals()).toEqual({ correct: 2, wrong: 0 });
+    expect(records()[0].correct).toBe(true);
+    expect(records()[1].correct).toBe(true);
+    expect(useEngineStore.getState().practiceGraceCursor).toBeNull();
+  });
+
   it('still resets the score for restart, stop, mode switch, hand switch and script change', () => {
     const scoreSomething = () => {
       engine.handleFingerPress({ hand: 'R', finger: 1 });
