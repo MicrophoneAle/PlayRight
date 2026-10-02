@@ -9,6 +9,7 @@ import {
 import type { ProgramCaptureTarget } from './practiceSteps.ts';
 import { runWithProgramStepIndexWrite } from './programStepGuard.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+import { fingerOwner, HeldPitchOwners } from './heldPitchOwners.ts';
 import type { FingerMapping } from './twoHandMapping.ts';
 import type { StepOrder } from '../types/index.ts';
 import { fingeringKey, graceFingeringKey } from '../types/index.ts';
@@ -28,7 +29,9 @@ const logProgramAdvance = (...args: unknown[]): void => {
  */
 export class FingeringProgramEngine {
   private audioEngine: AudioEngine | null = null;
-  private activeFingerSounds = new Map<string, number>();
+  /** Owners of each live voice, by finger key. See HeldPitchOwners. */
+  private heldSounds = new HeldPitchOwners();
+  /** Pitches with a live voice. There is at most one voice per pitch. */
   private soundingMidis = new Set<number>();
   private storeSubscriptionInitialized = false;
   /** Ignore accidental sheet seeks briefly after advancing. */
@@ -333,14 +336,15 @@ export class FingeringProgramEngine {
   }
 
   handleFingerRelease(mapping: FingerMapping): void {
-    const fingerKey = `${mapping.hand}:${mapping.finger}`;
-    const midi = this.activeFingerSounds.get(fingerKey);
-    if (midi === undefined) {
-      return;
-    }
+    this.releaseHeld(fingerOwner(mapping));
+  }
 
-    this.noteOff(midi);
-    this.activeFingerSounds.delete(fingerKey);
+  /** Drop `owner`'s hold; the voice stops only once no other finger holds its pitch. */
+  private releaseHeld(owner: string): void {
+    const released = this.heldSounds.release(owner);
+    if (released?.pitchFree) {
+      this.noteOff(released.midi);
+    }
   }
 
   private advanceStep(): void {
@@ -388,12 +392,19 @@ export class FingeringProgramEngine {
       return;
     }
 
+    const owner = fingerOwner(mapping);
+    // A finger whose keyup was missed still owns its old voice. Let go of it
+    // so that voice cannot outlive the key that is now pressing something else.
+    this.releaseHeld(owner);
+
+    // Program mode joins a pitch that is already sounding rather than
+    // re-striking it; the new finger simply becomes another owner.
     if (!this.soundingMidis.has(midi)) {
       engine.noteOn(midi);
       this.soundingMidis.add(midi);
     }
 
-    this.activeFingerSounds.set(`${mapping.hand}:${mapping.finger}`, midi);
+    this.heldSounds.hold(owner, midi);
   }
 
   private noteOff(midi: number): void {
@@ -410,7 +421,7 @@ export class FingeringProgramEngine {
     const engine = this.audioEngine;
     if (!engine) {
       this.soundingMidis.clear();
-      this.activeFingerSounds.clear();
+      this.heldSounds.clear();
       return;
     }
 
@@ -419,7 +430,7 @@ export class FingeringProgramEngine {
     }
 
     this.soundingMidis.clear();
-    this.activeFingerSounds.clear();
+    this.heldSounds.clear();
   }
 }
 
