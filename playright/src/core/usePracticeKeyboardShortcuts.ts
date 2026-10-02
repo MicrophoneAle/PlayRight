@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { practiceEngine } from './PracticeEngine.ts';
 import { playbackEngine } from './PlaybackEngine.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
+import { selectInputBlocked, useEngineStore } from '../store/useEngineStore.ts';
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -25,17 +25,14 @@ export function usePracticeKeyboardShortcuts(): void {
 
       const state = useEngineStore.getState();
 
-      if (state.tutorialOpen || state.keyBindingEditorOpen || state.scoreSummaryOpen) {
+      // Any open modal owns the keyboard (the library closes itself on C).
+      if (selectInputBlocked(state)) {
         return;
       }
 
       if (event.code === 'KeyC') {
         event.preventDefault();
-        state.actions.toggleScoreLibrary();
-        return;
-      }
-
-      if (state.scoreLibraryOpen) {
+        state.actions.setScoreLibraryOpen(true);
         return;
       }
 

@@ -90,6 +90,7 @@ describe('InputManager two-hand routing', () => {
   let audio: AudioEngine;
   let inputManager: InputManager | null = null;
   let onFingerPress: ReturnType<typeof vi.fn<(mapping: FingerMapping) => void>>;
+  let onFingerRelease: ReturnType<typeof vi.fn<(mapping: FingerMapping) => void>>;
   let windowStub: ReturnType<typeof createWindowStub>;
 
   beforeEach(() => {
@@ -101,6 +102,7 @@ describe('InputManager two-hand routing', () => {
     });
     audio = createMockAudio();
     onFingerPress = vi.fn();
+    onFingerRelease = vi.fn();
     vi.spyOn(practiceEngine, 'handleNoteOn').mockImplementation(() => {});
   });
 
@@ -108,7 +110,8 @@ describe('InputManager two-hand routing', () => {
     inputManager?.destroy();
     inputManager = null;
     useEngineStore.setState({
-      keyBindingEditorOpen: false,
+      blockingOverlayCount: 0,
+      playMode: false,
       twoHandKeyBindings: cloneTwoHandKeyBindings(DEFAULT_TWO_HAND_KEY_BINDINGS),
     });
     vi.unstubAllGlobals();
@@ -116,7 +119,7 @@ describe('InputManager two-hand routing', () => {
   });
 
   const mount = () => {
-    inputManager = new InputManager(audio, () => 60, { onFingerPress });
+    inputManager = new InputManager(audio, () => 60, { onFingerPress, onFingerRelease });
   };
 
   it('emits onFingerPress with the correct mapping on finger keydown', () => {
@@ -194,11 +197,60 @@ describe('InputManager two-hand routing', () => {
     expect(onFingerPress).toHaveBeenCalledWith({ hand: 'L', finger: 5 });
   });
 
-  it('ignores finger keys while the key-bindings editor is open', () => {
-    useEngineStore.setState({ keyBindingEditorOpen: true });
+  it('ignores finger keys without preventDefault while a modal overlay is open', () => {
+    useEngineStore.setState({ blockingOverlayCount: 1 });
     mount();
 
-    windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    const down = keyEvent('keydown', 'n', 'KeyN');
+    windowStub.dispatchEvent(down);
+    windowStub.dispatchEvent(keyEvent('keyup', 'n', 'KeyN'));
     expect(onFingerPress).not.toHaveBeenCalled();
+    expect(onFingerRelease).not.toHaveBeenCalled();
+    expect(down.defaultPrevented).toBe(false);
+  });
+
+  it('releases a held finger when a modal opens, and ignores its later keyup', () => {
+    mount();
+    windowStub.dispatchEvent(keyEvent('keydown', 'n', 'KeyN'));
+    expect(onFingerPress).toHaveBeenCalledWith({ hand: 'R', finger: 1 });
+
+    useEngineStore.getState().actions.acquireBlockingOverlay();
+    expect(onFingerRelease).toHaveBeenCalledTimes(1);
+    expect(onFingerRelease).toHaveBeenCalledWith({ hand: 'R', finger: 1 });
+
+    windowStub.dispatchEvent(keyEvent('keyup', 'n', 'KeyN'));
+    expect(onFingerRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks one-hand note keys while a modal is open and releases held ones on open', () => {
+    useEngineStore.setState({ engineMode: 'one-hand', fingeringMode: 'off', playMode: false });
+    const noteOn = vi.mocked(practiceEngine.handleNoteOn);
+    const noteOff = vi.spyOn(practiceEngine, 'handleNoteOff').mockImplementation(() => {});
+    mount();
+
+    windowStub.dispatchEvent(keyEvent('keydown', 'a', 'KeyA'));
+    expect(noteOn).toHaveBeenCalledTimes(1);
+    const heldMidi = noteOn.mock.calls[0][0];
+
+    const release = useEngineStore.getState().actions.acquireBlockingOverlay();
+    expect(noteOff).toHaveBeenCalledWith(heldMidi);
+
+    windowStub.dispatchEvent(keyEvent('keyup', 'a', 'KeyA'));
+    windowStub.dispatchEvent(keyEvent('keydown', 's', 'KeyS'));
+    expect(noteOn).toHaveBeenCalledTimes(1);
+    expect(noteOff).toHaveBeenCalledTimes(1);
+
+    release();
+    windowStub.dispatchEvent(keyEvent('keydown', 's', 'KeyS'));
+    expect(noteOn).toHaveBeenCalledTimes(2);
+  });
+
+  it('play mode with a modal open leaves non-practice keys alone', () => {
+    useEngineStore.setState({ playMode: true, blockingOverlayCount: 1 });
+    mount();
+
+    const tab = keyEvent('keydown', 'Tab', 'Tab');
+    windowStub.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
   });
 });

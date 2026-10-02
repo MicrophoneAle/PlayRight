@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Keyboard, RotateCcw, X } from 'lucide-react';
 import {
   DEFAULT_TWO_HAND_KEY_BINDINGS,
@@ -15,6 +14,7 @@ import {
   type TwoHandKeyBindings,
 } from '../core/twoHandMapping.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+import { ModalOverlay } from './ModalOverlay.tsx';
 
 /**
  * Mounts the panel only while open, so every per-open piece of state (draft,
@@ -132,11 +132,10 @@ function KeyBindingsEditorPanel() {
     (slot) => parseFingerSlotId(slot).hand === 'R',
   );
 
-  return createPortal(
-    <div
+  return (
+    <ModalOverlay
       className="fixed inset-0 z-[300] flex items-center justify-center overflow-y-auto bg-black/70 p-4"
-      onClick={closeWithoutSaving}
-      role="presentation"
+      onBackdropClick={closeWithoutSaving}
     >
       <div
         ref={panelRef}
@@ -230,8 +229,7 @@ function KeyBindingsEditorPanel() {
           </div>
         </div>
       </div>
-    </div>,
-    document.body,
+    </ModalOverlay>
   );
 }
 

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import {
   practiceAccuracyPercent,
@@ -8,6 +7,7 @@ import {
 } from '../core/practiceScoring.ts';
 import { RANK_COLORS, RANK_RULES } from './practiceRankStyles.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+import { ModalOverlay } from './ModalOverlay.tsx';
 
 /**
  * Mounts only while open, so the panel can assume an open, finalized summary
@@ -54,11 +54,10 @@ function ScoreSummaryPanel({ summary }: { summary: PracticeScoringSummary }) {
     ? null
     : practiceRank(summary.correctNotes, summary.wrongNotes);
 
-  return createPortal(
-    <div
+  return (
+    <ModalOverlay
       className="fixed inset-0 z-[300] flex items-center justify-center overflow-y-auto bg-black/70 p-4"
-      onClick={close}
-      role="presentation"
+      onBackdropClick={close}
     >
       <div
         ref={panelRef}
@@ -143,8 +142,7 @@ function ScoreSummaryPanel({ summary }: { summary: PracticeScoringSummary }) {
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </ModalOverlay>
   );
 }
 

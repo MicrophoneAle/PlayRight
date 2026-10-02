@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -25,6 +24,7 @@ import {
   type OnboardingPage,
 } from '../core/onboardingTutorial.ts';
 import { useEngineStore } from '../store/useEngineStore.ts';
+import { ModalOverlay } from './ModalOverlay.tsx';
 
 const PAGE_ICONS: Record<OnboardingIconKey, typeof LogIn> = {
   'sign-in': LogIn,
@@ -213,11 +213,10 @@ export function OnboardingTutorial() {
   const onFirstPage = isFirstOnboardingPage(pageIndex);
   const onLastPage = isLastOnboardingPage(pageIndex);
 
-  return createPortal(
-    <div
+  return (
+    <ModalOverlay
       className="fixed inset-0 z-[300] overflow-y-auto bg-black/70"
-      onClick={close}
-      role="presentation"
+      onBackdropClick={close}
     >
       {/* min-h-full + p-4 keeps equal inset top/bottom even when the panel is tall. */}
       <div className="flex min-h-full items-center justify-center p-4">
@@ -344,7 +343,6 @@ export function OnboardingTutorial() {
           </div>
         </div>
       </div>
-    </div>,
-    document.body,
+    </ModalOverlay>
   );
 }

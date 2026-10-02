@@ -7,6 +7,7 @@ import { prepareScriptWithFingering } from './fingeringPredictor.ts';
 import { practiceEngine } from './PracticeEngine.ts';
 import { playbackEngine } from './PlaybackEngine.ts';
 import { getScopeKeyMap } from './InputManager.ts';
+import { AudioEngine } from './AudioEngine.ts';
 import {
   playbackDurationQuarterNotes,
   buildFermataPlaybackContext,
@@ -87,6 +88,19 @@ export interface PlayRightE2EHarness {
    * recentered the scope, instead of assuming a fixed scope offset.
    */
   getPhysicalKeyForMidi: (midi: number) => string | null;
+  /**
+   * Physical key codes bound (two-hand bindings) to the fingers of the notes
+   * at the current step, so an E2E can press a finger that actually sounds.
+   */
+  getExpectedFingerKeyCodes: () => string[];
+  /** Live-input attacks (AudioEngine.noteOn) since page load. */
+  getAudioNoteOnCount: () => number;
+  /** MIDIs attacked through AudioEngine.noteOn and not yet released. */
+  getSoundingAudioMidis: () => number[];
+  setTutorialOpen: (open: boolean) => void;
+  setKeyBindingEditorOpen: (open: boolean) => void;
+  getBlockingOverlayCount: () => number;
+  isPracticeActive: () => boolean;
 }
 
 declare global {
@@ -101,6 +115,26 @@ function installE2EHarness(): void {
   }
 
   let libraryUserId: string | null = null;
+
+  // Observe live-input audio without exposing the App-owned AudioEngine
+  // instance: wrap the prototype methods every instance shares.
+  let audioNoteOnCount = 0;
+  const soundingAudioMidis = new Set<number>();
+  const proto = AudioEngine.prototype;
+  const { noteOn, noteOff, releaseAll } = proto;
+  proto.noteOn = function (this: AudioEngine, midi, velocity) {
+    audioNoteOnCount += 1;
+    soundingAudioMidis.add(midi);
+    noteOn.call(this, midi, velocity);
+  };
+  proto.noteOff = function (this: AudioEngine, midi) {
+    soundingAudioMidis.delete(midi);
+    noteOff.call(this, midi);
+  };
+  proto.releaseAll = function (this: AudioEngine) {
+    soundingAudioMidis.clear();
+    releaseAll.call(this);
+  };
 
   const harness: PlayRightE2EHarness = {
     async loadXml(xml, title = 'e2e-score') {
@@ -418,6 +452,46 @@ function installE2EHarness(): void {
         }
       }
       return null;
+    },
+
+    getExpectedFingerKeyCodes() {
+      const { script, currentStepIndex, twoHandKeyBindings } = useEngineStore.getState();
+      const step = script?.[currentStepIndex];
+      if (!step) {
+        return [];
+      }
+      return step.notes.flatMap((note) => {
+        if (note.finger === null) {
+          return [];
+        }
+        const hand = note.playingHand ?? note.hand;
+        const binding = twoHandKeyBindings[`${hand}:${note.finger}`];
+        return binding ? [binding.code] : [];
+      });
+    },
+
+    getAudioNoteOnCount() {
+      return audioNoteOnCount;
+    },
+
+    getSoundingAudioMidis() {
+      return [...soundingAudioMidis];
+    },
+
+    setTutorialOpen(open) {
+      useEngineStore.getState().actions.setTutorialOpen(open);
+    },
+
+    setKeyBindingEditorOpen(open) {
+      useEngineStore.getState().actions.setKeyBindingEditorOpen(open);
+    },
+
+    getBlockingOverlayCount() {
+      return useEngineStore.getState().blockingOverlayCount;
+    },
+
+    isPracticeActive() {
+      return useEngineStore.getState().isPracticeActive;
     },
   };
 

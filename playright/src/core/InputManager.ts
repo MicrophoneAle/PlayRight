@@ -1,6 +1,6 @@
 import type { AudioEngine } from './AudioEngine.ts';
 import { practiceEngine } from './PracticeEngine.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
+import { selectInputBlocked, useEngineStore } from '../store/useEngineStore.ts';
 import {
   getFingerMappingFromKeyboard,
   type FingerMapping,
@@ -540,9 +540,12 @@ export class InputManager {
   private readonly activePhysicalKeys = new Set<string>();
   /** One-hand map of physical key code → MIDI attacked on keydown (persists across scope shifts). */
   private readonly heldNoteMidis = new Map<string, number>();
+  /** Two-hand map of physical key code → finger mapping pressed on keydown. */
+  private readonly heldFingerMappings = new Map<string, FingerMapping>();
   private cachedScopeStart: number | null = null;
   private cachedTranspose: number | null = null;
   private cachedKeyMap: Record<string, number> = {};
+  private readonly unsubscribeStore: () => void;
 
   constructor(
     audioEngine: AudioEngine,
@@ -558,12 +561,18 @@ export class InputManager {
     window.addEventListener('keydown', this.handleKeyDown, { capture: true });
     window.addEventListener('keyup', this.handleKeyUp, { capture: true });
 
-    useEngineStore.subscribe((state, prevState) => {
+    this.unsubscribeStore = useEngineStore.subscribe((state, prevState) => {
       if (
         state.scopeStartMidi !== prevState.scopeStartMidi ||
         state.scopeTranspose !== prevState.scopeTranspose
       ) {
         this.refreshScopeKeyMap();
+      }
+
+      // A modal opening takes the keyboard: release everything held now, since
+      // keyups are ignored while it is open (see handleKeyUp).
+      if (selectInputBlocked(state) && !selectInputBlocked(prevState)) {
+        this.releaseHeldKeys();
       }
     });
   }
@@ -581,21 +590,24 @@ export class InputManager {
       practiceEngine.handleNoteOff(midi);
     }
 
+    for (const mapping of this.heldFingerMappings.values()) {
+      this.releaseFinger(mapping);
+    }
+
     this.heldNoteMidis.clear();
+    this.heldFingerMappings.clear();
     this.activePhysicalKeys.clear();
   }
 
-  private isScopeShiftKey(event: KeyboardEvent): boolean {
-    const state = useEngineStore.getState();
-    if (
-      state.scoreLibraryOpen ||
-      state.tutorialOpen ||
-      state.keyBindingEditorOpen ||
-      state.scoreSummaryOpen
-    ) {
-      return true;
+  private releaseFinger(mapping: FingerMapping): void {
+    if (this.onFingerRelease) {
+      this.onFingerRelease(mapping);
+    } else {
+      practiceEngine.handleFingerRelease(mapping);
     }
+  }
 
+  private isScopeShiftKey(event: KeyboardEvent): boolean {
     return (
       event.key === 'ArrowRight' ||
       event.code === 'Digit2' ||
@@ -608,9 +620,9 @@ export class InputManager {
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
     const state = useEngineStore.getState();
-    // Tutorial / key-binding editor / run summary own the keyboard while open;
-    // keyup still runs so any key held when they opened is released cleanly.
-    if (state.tutorialOpen || state.keyBindingEditorOpen || state.scoreSummaryOpen) {
+    // An open modal owns the keyboard: no notes, fingers, or preventDefault
+    // (so the dialog's own Tab/Space/Enter/select handling keeps working).
+    if (selectInputBlocked(state)) {
       return;
     }
 
@@ -644,6 +656,7 @@ export class InputManager {
         }
 
         this.activePhysicalKeys.add(event.code);
+        this.heldFingerMappings.set(event.code, mapping);
         void this.audioEngine.warm();
         this.onFingerPress?.(mapping);
         event.preventDefault();
@@ -680,6 +693,12 @@ export class InputManager {
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
     const state = useEngineStore.getState();
+    // Everything held was released when the modal opened, and nothing can be
+    // pressed while it is open, so there is nothing to release here.
+    if (selectInputBlocked(state)) {
+      return;
+    }
+
     if (state.playMode) {
       if (this.isBlockedPracticeKey(event)) {
         event.preventDefault();
@@ -701,11 +720,8 @@ export class InputManager {
           this.activePhysicalKeys.delete(event.code);
         }
 
-        if (this.onFingerRelease) {
-          this.onFingerRelease(mapping);
-        } else {
-          practiceEngine.handleFingerRelease(mapping);
-        }
+        this.heldFingerMappings.delete(event.code);
+        this.releaseFinger(mapping);
         event.preventDefault();
         return;
       }
@@ -751,6 +767,7 @@ export class InputManager {
   }
 
   destroy(): void {
+    this.unsubscribeStore();
     this.releaseHeldKeys();
     window.removeEventListener('keydown', this.handleKeyDown, { capture: true });
     window.removeEventListener('keyup', this.handleKeyUp, { capture: true });

@@ -27,7 +27,7 @@ import {
   type TwoHandStepNoteInfo,
 } from '../core/practiceSteps.ts';
 import { getFingerMappingFromKeyboard } from '../core/twoHandMapping.ts';
-import { useEngineStore } from '../store/useEngineStore.ts';
+import { selectInputBlocked, useEngineStore } from '../store/useEngineStore.ts';
 import type { Finger, Hand, ScriptNote } from '../types/index.ts';
 import { fingeringKey } from '../types/index.ts';
 
@@ -521,12 +521,24 @@ export function PianoKeyboard() {
     setSelectedNote(null);
   }, [currentStepIndex]);
 
+  // A modal opening releases every held key (InputManager), and keydowns are
+  // ignored while it is open, so drop the held-key visuals to match. Keyups
+  // during the modal then find nothing to remove.
+  useEffect(
+    () =>
+      useEngineStore.subscribe((state, prevState) => {
+        if (selectInputBlocked(state) && !selectInputBlocked(prevState)) {
+          setActivePhysicalKeys(new Set());
+          setActiveTwoHandFingers(new Set());
+        }
+      }),
+    [],
+  );
+
   useEffect(() => {
     if (isTwoHand) {
       const handleKeyDown = (event: KeyboardEvent) => {
-        const { tutorialOpen, keyBindingEditorOpen, scoreSummaryOpen } =
-          useEngineStore.getState();
-        if (event.repeat || tutorialOpen || keyBindingEditorOpen || scoreSummaryOpen) {
+        if (event.repeat || selectInputBlocked(useEngineStore.getState())) {
           return;
         }
 
@@ -593,9 +605,7 @@ export function PianoKeyboard() {
     setActiveTwoHandFingers(new Set());
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      const { scoreLibraryOpen, tutorialOpen, keyBindingEditorOpen, scoreSummaryOpen } =
-        useEngineStore.getState();
-      if (scoreLibraryOpen || tutorialOpen || keyBindingEditorOpen || scoreSummaryOpen) {
+      if (selectInputBlocked(useEngineStore.getState())) {
         return;
       }
 
@@ -911,6 +921,8 @@ export function PianoKeyboard() {
           return (
             <div
               key={key.midi}
+              data-midi={key.midi}
+              data-pressed={isPressed}
               role={isEditable ? 'button' : undefined}
               tabIndex={isEditable ? 0 : undefined}
               onClick={isEditable ? () => handleTwoHandKeySelect(key.midi) : undefined}
@@ -961,6 +973,8 @@ export function PianoKeyboard() {
           return (
             <div
               key={key.midi}
+              data-midi={key.midi}
+              data-pressed={isPressed}
               role={isEditable ? 'button' : undefined}
               tabIndex={isEditable ? 0 : undefined}
               onClick={isEditable ? () => handleTwoHandKeySelect(key.midi) : undefined}

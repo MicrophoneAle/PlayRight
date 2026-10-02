@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { AlertTriangle, Download, Trash2, X } from 'lucide-react';
 import { downloadMusicXml } from '../core/readScoreFile.ts';
 import {
@@ -16,6 +15,7 @@ import {
   moveScoreLibraryGridFocus,
 } from '../core/scoreLibraryGridNavigation.ts';
 import { isSupabaseConfigured } from '../core/supabaseClient.ts';
+import { ModalOverlay } from './ModalOverlay.tsx';
 
 interface ScoreLibraryPanelProps {
   onClose: () => void;
@@ -278,7 +278,9 @@ export function ScoreLibraryPanel({
         return;
       }
 
-      if (event.key === 'Escape') {
+      // C is the global open/close toggle. Global shortcuts are gated while
+      // any modal is open, so the panel handles its own close key.
+      if (event.key === 'Escape' || (event.code === 'KeyC' && !event.repeat)) {
         event.preventDefault();
         onClose();
         return;
@@ -507,12 +509,10 @@ export function ScoreLibraryPanel({
   );
 
   const deleteDialog =
-    deleteTarget &&
-    createPortal(
-      <div
+    deleteTarget && (
+      <ModalOverlay
         className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
-        onClick={handleCancelDelete}
-        role="presentation"
+        onBackdropClick={handleCancelDelete}
       >
         <div
           className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl"
@@ -573,18 +573,15 @@ export function ScoreLibraryPanel({
             </button>
           </div>
         </div>
-      </div>,
-      document.body,
+      </ModalOverlay>
     );
 
   return (
     <>
       {deleteDialog}
-      {createPortal(
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4"
-      onClick={onClose}
-      role="presentation"
+      onBackdropClick={onClose}
     >
       <div
         className="my-auto flex max-h-[min(32rem,calc(100dvh-2rem))] w-full max-w-2xl flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
@@ -705,9 +702,7 @@ export function ScoreLibraryPanel({
           )}
         </div>
       </div>
-    </div>,
-    document.body,
-      )}
+    </ModalOverlay>
     </>
   );
 }

@@ -58,6 +58,7 @@ PlayRight/
 - **Hand semantics:** `ScriptNote.hand` is the **notated staff hand** (engraving). `playingHand` is the **physical hand** that plays the key (crossovers). Never swap these when persisting or matching input.
 - **Manual fingering keys:** Always `onset:notatedHand:midi` via `fingeringKey()`. Crossovers persist as `{ finger, physicalHand }`. Same-hand assignments are plain finger numbers.
 - **Supabase schema:** Do not alter `scores` or RLS in app code. Add/update SQL under `playright/supabase/` and document in README.
+- **Modals gate input structurally:** Render every modal through `components/ModalOverlay.tsx`. While mounted, it registers in `blockingOverlayCount`, and every keyboard input path checks only `selectInputBlocked`. Never gate on per-modal `*Open` flags. `modalOverlay.guard.test.ts` fails on any hand-rolled `aria-modal` or `fixed inset-0` backdrop.
 - **Edit mode removed:** Fingering capture is program mode only. Do not reintroduce a separate edit mode without explicit request.
 - **Cross-hand crossovers:** Persist as `{ finger, physicalHand }` on `onset:notatedHand:midi` via `manual_fingerings`. Legacy `manualHandOverrides` localStorage is migrated on score load (`manualHandOverrideMigration.ts`) and no longer rewrites `note.hand`.
 - **Deploy layout:** Vercel project root is `playright/`. OpenSheetMusicDisplay lives in the **repo root** `package.json`, so CI/deploy must install root deps before building the app.

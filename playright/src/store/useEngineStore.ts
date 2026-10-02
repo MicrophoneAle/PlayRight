@@ -366,10 +366,16 @@ interface EngineState {
   headerCollapsed: boolean;
   /** True while the saved scores library modal is open. */
   scoreLibraryOpen: boolean;
-  /** True while the onboarding tutorial overlay is open; suppresses global keys. */
+  /** True while the onboarding tutorial overlay is open. */
   tutorialOpen: boolean;
-  /** True while the two-hand key-bindings editor is open; suppresses global keys. */
+  /** True while the two-hand key-bindings editor is open. */
   keyBindingEditorOpen: boolean;
+  /**
+   * Number of mounted ModalOverlay instances. Input gating reads this through
+   * selectInputBlocked, never the per-modal open flags, so a new modal is gated
+   * by being rendered through ModalOverlay rather than by updating gate sites.
+   */
+  blockingOverlayCount: number;
   /** Active QWERTY→finger map for two-hand practice (persisted). */
   twoHandKeyBindings: TwoHandKeyBindings;
   /** Non-fatal parse notices for the current piece, shown in a dismissible panel. */
@@ -412,7 +418,7 @@ interface EngineState {
   practiceNavigated: boolean;
   /** Set once at piece completion (release-gated), and null until then. */
   practiceSummary: PracticeScoringSummary | null;
-  /** True while the run-summary modal is open; suppresses global keys. */
+  /** True while the run-summary modal is open. */
   scoreSummaryOpen: boolean;
   actions: {
     loadScript: (
@@ -473,9 +479,10 @@ interface EngineState {
     setTempoFactor: (factor: number) => void;
     toggleHeaderCollapsed: () => void;
     setScoreLibraryOpen: (open: boolean) => void;
-    toggleScoreLibrary: () => void;
     setTutorialOpen: (open: boolean) => void;
     setKeyBindingEditorOpen: (open: boolean) => void;
+    /** Registers a mounted blocking overlay; returns its (idempotent) release. */
+    acquireBlockingOverlay: () => () => void;
     setTwoHandKeyBindings: (bindings: TwoHandKeyBindings) => void;
     resetTwoHandKeyBindings: () => void;
     setParseWarnings: (warnings: string[]) => void;
@@ -557,6 +564,7 @@ export const useEngineStore = create<EngineState>((set) => {
   scoreLibraryOpen: false,
   tutorialOpen: false,
   keyBindingEditorOpen: false,
+  blockingOverlayCount: 0,
   twoHandKeyBindings: readTwoHandKeyBindingsFromStorage(),
   parseWarnings: [],
   currentStepIndex: 0,
@@ -1102,14 +1110,25 @@ export const useEngineStore = create<EngineState>((set) => {
     setScoreLibraryOpen: (open) => {
       set({ scoreLibraryOpen: open });
     },
-    toggleScoreLibrary: () => {
-      set((state) => ({ scoreLibraryOpen: !state.scoreLibraryOpen }));
-    },
     setTutorialOpen: (open) => {
       set({ tutorialOpen: open });
     },
     setKeyBindingEditorOpen: (open) => {
       set({ keyBindingEditorOpen: open });
+    },
+    acquireBlockingOverlay: () => {
+      set((state) => ({ blockingOverlayCount: state.blockingOverlayCount + 1 }));
+      let released = false;
+      return () => {
+        if (released) {
+          return;
+        }
+
+        released = true;
+        set((state) => ({
+          blockingOverlayCount: Math.max(0, state.blockingOverlayCount - 1),
+        }));
+      };
     },
     setTwoHandKeyBindings: (bindings) => {
       writeTwoHandKeyBindingsToStorage(bindings);
@@ -1271,3 +1290,11 @@ export const useEngineStore = create<EngineState>((set) => {
 /** True when practice is actively running (started, not paused or stopped). */
 export const selectIsPracticeActive = (state: EngineState): boolean =>
   state.isPracticeActive && state.hasPracticeStarted;
+
+/**
+ * True while any ModalOverlay is mounted. The single gate for app-level
+ * keyboard input (notes, finger keys, scope shifts, practice shortcuts): the
+ * open overlay owns the keyboard.
+ */
+export const selectInputBlocked = (state: EngineState): boolean =>
+  state.blockingOverlayCount > 0;
