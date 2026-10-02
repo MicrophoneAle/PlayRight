@@ -48,7 +48,7 @@ When play mode is enabled in Settings:
 - For **transport**, pause clears sounding highlights, stop returns to the beginning, and **Replay** appears after the piece finishes.
 - **Steady tempo on long pieces** comes from scheduling notes in a rolling window (~24 quarter-note beats ahead) instead of the entire score upfront, keeping the Tone transport timeline bounded on dense pieces. Tone.js audio-node disposal is guaranteed under sustained load so finished voices do not accumulate and gradually slow playback.
 - For **efficient visuals**, sheet highlights diff incrementally (only changed noteheads recolor), the cursor walks only when the step moves, and live sync is coalesced to one update per animation frame so transport callbacks stay off the critical path.
-- **Pedal markings**, meaning sustain pedal brackets and signs, render on the staff by default. If OSMD fails to lay out a score’s pedals, the display falls back to a pedal-free copy automatically.
+- **Pedal markings**, meaning sustain pedal brackets and signs, render on the staff by default. If OSMD fails to lay out a score’s pedals, the display falls back to a pedal-free copy automatically. In play mode, notes released while the pedal is down ring about 1.75× longer, never past the pedal lift or the next strike of the same key. Practice mode does not apply pedal yet.
 
 ### Score library panel
 

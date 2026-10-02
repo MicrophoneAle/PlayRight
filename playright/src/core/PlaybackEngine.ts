@@ -5,10 +5,14 @@ import {
   buildFermataPlaybackContext,
   buildFinalNoteKeySet,
   buildPlaybackFermataOffsetsByStep,
+  buildNextSameMidiAttackOnsets,
   buildStepPlaybackDurationQuarterNotesByStep,
   isPlaybackTieContinuation,
   isRepeatedPlaybackAttack,
   noteDurationQuarterNotes,
+  noteTakesPedalSustain,
+  pedalSustainedQuarterNotes,
+  playbackNoteKey,
   playbackReleaseOnsetQuarterNotes,
   PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS,
   PLAYBACK_CATCHUP_RESYNC_LEAD_QUARTERS,
@@ -28,6 +32,7 @@ import { getDisplayNotesForStep } from './practiceSteps.ts';
 import type {
   GraceNoteInfo,
   Hand,
+  PedalSpan,
   PlaybackOrder,
   PlaybackScript,
   ScriptNote,
@@ -86,6 +91,60 @@ interface ScheduleDerivedData {
   firstEntryIndexByStep: number[];
   /** Latest release on the unrolled timeline (end-of-piece event time). */
   pieceEndQuarters: number;
+  /** scoreTiming.pedalSpans at compute time (empty when the score has none). */
+  pedalSpans: PedalSpan[];
+  /** Next same-pitch attack per note, for the pedal re-strike cap. Empty without pedal. */
+  nextSameMidiAttackOnsets: Map<string, number>;
+}
+
+/**
+ * A note's sounded play-mode length: every per-note duration effect from
+ * playbackTiming, then the sustain pedal on top. Pass-invariant like the rest
+ * of the sounded duration. The caller still applies the grace-window trim and
+ * the jump-boundary clamp afterwards, so neither can be outlasted by pedal.
+ */
+function soundedNoteQuarters(
+  data: Pick<
+    ScheduleDerivedData,
+    | 'script'
+    | 'divisionsPerQuarter'
+    | 'stepDurations'
+    | 'finalNoteKeys'
+    | 'consecutiveSameNoteKeys'
+    | 'fermataContext'
+    | 'pedalSpans'
+    | 'nextSameMidiAttackOnsets'
+  >,
+  stepIndex: number,
+  note: ScriptNote,
+): number {
+  const { script, divisionsPerQuarter, fermataContext } = data;
+  const baseQuarters = resolveNotePlaybackDurationQuarterNotes(
+    stepIndex,
+    note,
+    script,
+    data.stepDurations,
+    divisionsPerQuarter,
+    data.finalNoteKeys,
+    data.consecutiveSameNoteKeys,
+    fermataContext,
+  );
+
+  const step = script[stepIndex];
+  if (
+    data.pedalSpans.length === 0 ||
+    !noteTakesPedalSustain(stepIndex, note, step, fermataContext)
+  ) {
+    return baseQuarters;
+  }
+
+  return pedalSustainedQuarterNotes(
+    baseQuarters,
+    step.onset,
+    divisionsPerQuarter,
+    data.pedalSpans,
+    data.nextSameMidiAttackOnsets.get(playbackNoteKey(stepIndex, note.hand, note.midi)),
+  );
 }
 
 /**
@@ -564,11 +623,13 @@ export class PlaybackEngine {
     script: PlaybackScript,
     divisionsPerQuarter: number,
   ): ScheduleDerivedData {
+    const pedalSpans = useEngineStore.getState().scoreTiming?.pedalSpans ?? [];
     const cached = this.scheduleDerivedData;
     if (
       cached &&
       cached.script === script &&
-      cached.divisionsPerQuarter === divisionsPerQuarter
+      cached.divisionsPerQuarter === divisionsPerQuarter &&
+      cached.pedalSpans === pedalSpans
     ) {
       return cached;
     }
@@ -622,6 +683,21 @@ export class PlaybackEngine {
       consecutiveSameNoteKeys,
       fermataContext,
     );
+
+    const nextSameMidiAttackOnsets =
+      pedalSpans.length > 0
+        ? buildNextSameMidiAttackOnsets(script, divisionsPerQuarter, GRACE_NOTE_DURATION_QUARTERS)
+        : new Map<string, number>();
+    const soundedTables = {
+      script,
+      divisionsPerQuarter,
+      stepDurations,
+      finalNoteKeys,
+      consecutiveSameNoteKeys,
+      fermataContext,
+      pedalSpans,
+      nextSameMidiAttackOnsets,
+    };
 
     // Pass-dependent tables over ENTRY adjacency. For identity orders these
     // alias the document tables outright (equal by construction), so
@@ -710,16 +786,7 @@ export class PlaybackEngine {
       const attackQuarters = entryAttackQuarters[entryIndex];
       for (const note of script[stepIndex].notes) {
         const playedQuarters = clampPlayedQuartersToJumpBoundary(
-          resolveNotePlaybackDurationQuarterNotes(
-            stepIndex,
-            note,
-            script,
-            stepDurations,
-            divisionsPerQuarter,
-            finalNoteKeys,
-            consecutiveSameNoteKeys,
-            fermataContext,
-          ),
+          soundedNoteQuarters(soundedTables, stepIndex, note),
           attackQuarters,
           nextJumpBoundaryQuarters[entryIndex],
         );
@@ -744,6 +811,8 @@ export class PlaybackEngine {
       nextJumpBoundaryQuarters,
       firstEntryIndexByStep,
       pieceEndQuarters,
+      pedalSpans,
+      nextSameMidiAttackOnsets,
     };
     this.scheduleDerivedData = data;
     return data;
@@ -1162,19 +1231,16 @@ export class PlaybackEngine {
     // callback's own computation time instead of genuine external jank,
     // baking a phantom seam into every window boundary.
     const transportTicksAtEntry = transport.ticks;
+    const derived = this.getScheduleDerivedData(script, divisionsPerQuarter);
     const {
       playbackOrder,
       entryScript,
-      finalNoteKeys,
-      fermataContext,
-      consecutiveSameNoteKeys,
-      stepDurations,
       entryFinalNoteKeys,
       entryAttackQuarters,
       jumpBoundaryAfterEntry,
       nextJumpBoundaryQuarters,
       pieceEndQuarters,
-    } = this.getScheduleDerivedData(script, divisionsPerQuarter);
+    } = derived;
 
     const totalEntries = playbackOrder.length;
     if (this.nextUnscheduledEntryIndex >= totalEntries) {
@@ -1422,16 +1488,7 @@ export class PlaybackEngine {
 
           // Sounded duration is pass-INVARIANT, resolved from the document
           // step tables and identical on every repeat pass.
-          let playedQuarters = resolveNotePlaybackDurationQuarterNotes(
-            stepIndex,
-            note,
-            script,
-            stepDurations,
-            divisionsPerQuarter,
-            finalNoteKeys,
-            consecutiveSameNoteKeys,
-            fermataContext,
-          );
+          let playedQuarters = soundedNoteQuarters(derived, stepIndex, note);
           if (nextGraceWindowStartQuarters !== null) {
             const releaseQuarters = attackOnsetQuarters + playedQuarters;
             if (

@@ -1,3 +1,4 @@
+import type { PedalSpan } from '../../types/index.ts';
 import {
   accidentalAlterFromText,
   formatPitch,
@@ -1028,6 +1029,106 @@ export function resolveCanonicalDivisionsPerQuarter(
   return resolveDivisionsPerQuarter(observed);
 }
 
+interface PartTimelineVisit {
+  tag: string;
+  child: RawRecord;
+  measureNumber: number;
+  /** Canonical onset of this child shifted by a raw-divisions `<offset>`, floored at 0. */
+  onsetWithOffset: (offsetDivisions: number) => number;
+}
+
+/**
+ * Walks one part's measures with the raw MusicXML time cursor (a note
+ * advances it unless grace or chord, backup/forward move it), calling `visit`
+ * for every measure child that is not a note, backup, forward, or attributes.
+ * Shared by the tempo map and pedal spans so directions are placed on the
+ * same timeline. Returns the final canonical cursor.
+ */
+function walkPartTimeline(
+  measureWrappers: unknown[],
+  canonicalDivisionsPerQuarter: number,
+  visit: (visit: PartTimelineVisit) => void,
+): number {
+  let divisions = DEFAULT_DIVISIONS_PER_QUARTER;
+  let currentTime = 0;
+  let measureNumber = 1;
+
+  for (const measureWrapper of measureWrappers) {
+    if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
+      continue;
+    }
+
+    const wrapperAttrs = isRecord(measureWrapper[':@']) ? measureWrapper[':@'] : {};
+    measureNumber = toNumber(wrapperAttrs['@_number'], measureNumber);
+
+    for (const child of measureWrapper.measure) {
+      if (!isRecord(child)) {
+        continue;
+      }
+
+      const tag = Object.keys(child).find((key) => key !== ':@');
+
+      if (tag === 'attributes' && Array.isArray(child.attributes)) {
+        const nextDivisions = extractDivisions(child.attributes);
+        if (nextDivisions !== null && nextDivisions > 0) {
+          divisions = nextDivisions;
+        }
+        continue;
+      }
+
+      if (tag === 'note' && Array.isArray(child.note)) {
+        const flags = readNoteTimelineFlags(child.note);
+        if (!flags.isGrace && !flags.isChord && flags.duration > 0) {
+          currentTime += toCanonicalTimelineDuration(
+            flags.duration,
+            divisions,
+            canonicalDivisionsPerQuarter,
+          );
+        }
+        continue;
+      }
+
+      if ((tag === 'backup' || tag === 'forward') && Array.isArray(child[tag])) {
+        const controlDuration = readControlDuration(child[tag] as unknown[]);
+        const advance = toCanonicalTimelineDuration(
+          controlDuration,
+          divisions,
+          canonicalDivisionsPerQuarter,
+        );
+        currentTime =
+          tag === 'backup'
+            ? Math.max(0, currentTime - advance)
+            : currentTime + advance;
+        continue;
+      }
+
+      if (tag === undefined) {
+        continue;
+      }
+
+      const atTime = currentTime;
+      const atDivisions = divisions;
+      visit({
+        tag,
+        child,
+        measureNumber,
+        onsetWithOffset: (offsetDivisions) =>
+          Math.max(
+            0,
+            atTime +
+              toCanonicalTimelineDuration(
+                offsetDivisions,
+                atDivisions,
+                canonicalDivisionsPerQuarter,
+              ),
+          ),
+      });
+    }
+  }
+
+  return currentTime;
+}
+
 function collectScoreTiming(
   rawXmlObj: unknown[],
   canonicalDivisionsPerQuarter: number,
@@ -1087,84 +1188,26 @@ function collectScoreTiming(
 
   const firstPart = partEntries[0];
   if (isRecord(firstPart) && Array.isArray(firstPart.part)) {
-    let divisions = DEFAULT_DIVISIONS_PER_QUARTER;
-    let currentTime = 0;
+    walkPartTimeline(firstPart.part, canonicalDivisionsPerQuarter, (visit) => {
+      const pushTempo = (bpm: number, offsetDivisions: number) => {
+        tempoHits.push({ onset: visit.onsetWithOffset(offsetDivisions), bpm });
+      };
 
-    const pushTempo = (bpm: number, offsetDivisions: number) => {
-      const onset = Math.max(
-        0,
-        currentTime +
-          toCanonicalTimelineDuration(
-            offsetDivisions,
-            divisions,
-            canonicalDivisionsPerQuarter,
-          ),
-      );
-      tempoHits.push({ onset, bpm });
-    };
-
-    for (const measureWrapper of firstPart.part) {
-      if (!isRecord(measureWrapper) || !Array.isArray(measureWrapper.measure)) {
-        continue;
+      if (visit.tag === 'sound') {
+        const tempo = readTempoFromSoundWrapper(visit.child);
+        if (tempo !== null) {
+          pushTempo(tempo, 0);
+        }
+        return;
       }
 
-      for (const child of measureWrapper.measure) {
-        if (!isRecord(child)) {
-          continue;
-        }
-
-        const tag = Object.keys(child).find((key) => key !== ':@');
-
-        if (tag === 'attributes' && Array.isArray(child.attributes)) {
-          const nextDivisions = extractDivisions(child.attributes);
-          if (nextDivisions !== null && nextDivisions > 0) {
-            divisions = nextDivisions;
-          }
-          continue;
-        }
-
-        if (tag === 'sound') {
-          const tempo = readTempoFromSoundWrapper(child);
-          if (tempo !== null) {
-            pushTempo(tempo, 0);
-          }
-          continue;
-        }
-
-        if (tag === 'direction' && Array.isArray(child.direction)) {
-          const tempo = extractTempoFromDirectionChildren(child.direction);
-          if (tempo !== null) {
-            pushTempo(tempo, readDirectionOffsetDivisions(child.direction));
-          }
-          continue;
-        }
-
-        if (tag === 'note' && Array.isArray(child.note)) {
-          const flags = readNoteTimelineFlags(child.note);
-          if (!flags.isGrace && !flags.isChord && flags.duration > 0) {
-            currentTime += toCanonicalTimelineDuration(
-              flags.duration,
-              divisions,
-              canonicalDivisionsPerQuarter,
-            );
-          }
-          continue;
-        }
-
-        if ((tag === 'backup' || tag === 'forward') && Array.isArray(child[tag])) {
-          const controlDuration = readControlDuration(child[tag] as unknown[]);
-          const advance = toCanonicalTimelineDuration(
-            controlDuration,
-            divisions,
-            canonicalDivisionsPerQuarter,
-          );
-          currentTime =
-            tag === 'backup'
-              ? Math.max(0, currentTime - advance)
-              : currentTime + advance;
+      if (visit.tag === 'direction' && Array.isArray(visit.child.direction)) {
+        const tempo = extractTempoFromDirectionChildren(visit.child.direction);
+        if (tempo !== null) {
+          pushTempo(tempo, readDirectionOffsetDivisions(visit.child.direction));
         }
       }
-    }
+    });
   }
 
   const { tempoBpm, tempoMap } = finalizeTempoMap(tempoHits);
@@ -1174,6 +1217,206 @@ function collectScoreTiming(
     tempoBpm,
     tempoMap,
   };
+}
+
+type PedalEventType = 'start' | 'stop' | 'change';
+
+interface PedalEvent {
+  onset: number;
+  type: PedalEventType;
+  measureNumber: number;
+}
+
+/** Equal-onset processing order: a lift lands before a re-depress at the same instant. */
+const PEDAL_EVENT_ORDER: Record<PedalEventType, number> = { stop: 0, change: 1, start: 2 };
+
+/**
+ * Maps a `<pedal type>` to its effect on the damper. `discontinue` ends the
+ * line without an engraved lift symbol but still lifts (tetoris writes every
+ * span as start/discontinue). `resume` restarts a discontinued line.
+ * `continue` is a layout continuation with no state change, and `sostenuto`
+ * is a different pedal, so neither is a damper event.
+ */
+function damperPedalEventType(rawType: unknown): PedalEventType | 'sostenuto' | null {
+  switch (rawType) {
+    case 'start':
+    case 'resume':
+      return 'start';
+    case 'stop':
+    case 'discontinue':
+      return 'stop';
+    case 'change':
+      return 'change';
+    case 'sostenuto':
+      return 'sostenuto';
+    default:
+      return null;
+  }
+}
+
+function readPedalTypesFromDirection(directionChildren: unknown[]): unknown[] {
+  const types: unknown[] = [];
+  for (const child of directionChildren) {
+    if (!isRecord(child) || !Array.isArray(child['direction-type'])) {
+      continue;
+    }
+
+    for (const directionTypeChild of child['direction-type']) {
+      if (!isRecord(directionTypeChild) || !('pedal' in directionTypeChild)) {
+        continue;
+      }
+
+      const attrs = isRecord(directionTypeChild[':@']) ? directionTypeChild[':@'] : {};
+      types.push(attrs['@_type']);
+    }
+  }
+
+  return types;
+}
+
+/**
+ * Pairs one part's pedal events into spans. Stops with nothing down are
+ * ignored, a start while already down re-pedals (closes and reopens, like a
+ * change), and a span still open at the end of the part is discarded rather
+ * than extended to the end of the piece. Zero-length spans are dropped.
+ */
+function pairPedalEvents(events: PedalEvent[], warnings: string[]): PedalSpan[] {
+  const sorted = events
+    .map((event, index) => ({ event, index }))
+    .sort(
+      (a, b) =>
+        a.event.onset - b.event.onset ||
+        PEDAL_EVENT_ORDER[a.event.type] - PEDAL_EVENT_ORDER[b.event.type] ||
+        a.index - b.index,
+    )
+    .map(({ event }) => event);
+
+  const spans: PedalSpan[] = [];
+  let open: PedalEvent | null = null;
+  const close = (endOnset: number) => {
+    if (open !== null && endOnset > open.onset) {
+      spans.push({ startOnset: open.onset, endOnset });
+    }
+    open = null;
+  };
+
+  for (const event of sorted) {
+    if (event.type === 'stop') {
+      if (open === null) {
+        warnings.push(
+          `A pedal release at onset ${event.onset} (measure ${event.measureNumber}) has no pedal down before it; ignored.`,
+        );
+        continue;
+      }
+      close(event.onset);
+      continue;
+    }
+
+    // start or change: lift anything down, then depress here.
+    close(event.onset);
+    open = event;
+  }
+
+  if (open !== null) {
+    const dangling: PedalEvent = open;
+    warnings.push(
+      `A pedal down at onset ${dangling.onset} (measure ${dangling.measureNumber}) has no release; no pedal applied.`,
+    );
+  }
+
+  return spans;
+}
+
+/** Union of span lists: strictly overlapping spans merge, abutting spans (a change) stay separate. */
+function unionPedalSpans(spanLists: PedalSpan[][]): PedalSpan[] {
+  const all = spanLists
+    .flat()
+    .sort((a, b) => a.startOnset - b.startOnset || a.endOnset - b.endOnset);
+  const merged: PedalSpan[] = [];
+
+  for (const span of all) {
+    const last = merged[merged.length - 1];
+    if (last && span.startOnset < last.endOnset) {
+      last.endOnset = Math.max(last.endOnset, span.endOnset);
+      continue;
+    }
+    merged.push({ ...span });
+  }
+
+  return merged;
+}
+
+/**
+ * Sustain-pedal spans from `<direction><direction-type><pedal type>` marks,
+ * placed on the same raw timeline as the tempo map. Every part is read, since
+ * the pedal is one physical device: when several parts carry pedal marks the
+ * result is their union (down whenever any part has it down), with a warning
+ * if they disagree. Metadata only - nothing in the script changes.
+ */
+export function extractPedalSpans(
+  rawXmlObj: unknown,
+  canonicalDivisionsPerQuarter: number,
+): { pedalSpans: PedalSpan[]; warnings: string[] } {
+  const warnings: string[] = [];
+  if (!Array.isArray(rawXmlObj)) {
+    return { pedalSpans: [], warnings };
+  }
+
+  const scorePartwiseEntry = rawXmlObj.find(
+    (entry) => isRecord(entry) && entry['score-partwise'] != null,
+  );
+  if (!isRecord(scorePartwiseEntry) || !Array.isArray(scorePartwiseEntry['score-partwise'])) {
+    return { pedalSpans: [], warnings };
+  }
+
+  let sawSostenuto = false;
+  const partSpanLists: PedalSpan[][] = [];
+
+  for (const partEntry of scorePartwiseEntry['score-partwise']) {
+    if (!isRecord(partEntry) || !Array.isArray(partEntry.part)) {
+      continue;
+    }
+
+    const events: PedalEvent[] = [];
+    walkPartTimeline(partEntry.part, canonicalDivisionsPerQuarter, (visit) => {
+      if (visit.tag !== 'direction' || !Array.isArray(visit.child.direction)) {
+        return;
+      }
+
+      const rawTypes = readPedalTypesFromDirection(visit.child.direction);
+      if (rawTypes.length === 0) {
+        return;
+      }
+
+      const onset = visit.onsetWithOffset(readDirectionOffsetDivisions(visit.child.direction));
+      for (const rawType of rawTypes) {
+        const type = damperPedalEventType(rawType);
+        if (type === 'sostenuto') {
+          sawSostenuto = true;
+        } else if (type !== null) {
+          events.push({ onset, type, measureNumber: visit.measureNumber });
+        }
+      }
+    });
+
+    if (events.length > 0) {
+      partSpanLists.push(pairPedalEvents(events, warnings));
+    }
+  }
+
+  if (sawSostenuto) {
+    warnings.push('Sostenuto pedal marks are not modeled in playback; ignored.');
+  }
+
+  const pedalSpans = unionPedalSpans(partSpanLists);
+  if (
+    partSpanLists.length > 1 &&
+    partSpanLists.some((spans) => JSON.stringify(spans) !== JSON.stringify(pedalSpans))
+  ) {
+    warnings.push('Pedal markings differ between parts; using their combined pedal-down ranges.');
+  }
+
+  return { pedalSpans, warnings };
 }
 
 export function extractScoreTiming(

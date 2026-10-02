@@ -6,7 +6,12 @@ import {
   assertSupportedScoreFormat,
   collectParseWarnings,
 } from './MusicXMLParseChecks.ts';
-import { extractScoreTiming, MusicXMLNormalizer, resolveCanonicalDivisionsPerQuarter } from './MusicXMLNormalizer.ts';
+import {
+  extractPedalSpans,
+  extractScoreTiming,
+  MusicXMLNormalizer,
+  resolveCanonicalDivisionsPerQuarter,
+} from './MusicXMLNormalizer.ts';
 import { MusicXMLValidator } from './MusicXMLValidator.ts';
 import { resolvePlaybackOrder } from './PlaybackOrderResolver.ts';
 
@@ -20,6 +25,11 @@ export class MusicXMLParser {
     const flatElements = partElements.flat();
     const canonicalDivisionsPerQuarter = resolveCanonicalDivisionsPerQuarter(flatElements);
     const { tempoBpm, tempoMap } = extractScoreTiming(raw, canonicalDivisionsPerQuarter);
+    // Pedal spans are metadata only: written here, read by nothing yet.
+    const { pedalSpans, warnings: pedalWarnings } = extractPedalSpans(
+      raw,
+      canonicalDivisionsPerQuarter,
+    );
     const partMaps = partElements.map((part) =>
       MusicXMLMapper.mapToDomain(part, canonicalDivisionsPerQuarter),
     );
@@ -48,11 +58,13 @@ export class MusicXMLParser {
         tempoBpm,
         tempoMap,
         totalTimelineDivisions,
+        ...(pedalSpans.length > 0 ? { pedalSpans } : {}),
       },
       warnings: [
         ...warnings,
         ...normalizeWarnings,
         ...partMaps.flatMap((partMap) => partMap.warnings),
+        ...pedalWarnings,
         ...flow.warnings,
         ...resolveWarnings,
       ],

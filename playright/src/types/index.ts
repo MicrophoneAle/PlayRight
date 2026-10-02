@@ -47,6 +47,16 @@ export interface TempoMapEntry {
   bpm: number;
 }
 
+/**
+ * A range of the document-order timeline (canonical divisions) where the
+ * sustain (damper) pedal is down. Half-open: [startOnset, endOnset). A pedal
+ * "change" is two spans that abut at the change onset, never one merged span.
+ */
+export interface PedalSpan {
+  startOnset: number;
+  endOnset: number;
+}
+
 export interface ScoreTiming {
   divisionsPerQuarter: number;
   /** Opening / first-found tempo (backward-compatible single-BPM consumers). */
@@ -59,6 +69,12 @@ export interface ScoreTiming {
   tempoMap: TempoMapEntry[];
   /** Canonical-division cursor after the full score timeline walk (includes rests). */
   totalTimelineDivisions: number;
+  /**
+   * Sustain-pedal spans in document order, sorted and non-overlapping. Absent
+   * when the score has no usable pedal marks. Document onsets, not playback
+   * order: a repeated passage shares its spans on every pass.
+   */
+  pedalSpans?: PedalSpan[];
 }
 
 export interface ParseMusicXmlResult {

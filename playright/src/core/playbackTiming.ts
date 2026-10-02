@@ -1,4 +1,10 @@
-import type { Hand, PlaybackScript, ScriptNote, TempoMapEntry } from '../types/index.ts';
+import type {
+  Hand,
+  PedalSpan,
+  PlaybackScript,
+  ScriptNote,
+  TempoMapEntry,
+} from '../types/index.ts';
 
 /** Musical onset of a step in quarter-note units. */
 export function stepOnsetQuarterNotes(
@@ -224,6 +230,15 @@ export const PLAYBACK_MARCATO_DURATION_RATIO = 0.7;
  * unboundedly long dead hold.
  */
 export const PLAYBACK_FERMATA_MAX_EXTENSION_QUARTERS = 8;
+
+/**
+ * Play-mode multiplier on a note's sounded duration when the sustain pedal is
+ * down at the moment its key is released. Deliberately not true pedal modeling
+ * (holding every note until the lift): under a long pedal span that piles up
+ * unbounded concurrent voices, which is what caused the audio cutout bug. See
+ * pedalSustainedQuarterNotes for the caps.
+ */
+export const PLAYBACK_PEDAL_SUSTAIN_FACTOR = 1.75;
 
 export interface PlaybackDurationOptions {
   /** Play through the full written length (no pre-release gap). */
@@ -1134,3 +1149,133 @@ export function pieceEndQuarterNotes(
 
   return endQuarters;
 }
+
+/**
+ * Document onset (canonical divisions) of the next attack of the same MIDI
+ * pitch after each note, in any hand, keyed `stepIndex:hand:midi`. Grace notes
+ * count as attacks at the start of their crushed window (the earliest moment
+ * they can sound). Tie continuations are not attacks. Absent when the pitch
+ * never recurs.
+ */
+export function buildNextSameMidiAttackOnsets(
+  script: PlaybackScript,
+  divisionsPerQuarter: number,
+  graceNoteQuarters: number,
+): Map<string, number> {
+  const nextByMidi = new Map<number, number>();
+  const result = new Map<string, number>();
+
+  for (let stepIndex = script.length - 1; stepIndex >= 0; stepIndex -= 1) {
+    const step = script[stepIndex];
+
+    for (const note of step.notes) {
+      const next = nextByMidi.get(note.midi);
+      if (next !== undefined) {
+        result.set(playbackNoteKey(stepIndex, note.hand, note.midi), next);
+      }
+    }
+
+    for (const note of step.notes) {
+      if (!isPlaybackTieContinuation(script, stepIndex, note)) {
+        nextByMidi.set(note.midi, step.onset);
+      }
+    }
+
+    const graces = step.graceBefore ?? [];
+    const graceWindowStart = Math.max(
+      0,
+      step.onset - graces.length * graceNoteQuarters * divisionsPerQuarter,
+    );
+    for (const grace of graces) {
+      nextByMidi.set(grace.midi, graceWindowStart);
+    }
+  }
+
+  return result;
+}
+
+/** The span the pedal is down in at `onset`, strictly inside it (a lift or depress exactly at `onset` does not count). */
+function pedalSpanStrictlyContaining(
+  spans: PedalSpan[],
+  onset: number,
+): PedalSpan | null {
+  let low = 0;
+  let high = spans.length - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const span = spans[mid];
+    if (onset <= span.startOnset) {
+      high = mid - 1;
+    } else if (onset >= span.endOnset) {
+      low = mid + 1;
+    } else {
+      return span;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Sounded play-mode duration with the sustain pedal applied on top of every
+ * other duration effect (`baseQuarters` is the fully resolved, unpedaled
+ * value). If the pedal is down when the key is released (attack + base), the
+ * sound is extended to base x PLAYBACK_PEDAL_SUSTAIN_FACTOR, capped at:
+ *  - the pedal lift (span end), so no note outlasts the release, and
+ *  - the next attack of the same pitch minus the minimum articulation gap,
+ *    because the sampler layers a second voice under a re-strike rather than
+ *    re-triggering, which would blur repeated notes into one.
+ * Never shorter than `baseQuarters`. A key released exactly at a change or lift
+ * is damped by it, so it gets no extension: that is what keeps a pedal change
+ * from smearing one harmony into the next.
+ */
+export function pedalSustainedQuarterNotes(
+  baseQuarters: number,
+  onsetDivisions: number,
+  divisionsPerQuarter: number,
+  spans: PedalSpan[],
+  nextSameMidiAttackOnset: number | undefined,
+  factor: number = PLAYBACK_PEDAL_SUSTAIN_FACTOR,
+): number {
+  if (spans.length === 0 || baseQuarters <= 0) {
+    return baseQuarters;
+  }
+
+  const releaseOnset = onsetDivisions + baseQuarters * divisionsPerQuarter;
+  const span = pedalSpanStrictlyContaining(spans, releaseOnset);
+  if (span === null) {
+    return baseQuarters;
+  }
+
+  let capOnset = span.endOnset;
+  if (nextSameMidiAttackOnset !== undefined) {
+    capOnset = Math.min(
+      capOnset,
+      nextSameMidiAttackOnset - PLAYBACK_ARTICULATION_GAP_MIN_QUARTERS * divisionsPerQuarter,
+    );
+  }
+
+  const capQuarters = (capOnset - onsetDivisions) / divisionsPerQuarter;
+  return Math.max(baseQuarters, Math.min(baseQuarters * factor, capQuarters));
+}
+
+/**
+ * Whether a note is eligible for pedal sustain at all. Fermata holds are
+ * excluded: the hold already sustains (2x, capped) and pushes the following
+ * timeline, which a document-onset pedal cap cannot see. A note still tied
+ * forward has no release of its own to extend.
+ */
+export function noteTakesPedalSustain(
+  stepIndex: number,
+  note: ScriptNote,
+  step: PlaybackScript[number],
+  fermataContext: FermataPlaybackContext,
+): boolean {
+  return (
+    !note.tiedToNext &&
+    !shouldUnifyStepPlaybackDuration(step, stepIndex, fermataContext)
+  );
+}
+
+export { playbackNoteKey };
