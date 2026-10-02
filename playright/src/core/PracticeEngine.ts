@@ -31,8 +31,18 @@ export class PracticeEngine {
   private expectedNotes: Set<number> = new Set();
   private practiceNotesForStep: ScriptNote[] = [];
   private hitNoteIndices: Set<number> = new Set();
+  /** Pitches with a live practice voice. There is at most one voice per pitch. */
   private soundingMidis = new Set<number>();
-  private activeFingerSounds = new Map<string, number>();
+  /**
+   * Who is holding each live voice, keyed by owner: `hand:finger` for two-hand
+   * finger keys, `midi:<n>` for one-hand note input. Several owners can hold
+   * one pitch (a unison between the hands, a finger substitution, a wrong-note
+   * clash landing on a held note). AudioEngine.noteOff is pitch-wide - the
+   * Sampler stops every voice of that pitch - so the voice is only released
+   * when its LAST owner lets go, as a piano key keeps sounding while any finger
+   * still holds it down.
+   */
+  private heldSounds = new Map<string, { midi: number; pressIds: number[] }>();
   private practicePressTracker = new PlayingMidiPressTracker();
   private storeSubscriptionInitialized = false;
   /** Last step is hit but final held notes must release before practice ends. */
@@ -219,19 +229,7 @@ export class PracticeEngine {
   }
 
   handleNoteOff(midi: number): void {
-    const engine = this.audioEngine;
-    if (engine && this.soundingMidis.has(midi)) {
-      engine.noteOff(midi);
-      this.soundingMidis.delete(midi);
-      this.practicePressTracker.releaseMatching((note) => note.midi === midi);
-      this.syncPracticeSoundingToStore();
-    }
-
-    if (this.pendingPieceCompletion) {
-      this.pendingFinalStepMidis.delete(midi);
-    }
-
-    this.tryFinalizePieceCompletion();
+    this.releaseHeldAndSettle(noteInputOwner(midi), midi);
   }
 
   handleFingerPress(mapping: FingerMapping): void {
@@ -297,14 +295,58 @@ export class PracticeEngine {
   }
 
   handleFingerRelease(mapping: FingerMapping): void {
-    const fingerKey = `${mapping.hand}:${mapping.finger}`;
-    const midi = this.activeFingerSounds.get(fingerKey);
-    if (midi === undefined) {
+    const owner = fingerOwner(mapping);
+    const held = this.heldSounds.get(owner);
+    if (held === undefined) {
       return;
     }
 
-    this.handleNoteOff(midi);
-    this.activeFingerSounds.delete(fingerKey);
+    this.releaseHeldAndSettle(owner, held.midi);
+  }
+
+  /** Release one owner's hold, then let a release-gated piece completion finish. */
+  private releaseHeldAndSettle(owner: string, midi: number): void {
+    this.releaseHeld(owner);
+
+    // A final-step pitch only counts as released once nobody holds it.
+    if (this.pendingPieceCompletion && !this.soundingMidis.has(midi)) {
+      this.pendingFinalStepMidis.delete(midi);
+    }
+
+    this.tryFinalizePieceCompletion();
+  }
+
+  /**
+   * Drop `owner`'s hold on its pitch. The voice itself is released only when
+   * no other owner still holds that pitch.
+   */
+  private releaseHeld(owner: string): void {
+    const held = this.heldSounds.get(owner);
+    if (held === undefined) {
+      return;
+    }
+
+    this.heldSounds.delete(owner);
+    for (const pressId of held.pressIds) {
+      this.practicePressTracker.release(pressId);
+    }
+
+    if (!this.isPitchHeld(held.midi) && this.soundingMidis.has(held.midi)) {
+      this.audioEngine?.noteOff(held.midi);
+      this.soundingMidis.delete(held.midi);
+    }
+
+    this.syncPracticeSoundingToStore();
+  }
+
+  private isPitchHeld(midi: number): boolean {
+    for (const held of this.heldSounds.values()) {
+      if (held.midi === midi) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /** In two-hand mode, begin practice on the first correct finger hit if Start was not pressed. */
@@ -576,7 +618,7 @@ export class PracticeEngine {
     const engine = this.audioEngine;
     if (!engine) {
       this.soundingMidis.clear();
-      this.activeFingerSounds.clear();
+      this.heldSounds.clear();
       this.practicePressTracker.clear();
       this.clearPracticeSoundingInStore();
       return;
@@ -587,12 +629,13 @@ export class PracticeEngine {
     }
 
     this.soundingMidis.clear();
-    this.activeFingerSounds.clear();
+    this.heldSounds.clear();
     this.practicePressTracker.clear();
     this.clearPracticeSoundingInStore();
   }
 
-  private attackMidi(midi: number, hand?: Hand): void {
+  /** One-hand note input: attack unless the pitch is already sounding. */
+  private attackMidi(midi: number): void {
     const engine = this.audioEngine;
     if (!engine) {
       return;
@@ -604,12 +647,16 @@ export class PracticeEngine {
 
     engine.noteOn(midi);
     this.soundingMidis.add(midi);
-    this.trackPracticePress(midi, hand);
+    this.heldSounds.set(noteInputOwner(midi), {
+      midi,
+      pressIds: this.trackPracticePress(midi),
+    });
   }
 
-  private trackPracticePress(midi: number, explicitHand?: Hand): void {
+  /** Register visual presses for an attack. Returns their ids (none when practice is inactive). */
+  private trackPracticePress(midi: number, explicitHand?: Hand): number[] {
     if (!selectIsPracticeActive(useEngineStore.getState())) {
-      return;
+      return [];
     }
 
     const { currentStepIndex, engineMode, activeHand } = useEngineStore.getState();
@@ -623,19 +670,22 @@ export class PracticeEngine {
 
     const uniqueHands = [...new Set(hands.length > 0 ? hands : engineMode === 'one-hand' ? [activeHand] : [])];
     if (uniqueHands.length === 0) {
-      return;
+      return [];
     }
 
-    for (const hand of uniqueHands) {
+    const pressIds = uniqueHands.map((hand) => {
+      const pressId = this.practicePressTracker.allocatePressId();
       this.practicePressTracker.press({
-        pressId: this.practicePressTracker.allocatePressId(),
+        pressId,
         stepIndex: currentStepIndex,
         midi,
         hand,
       });
-    }
+      return pressId;
+    });
 
     this.syncPracticeSoundingToStore();
+    return pressIds;
   }
 
   private syncPracticeSoundingToStore(): void {
@@ -655,22 +705,32 @@ export class PracticeEngine {
   }
 
   private sustainNote(midi: number, mapping: FingerMapping): void {
-    const fingerKey = `${mapping.hand}:${mapping.finger}`;
-    // Re-press of a matching finger must always produce a fresh attack, even
-    // if soundingMidis still tracks this midi (sticky hold / missed release).
-    // hitNoteIndices alone owns completion, and re-articulation must not be
-    // gated by prior hit or lingering sustain state.
-    if (this.soundingMidis.has(midi)) {
-      const engine = this.audioEngine;
-      if (engine) {
-        engine.noteOff(midi);
-      }
-      this.soundingMidis.delete(midi);
-      this.practicePressTracker.releaseMatching((note) => note.midi === midi);
+    const engine = this.audioEngine;
+    if (!engine) {
+      return;
     }
 
-    this.attackMidi(midi, mapping.hand);
-    this.activeFingerSounds.set(fingerKey, midi);
+    const owner = fingerOwner(mapping);
+    // A finger whose keyup was missed still owns its old voice. Let go of it
+    // so that voice cannot outlive the key that is now pressing something else.
+    this.releaseHeld(owner);
+
+    // Re-press of a matching finger must always produce a fresh attack, even
+    // if the pitch is still sounding (sticky hold, or another finger holding
+    // it). hitNoteIndices alone owns completion, and re-articulation must not
+    // be gated by prior hit or lingering sustain state. Like re-striking a
+    // piano key, the new attack replaces the pitch's one voice, and any other
+    // owner keeps holding the re-struck note.
+    if (this.soundingMidis.has(midi)) {
+      engine.noteOff(midi);
+    }
+
+    engine.noteOn(midi);
+    this.soundingMidis.add(midi);
+    this.heldSounds.set(owner, {
+      midi,
+      pressIds: this.trackPracticePress(midi, mapping.hand),
+    });
   }
 
   private playNotePreview(midi: number): void {
@@ -1016,6 +1076,14 @@ export class PracticeEngine {
     this.practiceNotesForStep = [];
     this.clearPracticeSoundingInStore();
   }
+}
+
+function fingerOwner(mapping: FingerMapping): string {
+  return `${mapping.hand}:${mapping.finger}`;
+}
+
+function noteInputOwner(midi: number): string {
+  return `midi:${midi}`;
 }
 
 export const practiceEngine = new PracticeEngine();

@@ -501,6 +501,9 @@ describe('PracticeEngine scoring - two-hand finger input', () => {
     engine.start();
 
     engine.handleFingerPress({ hand: 'R', finger: 5 });
+    // R5's clash is D4 - the final step's pitch. A held D4 keeps the piece
+    // from finishing (the pitch is still sounding), so lift it as a real key would.
+    engine.handleFingerRelease({ hand: 'R', finger: 5 });
     engine.handleFingerPress({ hand: 'L', finger: 1 });
     engine.handleFingerPress({ hand: 'R', finger: 1 });
     engine.handleFingerRelease({ hand: 'L', finger: 1 });
